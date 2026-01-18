@@ -3,16 +3,13 @@
 @source ".";
 
 @theme {
-  --color-background: oklch(0.145 0 0);
-  --color-foreground: oklch(0.95 0 0);
-  --color-muted: oklch(0.25 0 0);
-  --color-muted-foreground: oklch(0.65 0 0);
-  --color-border: oklch(0.3 0 0);
-  --color-primary: oklch(0.65 0.15 250);
-  --color-primary-foreground: oklch(1 0 0);
-  --color-accent: oklch(0.75 0.12 180);
-  --color-error: oklch(0.65 0.2 25);
-  --color-success: oklch(0.65 0.15 145);
+  --color-background: #000;
+  --color-foreground: #e5e5e5;
+  --color-muted: #111;
+  --color-muted-foreground: #888;
+  --color-border: #222;
+  --color-primary: #3b82f6;
+  --color-primary-foreground: #fff;
 }
 
 @layer base {
@@ -22,9 +19,7 @@
 
   html, body {
     @apply m-0 p-0 bg-background text-foreground;
-    font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    font-family: system-ui, -apple-system, sans-serif;
   }
 
   code, pre {
@@ -34,24 +29,19 @@
 
 @layer components {
   .btn {
-    @apply px-4 py-2 rounded-lg font-medium transition-colors;
+    @apply px-3 py-2 rounded-lg font-medium;
     @apply bg-primary text-primary-foreground;
-    @apply hover:opacity-90 active:opacity-80;
-    @apply disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-
-  .btn-secondary {
-    @apply bg-muted text-foreground;
+    @apply active:opacity-80 disabled:opacity-40;
   }
 
   .input {
     @apply w-full px-3 py-2 rounded-lg;
     @apply bg-muted border border-border;
     @apply text-foreground placeholder:text-muted-foreground;
-    @apply focus:outline-none focus:ring-2 focus:ring-primary/50;
+    @apply focus:outline-none focus:border-primary;
   }
 
   .card {
-    @apply p-4 rounded-xl bg-muted/50 border border-border;
+    @apply p-3 rounded-lg bg-muted;
   }
 }
