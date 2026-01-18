@@ -4,12 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "cd frontend && bun dev",
-    "build": "cd frontend && bun build"
+    "dev": "bun -F'*' dev",
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.11",
     "@types/bun": "latest"
   },
-  "workspaces": ["frontend"]
+  "workspaces": ["frontend", "backend"]
 }

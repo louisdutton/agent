@@ -1,4 +1,6 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, onMount } from "solid-js";
+
+const API_URL = "http://localhost:3001";
 
 interface Message {
   id: string;
@@ -9,50 +11,137 @@ interface Message {
 
 interface Session {
   id: string;
-  name: string;
+  cwd: string;
   messages: Message[];
   createdAt: Date;
 }
 
 export default function App() {
   const [sessions, setSessions] = createSignal<Session[]>([]);
-  const [activeSession, setActiveSession] = createSignal<Session | null>(null);
+  const [activeSessionId, setActiveSessionId] = createSignal<string | null>(null);
   const [input, setInput] = createSignal("");
   const [showSidebar, setShowSidebar] = createSignal(false);
+  const [isLoading, setIsLoading] = createSignal(false);
+  const [streamingContent, setStreamingContent] = createSignal("");
 
-  const createSession = () => {
-    const session: Session = {
-      id: crypto.randomUUID(),
-      name: `Session ${sessions().length + 1}`,
-      messages: [],
-      createdAt: new Date(),
-    };
-    setSessions([session, ...sessions()]);
-    setActiveSession(session);
-    setShowSidebar(false);
+  const activeSession = () => sessions().find(s => s.id === activeSessionId()) || null;
+
+  const createSession = async () => {
+    try {
+      const res = await fetch(`${API_URL}/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: "/Users/louis/projects/personal/agent" }),
+      });
+      const data = await res.json();
+
+      const session: Session = {
+        id: data.id,
+        cwd: data.cwd,
+        messages: [],
+        createdAt: new Date(data.createdAt),
+      };
+
+      setSessions([session, ...sessions()]);
+      setActiveSessionId(session.id);
+      setShowSidebar(false);
+    } catch (err) {
+      console.error("Failed to create session:", err);
+    }
   };
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     const text = input().trim();
-    if (!text || !activeSession()) return;
+    const session = activeSession();
+    if (!text || !session || isLoading()) return;
 
-    const message: Message = {
+    const userMessage: Message = {
       id: crypto.randomUUID(),
       role: "user",
       content: text,
       timestamp: new Date(),
     };
 
-    const updated = {
-      ...activeSession()!,
-      messages: [...activeSession()!.messages, message],
-    };
-
-    setActiveSession(updated);
-    setSessions(sessions().map((s) => (s.id === updated.id ? updated : s)));
+    // Add user message
+    setSessions(sessions().map(s =>
+      s.id === session.id
+        ? { ...s, messages: [...s.messages, userMessage] }
+        : s
+    ));
     setInput("");
+    setIsLoading(true);
+    setStreamingContent("");
 
-    // TODO: Connect to Claude Code CLI backend
+    try {
+      const res = await fetch(`${API_URL}/sessions/${session.id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text }),
+      });
+
+      const reader = res.body?.getReader();
+      if (!reader) return;
+
+      const decoder = new TextDecoder();
+      let assistantContent = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data === "[DONE]") continue;
+
+            try {
+              const parsed = JSON.parse(data);
+
+              // Handle assistant message
+              if (parsed.type === "assistant" && parsed.message?.content) {
+                for (const block of parsed.message.content) {
+                  if (block.type === "text") {
+                    assistantContent = block.text;
+                    setStreamingContent(assistantContent);
+                  }
+                }
+              }
+
+              // Handle final result
+              if (parsed.type === "result" && parsed.result) {
+                assistantContent = parsed.result;
+              }
+            } catch {
+              // Skip invalid JSON
+            }
+          }
+        }
+      }
+
+      // Add assistant message
+      if (assistantContent) {
+        const assistantMessage: Message = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: assistantContent,
+          timestamp: new Date(),
+        };
+
+        setSessions(sessions().map(s =>
+          s.id === session.id
+            ? { ...s, messages: [...s.messages, assistantMessage] }
+            : s
+        ));
+      }
+    } catch (err) {
+      console.error("Failed to send message:", err);
+    } finally {
+      setIsLoading(false);
+      setStreamingContent("");
+    }
   };
 
   return (
@@ -67,8 +156,8 @@ export default function App() {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <h1 class="font-semibold">
-          {activeSession()?.name || "Claude Code"}
+        <h1 class="font-semibold truncate max-w-[200px]">
+          {activeSession()?.cwd.split("/").pop() || "Claude Code"}
         </h1>
         <button class="p-2 -mr-2 rounded-lg hover:bg-muted" onClick={createSession}>
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -92,16 +181,16 @@ export default function App() {
                 {(session) => (
                   <button
                     class={`w-full text-left px-3 py-2 rounded-lg mb-1 transition-colors ${
-                      activeSession()?.id === session.id
+                      activeSessionId() === session.id
                         ? "bg-primary/20 text-primary"
                         : "hover:bg-muted"
                     }`}
                     onClick={() => {
-                      setActiveSession(session);
+                      setActiveSessionId(session.id);
                       setShowSidebar(false);
                     }}
                   >
-                    <div class="font-medium truncate">{session.name}</div>
+                    <div class="font-medium truncate">{session.cwd.split("/").pop()}</div>
                     <div class="text-xs text-muted-foreground">
                       {session.messages.length} messages
                     </div>
@@ -131,7 +220,7 @@ export default function App() {
               </div>
               <h2 class="text-xl font-semibold mb-2">Claude Code</h2>
               <p class="text-muted-foreground mb-6 max-w-xs">
-                Mobile interface for managing Claude Code sessions
+                Mobile interface for Claude Code sessions
               </p>
               <button class="btn" onClick={createSession}>
                 Start New Session
@@ -154,7 +243,28 @@ export default function App() {
                 </div>
               )}
             </For>
-            <Show when={activeSession()!.messages.length === 0}>
+
+            {/* Streaming content */}
+            <Show when={streamingContent()}>
+              <div class="card mr-8">
+                <div class="text-xs text-muted-foreground mb-1">Claude</div>
+                <div class="whitespace-pre-wrap">{streamingContent()}</div>
+              </div>
+            </Show>
+
+            {/* Loading indicator */}
+            <Show when={isLoading() && !streamingContent()}>
+              <div class="card mr-8">
+                <div class="text-xs text-muted-foreground mb-1">Claude</div>
+                <div class="flex gap-1">
+                  <span class="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style="animation-delay: 0ms" />
+                  <span class="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style="animation-delay: 150ms" />
+                  <span class="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style="animation-delay: 300ms" />
+                </div>
+              </div>
+            </Show>
+
+            <Show when={activeSession()!.messages.length === 0 && !isLoading()}>
               <p class="text-center text-muted-foreground py-8">
                 Send a message to start
               </p>
@@ -179,8 +289,9 @@ export default function App() {
               placeholder="Type a message..."
               value={input()}
               onInput={(e) => setInput(e.currentTarget.value)}
+              disabled={isLoading()}
             />
-            <button type="submit" class="btn" disabled={!input().trim()}>
+            <button type="submit" class="btn" disabled={!input().trim() || isLoading()}>
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
