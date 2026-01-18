@@ -1,0 +1,4 @@
+telemetry = false
+
+[serve.static]
+plugins = ["bun-plugin-tailwind", "./bun-plugin-solid.ts"]

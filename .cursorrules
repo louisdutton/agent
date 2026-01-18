@@ -1,0 +1,31 @@
+# Claude Code Mobile
+
+A simple SolidJS frontend for managing Claude Code sessions via mobile web interface.
+
+## Project Structure
+
+```
+/
+├── frontend/          # SolidJS web application
+│   ├── src/
+│   │   ├── App.tsx    # Main application component
+│   │   ├── client.tsx # Entry point
+│   │   └── styles.css # Tailwind styles
+│   ├── index.html
+│   └── package.json
+├── package.json       # Root workspace config
+└── biome.json         # Linter/formatter config
+```
+
+## Development
+
+```bash
+bun install
+bun dev
+```
+
+## Tech Stack
+
+- **SolidJS** - Reactive UI framework
+- **Tailwind CSS v4** - Styling
+- **Bun** - Runtime and bundler
