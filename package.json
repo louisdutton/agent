@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun -F'*' dev",
+    "dev": "bun -F'*' dev"
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.11",

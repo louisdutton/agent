@@ -1,4 +1,5 @@
-import { createSignal, For, Show, onMount } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
+import Markdown from "./Markdown";
 
 const API_URL = "http://localhost:3001";
 
@@ -239,7 +240,11 @@ export default function App() {
                   <div class="text-xs text-muted-foreground mb-1">
                     {message.role === "user" ? "You" : "Claude"}
                   </div>
-                  <div class="whitespace-pre-wrap">{message.content}</div>
+                  {message.role === "assistant" ? (
+                    <Markdown content={message.content} />
+                  ) : (
+                    <div class="whitespace-pre-wrap">{message.content}</div>
+                  )}
                 </div>
               )}
             </For>
@@ -248,7 +253,7 @@ export default function App() {
             <Show when={streamingContent()}>
               <div class="card mr-8">
                 <div class="text-xs text-muted-foreground mb-1">Claude</div>
-                <div class="whitespace-pre-wrap">{streamingContent()}</div>
+                <Markdown content={streamingContent()} />
               </div>
             </Show>
 
