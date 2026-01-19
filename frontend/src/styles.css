@@ -28,6 +28,16 @@
 	pre {
 		font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
 	}
+
+	/* Shiki code blocks */
+	pre.shiki {
+		@apply p-4 rounded-lg overflow-x-auto text-sm;
+	}
+
+	/* Inline code */
+	:not(pre) > code {
+		@apply px-1.5 py-0.5 rounded bg-muted text-sm;
+	}
 }
 
 @layer components {
