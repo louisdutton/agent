@@ -3,45 +3,47 @@
 @source ".";
 
 @theme {
-  --color-background: #000;
-  --color-foreground: #e5e5e5;
-  --color-muted: #111;
-  --color-muted-foreground: #888;
-  --color-border: #222;
-  --color-primary: #3b82f6;
-  --color-primary-foreground: #fff;
+	--color-background: #000;
+	--color-foreground: #e5e5e5;
+	--color-muted: #111;
+	--color-muted-foreground: #888;
+	--color-border: #222;
+	--color-primary: #3b82f6;
+	--color-primary-foreground: #fff;
 }
 
 @layer base {
-  * {
-    box-sizing: border-box;
-  }
+	* {
+		box-sizing: border-box;
+	}
 
-  html, body {
-    @apply m-0 p-0 bg-background text-foreground;
-    font-family: system-ui, -apple-system, sans-serif;
-  }
+	html,
+	body {
+		@apply m-0 p-0 bg-background text-foreground;
+		font-family: system-ui, -apple-system, sans-serif;
+	}
 
-  code, pre {
-    font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
-  }
+	code,
+	pre {
+		font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
+	}
 }
 
 @layer components {
-  .btn {
-    @apply px-3 py-2 rounded-lg font-medium;
-    @apply bg-primary text-primary-foreground;
-    @apply active:opacity-80 disabled:opacity-40;
-  }
+	.btn {
+		@apply px-3 py-2 rounded-lg font-medium;
+		@apply bg-primary text-primary-foreground;
+		@apply active:opacity-80 disabled:opacity-40;
+	}
 
-  .input {
-    @apply w-full px-3 py-2 rounded-lg;
-    @apply bg-muted border border-border;
-    @apply text-foreground placeholder:text-muted-foreground;
-    @apply focus:outline-none focus:border-primary;
-  }
+	.input {
+		@apply w-full px-3 py-2 rounded-lg;
+		@apply bg-muted border border-border;
+		@apply text-foreground placeholder:text-muted-foreground;
+		@apply focus:outline-none focus:border-primary;
+	}
 
-  .card {
-    @apply p-3 rounded-lg bg-muted;
-  }
+	.card {
+		@apply p-3 rounded-lg bg-muted;
+	}
 }
