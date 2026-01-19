@@ -1,4 +1,4 @@
-import { sendMessage } from "./claude";
+import { sendMessage, clearSession } from "./claude";
 
 // HTTP server
 export default {
@@ -57,6 +57,13 @@ export default {
           { status: 500, headers: corsHeaders }
         );
       }
+    }
+
+    // Clear session / start new conversation
+    if (url.pathname === "/session" && req.method === "DELETE") {
+      clearSession();
+      console.log("Session cleared");
+      return Response.json({ ok: true }, { headers: corsHeaders });
     }
 
     return Response.json(
