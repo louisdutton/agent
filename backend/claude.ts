@@ -1,4 +1,5 @@
 import { spawn, type Subprocess } from "bun";
+import assert from "assert"
 
 interface Session {
   id: string;
@@ -9,33 +10,51 @@ interface Session {
 
 export const sessions = new Map<string, Session>();
 
-// Spawn a new Claude CLI session
-export function createSession(cwd: string): Session {
-  const id = crypto.randomUUID();
+const bin = Bun.which("claude")
+assert(bin)
+const cmd = [
+  bin,
+  "--verbose",
+  "--output-format", "stream-json",
+  "--dangerously-skip-permissions",
+]
 
-  const process = spawn({
-    cmd: [
-      "claude",
-      "-p",
-      "--verbose",
-      "--output-format", "stream-json",
-      "--dangerously-skip-permissions",
-    ],
+// Pre-spawn a claude process at module load time (avoids Bun spawn bug in request context)
+function spawnClaude(cwd: string) {
+  return spawn({
+    cmd,
     cwd,
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
+    env: Bun.env,
   });
+}
 
-  const session: Session = {
-    id,
-    process,
-    cwd,
-    createdAt: new Date(),
-  };
+// Eagerly spawn a default session at startup
+const defaultCwd = process.cwd();
+const eagerProcess = spawnClaude(defaultCwd);
+const eagerId = crypto.randomUUID();
+const eagerSession: Session = {
+  id: eagerId,
+  process: eagerProcess,
+  cwd: defaultCwd,
+  createdAt: new Date(),
+};
+sessions.set(eagerId, eagerSession);
+console.log(`Pre-spawned claude session: ${eagerId}`);
 
-  sessions.set(id, session);
-  return session;
+// Get or create a session - returns the pre-spawned one if cwd matches
+export function createSession(cwd: string): Session {
+  // If cwd matches the eager session and it's still available, return it
+  if (cwd === defaultCwd && sessions.has(eagerId)) {
+    return eagerSession;
+  }
+
+  // Otherwise we'd need to spawn a new one - for now just return eager session
+  // TODO: handle different cwds by pre-spawning more processes
+  console.warn(`Requested cwd ${cwd} differs from eager session ${defaultCwd}, using eager session anyway`);
+  return eagerSession;
 }
 
 // Send a message to a session and collect all output
@@ -44,16 +63,13 @@ export async function runClaude(cwd: string, message: string): Promise<string[]>
 
   const proc = Bun.spawn({
     cmd: [
-      "claude",
-      "-p",
-      "--verbose",
-      "--output-format", "stream-json",
-      "--dangerously-skip-permissions",
+      ...cmd,
       message,
     ],
     cwd,
     stdout: "pipe",
     stderr: "pipe",
+    env: Bun.env,
   });
 
   console.log(`Spawned claude process, pid:`, proc.pid);

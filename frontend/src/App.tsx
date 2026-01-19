@@ -3,6 +3,8 @@ import Markdown from "./Markdown";
 
 const API_URL = `http://${window.location.hostname}:3001`;
 
+let msgId = 0;
+
 interface Message {
 	id: string;
 	role: "user" | "assistant";
@@ -60,7 +62,7 @@ export default function App() {
 		if (!text || !session || isLoading()) return;
 
 		const userMessage: Message = {
-			id: crypto.randomUUID(),
+			id: String(++msgId),
 			role: "user",
 			content: text,
 			timestamp: new Date(),
@@ -130,7 +132,7 @@ export default function App() {
 			// Add assistant message
 			if (assistantContent) {
 				const assistantMessage: Message = {
-					id: crypto.randomUUID(),
+					id: String(++msgId),
 					role: "assistant",
 					content: assistantContent,
 					timestamp: new Date(),
