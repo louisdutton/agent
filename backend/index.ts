@@ -1,4 +1,4 @@
-import { createSession, runClaude, sessions } from "./claude";
+import {  sendMessage } from "./claude";
 
 // HTTP server
 export default {
@@ -20,56 +20,26 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // Create session
-    if (url.pathname === "/sessions" && req.method === "POST") {
-      const body = await req.json() as { cwd?: string };
-      const cwd = body.cwd || process.cwd();
-      const session = createSession(cwd);
-
-      return Response.json(
-        { id: session.id, cwd: session.cwd, createdAt: session.createdAt },
-        { headers: corsHeaders }
-      );
-    }
-
-    // List sessions
-    if (url.pathname === "/sessions" && req.method === "GET") {
-      const list = Array.from(sessions.values()).map(s => ({
-        id: s.id,
-        cwd: s.cwd,
-        createdAt: s.createdAt,
-      }));
-      return Response.json(list, { headers: corsHeaders });
-    }
-
     // Send message
-    const messageMatch = url.pathname.match(/^\/sessions\/([^/]+)\/messages$/);
-    if (messageMatch && req.method === "POST") {
-      const sessionId = messageMatch[1];
+    if (url.pathname === "/messages" && req.method === "POST") {
       const body = await req.json() as { message: string };
-      console.log(`POST /sessions/${sessionId}/messages:`, body.message?.slice(0, 50));
-
-      const session = sessions.get(sessionId);
-      if (!session) {
-        return Response.json(
-          { error: "Session not found" },
-          { status: 404, headers: corsHeaders }
-        );
-      }
+      console.log(`POST /messages:`, body.message?.slice(0, 50));
 
       try {
-        const lines = await runClaude(session.cwd, body.message);
-        console.log(`Got ${lines.length} lines from claude`);
-
-        // Return SSE stream with all lines
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
-          start(controller) {
-            for (const line of lines) {
-              controller.enqueue(encoder.encode(`data: ${line}\n\n`));
+          async start(controller) {
+            try {
+              for await (const line of sendMessage(body.message)) {
+                controller.enqueue(encoder.encode(`data: ${line}\n\n`));
+              }
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            } catch (err) {
+              console.error("Stream error:", err);
+              controller.enqueue(encoder.encode(`data: {"error": "${String(err)}"}\n\n`));
+            } finally {
+              controller.close();
             }
-            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-            controller.close();
           },
         });
 
@@ -87,18 +57,6 @@ export default {
           { status: 500, headers: corsHeaders }
         );
       }
-    }
-
-    // Delete session
-    const deleteMatch = url.pathname.match(/^\/sessions\/([^/]+)$/);
-    if (deleteMatch && req.method === "DELETE") {
-      const sessionId = deleteMatch[1];
-      const session = sessions.get(sessionId);
-      if (session) {
-        session.process.kill();
-        sessions.delete(sessionId);
-      }
-      return new Response(null, { status: 204, headers: corsHeaders });
     }
 
     return Response.json(
