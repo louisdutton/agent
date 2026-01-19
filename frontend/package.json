@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run index.html",
+    "dev": "bun index.html --host=0.0.0.0 --console",
     "build": "bun build"
   },
   "dependencies": {
