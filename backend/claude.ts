@@ -6,6 +6,11 @@ export async function* sendMessage(message: string): AsyncGenerator<string> {
   for await (const event of query({
     prompt: message,
     options: {
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: 'Your reponses must always bea ccurate and concise.'
+      },
       model: 'claude-haiku-4-5',
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,

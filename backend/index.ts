@@ -1,4 +1,4 @@
-import {  sendMessage } from "./claude";
+import { sendMessage } from "./claude";
 
 // HTTP server
 export default {
@@ -65,4 +65,6 @@ export default {
     );
   },
 } satisfies Bun.Serve.Options<{}>
+
+
 
