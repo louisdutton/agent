@@ -14,7 +14,7 @@ const server = Bun.serve({
 
   routes: {
     "/api/*": api.fetch,
-    "/*": app,
+    "/": app,
   },
 });
 
