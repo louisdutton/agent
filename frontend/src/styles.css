@@ -3,13 +3,13 @@
 @source ".";
 
 @theme {
-	--color-background: #000;
+	--color-background: black;
 	--color-foreground: #e5e5e5;
 	--color-muted: #111;
 	--color-muted-foreground: #888;
 	--color-border: #222;
-	--color-primary: #3b82f6;
-	--color-primary-foreground: #fff;
+	--color-primary: white;
+	--color-primary-foreground: black;
 }
 
 @layer base {
@@ -49,7 +49,7 @@
 
 	.input {
 		@apply w-full px-3 py-2 rounded-lg;
-		@apply bg-muted border border-border;
+		@apply border border-border;
 		@apply text-foreground placeholder:text-muted-foreground;
 		@apply focus:outline-none focus:border-primary;
 	}
