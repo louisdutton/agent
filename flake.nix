@@ -1,5 +1,5 @@
 {
-  description = "Claude Code Mobile - SolidJS frontend for Claude Code sessions";
+  description = "Agent Mobile - SolidJS frontend for Agent sessions";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
