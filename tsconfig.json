@@ -1,5 +1,6 @@
 {
-  "include": ["**/*.ts", "**/*.tsx", "bun-plugin-solid.ts"],
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "frontend", "backend"],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "preserve",
@@ -10,14 +11,10 @@
     "paths": {
       "~/*": ["./src/*"]
     },
-
-    /* Bundler mode */
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
-
-    /* Linting */
     "skipLibCheck": true,
     "strict": true,
     "noUnusedLocals": true,

@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import Markdown from "./Markdown";
 
-const API_URL = `http://${window.location.hostname}:3001`;
+const API_URL = "";
 
 type ToolStatus = "running" | "complete" | "error";
 
@@ -228,7 +228,7 @@ export default function App() {
 		setStreamingContent("");
 
 		try {
-			const res = await fetch(`${API_URL}/messages`, {
+			const res = await fetch(`${API_URL}/api/messages`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ message: text }),

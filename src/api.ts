@@ -1,29 +1,24 @@
 import { sendMessage, clearSession } from "./claude";
 
-// HTTP server
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 export default {
-  port: 3001,
-  hostname: "0.0.0.0",
-  idleTimeout: 120, // 2 minutes for long-running Claude requests
-
-  async fetch(req) {
+  async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
-
-    // CORS headers
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    };
+    const path = url.pathname.replace(/^\/api/, "");
 
     if (req.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
 
     // Send message
-    if (url.pathname === "/messages" && req.method === "POST") {
-      const body = await req.json() as { message: string };
-      console.log(`POST /messages:`, body.message?.slice(0, 50));
+    if (path === "/messages" && req.method === "POST") {
+      const body = (await req.json()) as { message: string };
+      console.log(`POST /api/messages:`, body.message?.slice(0, 50));
 
       try {
         const encoder = new TextEncoder();
@@ -36,7 +31,9 @@ export default {
               controller.enqueue(encoder.encode("data: [DONE]\n\n"));
             } catch (err) {
               console.error("Stream error:", err);
-              controller.enqueue(encoder.encode(`data: {"error": "${String(err)}"}\n\n`));
+              controller.enqueue(
+                encoder.encode(`data: {"error": "${String(err)}"}\n\n`)
+              );
             } finally {
               controller.close();
             }
@@ -59,8 +56,8 @@ export default {
       }
     }
 
-    // Clear session / start new conversation
-    if (url.pathname === "/session" && req.method === "DELETE") {
+    // Clear session
+    if (path === "/session" && req.method === "DELETE") {
       clearSession();
       console.log("Session cleared");
       return Response.json({ ok: true }, { headers: corsHeaders });
@@ -71,7 +68,4 @@ export default {
       { status: 404, headers: corsHeaders }
     );
   },
-} satisfies Bun.Serve.Options<{}>
-
-
-
+};
