@@ -13,9 +13,18 @@ const server = Bun.serve({
   tls: (await tls.cert.exists()) && (await tls.key.exists()) ? tls : undefined,
 
   routes: {
-    "/api/*": api.fetch,
     "/": app,
-  },
+    "/api/*": api.fetch,
+    "/public/*": (req) => {
+      const url = new URL(req.url)
+      try {
+        const file = Bun.file(`.${url.pathname}`);
+        return new Response(file);
+      } catch {
+        return new Response(null, { status: 404 });
+      }
+    },
+  }
 });
 
 console.log(`Server running at ${server.url}`);
