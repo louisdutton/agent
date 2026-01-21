@@ -9,3 +9,4 @@ dist-ssr
 .wrangler
 backend/repos
 .direnv
+.models
