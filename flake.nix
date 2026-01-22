@@ -24,44 +24,14 @@
           }
       );
 
+    # "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx"
+    # "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx.json"
+
     ttsServer = pkgs:
       pkgs.writeShellScriptBin "tts-server" ''
         MODEL_DIR="''${MODELS_DIR:-$PWD/.models}/piper"
         MODEL="$MODEL_DIR/en_GB-alba-medium.onnx"
-
-        if [ ! -f "$MODEL" ]; then
-          echo "Downloading Piper voice model..."
-          mkdir -p "$MODEL_DIR"
-          ${pkgs.curl}/bin/curl -L -o "$MODEL" \
-            "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx"
-          ${pkgs.curl}/bin/curl -L -o "$MODEL.json" \
-            "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx.json"
-        fi
-
-        export MODEL
-        echo "Piper TTS ready on http://localhost:8880"
-        ${pkgs.socat}/bin/socat TCP-LISTEN:8880,reuseaddr,fork EXEC:"${pkgs.writeShellScript "piper-handler" ''
-          read -r REQUEST_LINE
-          while read -r header; do
-            header=$(echo "$header" | tr -d '\r')
-            [ -z "$header" ] && break
-            case "$header" in Content-Length:*) LENGTH=''${header#*: } ;; esac
-          done
-
-          BODY=$(head -c "$LENGTH")
-          TEXT=$(echo "$BODY" | ${pkgs.jq}/bin/jq -r '.input // empty')
-
-          if [ -n "$TEXT" ]; then
-            TMPFILE=$(mktemp --suffix=.wav)
-            echo "$TEXT" | ${pkgs.piper-tts}/bin/piper --model "$MODEL" --length-scale 0.7 --output_file "$TMPFILE" 2>/dev/null
-            LEN=$(stat -f%z "$TMPFILE" 2>/dev/null || stat -c%s "$TMPFILE")
-            printf "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: %d\r\n\r\n" "$LEN"
-            cat "$TMPFILE"
-            rm -f "$TMPFILE"
-          else
-            printf "HTTP/1.1 400 Bad Request\r\n\r\n"
-          fi
-        ''}"
+        ${pkgs.piper-tts}/bin/piper --model "$MODEL" --length-scale 0.7
       '';
   in {
     devShells = forEachSupportedSystem (
