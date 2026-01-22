@@ -379,6 +379,35 @@ export default function App() {
                 }
               }
 
+              // Handle replayed messages from resumed sessions
+              if (parsed.isReplay) {
+                const content = parsed.message?.content;
+                if (parsed.type === "user" && Array.isArray(content)) {
+                  for (const block of content) {
+                    if (block.type === "text" && block.text) {
+                      addEvent({
+                        type: "user",
+                        id: parsed.uuid || String(++idCounter),
+                        content: block.text,
+                      });
+                    }
+                  }
+                } else if (parsed.type === "assistant" && Array.isArray(content)) {
+                  const textContent = content
+                    .filter((b: { type: string }) => b.type === "text")
+                    .map((b: { text: string }) => b.text)
+                    .join("");
+                  if (textContent) {
+                    addEvent({
+                      type: "assistant",
+                      id: parsed.uuid || String(++idCounter),
+                      content: textContent,
+                    });
+                  }
+                }
+                continue;
+              }
+
               if (parsed.type === "assistant" && parsed.message?.content) {
                 if (assistantContent) {
                   addEvent({
