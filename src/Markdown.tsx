@@ -55,6 +55,15 @@ renderer.code = ({ text, lang }) => {
 	return `<pre id="${id}"><code class="language-${langStr}">${escaped}</code></pre>`;
 };
 
+// Override inline code rendering
+renderer.codespan = ({ text }) => {
+	const escaped = text
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+	return `<code class="bg-muted px-1.5 py-0.5 rounded text-accent">${escaped}</code>`;
+};
+
 marked.setOptions({
 	breaks: true,
 	gfm: true,
