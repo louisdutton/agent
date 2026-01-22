@@ -151,7 +151,7 @@ export default {
         const ttsRes = await fetch(KOKORO_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ input: text }),
+          body: JSON.stringify({ text }),
         });
 
         if (!ttsRes.ok) {

@@ -37,9 +37,17 @@
         }
       ];
 
-      # Fallback TTS server using piper-tts binary (stdin/stdout mode)
-      ttsServerScript = pkgs.writeShellScriptBin "tts-server" ''
-        ${pkgs.piper-tts}/bin/piper --model "${piperModel}/en_GB-alba-medium.onnx" --length-scale 0.7
+      # Create piper HTTP server wrapper using the same Python environment as piper
+      piperHttpServer = pkgs.runCommand "piper-http-server" {} ''
+        mkdir -p $out/bin
+        # Extract the shebang and site-packages setup from piper's wrapper (first 3 lines)
+        head -3 ${pkgs.piper-tts}/bin/.piper-wrapped > $out/bin/piper-http-server
+        # Add our http_server entry point
+        cat >> $out/bin/piper-http-server << 'EOF'
+        from piper.http_server import main
+        main()
+        EOF
+        chmod +x $out/bin/piper-http-server
       '';
     in {
       devShells.default = pkgs.mkShell {
@@ -55,7 +63,6 @@
           ols
           whisper-cpp
           ffmpeg
-          ttsServerScript
           piper-tts
 
           # libpiper build dependencies
@@ -92,7 +99,13 @@
 
         tts = {
           type = "app";
-          program = "${ttsServerScript}/bin/tts-server";
+          program = toString (pkgs.writeShellScript "piper-http" ''
+            echo "Starting Piper TTS server on :8880..."
+            exec ${piperHttpServer}/bin/piper-http-server \
+              --model "${piperModel}/en_GB-alba-medium.onnx" \
+              --port 8880 \
+              --length-scale 0.7
+          '');
         };
 
         # Odin TTS server (requires ./tts/build.sh to be run first)
@@ -123,7 +136,10 @@
               --port 8080 &
 
             echo "Starting Piper TTS on :8880..."
-            ${ttsServerScript}/bin/tts-server &
+            ${piperHttpServer}/bin/piper-http-server \
+              --model "${piperModel}/en_GB-alba-medium.onnx" \
+              --port 8880 \
+              --length-scale 0.7 &
 
             echo "Starting Bun on :3000.."
             bun serve &
