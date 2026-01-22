@@ -39,13 +39,19 @@
         with pkgs; {
           default = mkShell {
             packages = [
+              # client
               bun
               biome
               typescript-go
               tailwindcss-language-server
+
+              # server
               whisper-cpp
               ffmpeg
               (ttsServer pkgs)
+              piper-tts
+
+              # misc
               nixd
               alejandra
             ];
