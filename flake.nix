@@ -14,11 +14,32 @@
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs {inherit system;};
 
+      # Models fetched from Hugging Face
+      whisperModel = pkgs.fetchurl {
+        url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin";
+        sha256 = "00nhqqvgwyl9zgyy7vk9i3n017q2wlncp5p7ymsk0cpkdp47jdx0";
+      };
+
+      piperModel = pkgs.linkFarm "piper-alba-medium" [
+        {
+          name = "en_GB-alba-medium.onnx";
+          path = pkgs.fetchurl {
+            url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx";
+            sha256 = "0fyhdak36wagsvicsrk4qvfdn4888ijcii9jdkcgs28xm326j4s0";
+          };
+        }
+        {
+          name = "en_GB-alba-medium.onnx.json";
+          path = pkgs.fetchurl {
+            url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx.json";
+            sha256 = "1x49vmrqr4a5m5y5dasz4rgxdxmz5g3iykk9q8rddkpc08pmm5ma";
+          };
+        }
+      ];
+
       # Fallback TTS server using piper-tts binary (stdin/stdout mode)
       ttsServerScript = pkgs.writeShellScriptBin "tts-server" ''
-        MODEL_DIR="''${MODELS_DIR:-$PWD/.models}/piper"
-        MODEL="$MODEL_DIR/en_GB-alba-medium.onnx"
-        ${pkgs.piper-tts}/bin/piper --model "$MODEL" --length-scale 0.7
+        ${pkgs.piper-tts}/bin/piper --model "${piperModel}/en_GB-alba-medium.onnx" --length-scale 0.7
       '';
     in {
       devShells.default = pkgs.mkShell {
@@ -50,29 +71,10 @@
         shellHook = ''
           export WHISPER_URL="http://localhost:8080"
           export KOKORO_URL="http://localhost:8880"
-          export MODELS_DIR="$PWD/.models"
-          mkdir -p $MODELS_DIR
 
           # Set library paths if libpiper is built locally
           if [ -d "$PWD/tts/.build/install/lib" ]; then
             export LD_LIBRARY_PATH="$PWD/tts/.build/install/lib:$LD_LIBRARY_PATH"
-          fi
-
-          # Download whisper model if not present
-          if [ ! -f "$MODELS_DIR/ggml-base.en.bin" ]; then
-            echo "Downloading whisper base.en model..."
-            curl -L -o "$MODELS_DIR/ggml-base.en.bin" \
-              "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
-          fi
-
-          # Download piper model if not present
-          mkdir -p "$MODELS_DIR/piper"
-          if [ ! -f "$MODELS_DIR/piper/en_GB-alba-medium.onnx" ]; then
-            echo "Downloading piper voice model..."
-            curl -L -o "$MODELS_DIR/piper/en_GB-alba-medium.onnx" \
-              "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx"
-            curl -L -o "$MODELS_DIR/piper/en_GB-alba-medium.onnx.json" \
-              "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alba/medium/en_GB-alba-medium.onnx.json"
           fi
         '';
       };
@@ -81,10 +83,9 @@
         whisper = {
           type = "app";
           program = toString (pkgs.writeShellScript "whisper-server" ''
-            export MODELS_DIR="''${MODELS_DIR:-$PWD/.models}"
             echo "Starting Whisper server on :8080..."
             ${pkgs.whisper-cpp}/bin/whisper-server \
-              --model "$MODELS_DIR/ggml-base.en.bin" \
+              --model "${whisperModel}" \
               --port 8080
           '');
         };
@@ -98,7 +99,6 @@
         tts-odin = {
           type = "app";
           program = toString (pkgs.writeShellScript "tts-odin" ''
-            export MODELS_DIR="''${MODELS_DIR:-$PWD/.models}"
             if [ -d "$PWD/tts/.build/install/lib" ]; then
               export LD_LIBRARY_PATH="$PWD/tts/.build/install/lib:$LD_LIBRARY_PATH"
             fi
@@ -107,6 +107,7 @@
               exit 1
             fi
             echo "Starting Odin TTS server on :8880..."
+            export PIPER_MODEL="${piperModel}/en_GB-alba-medium.onnx"
             exec $PWD/tts/tts-server
           '');
         };
@@ -116,11 +117,9 @@
           program = toString (pkgs.writeShellScript "all-services" ''
             trap 'kill $(jobs -p)' EXIT
 
-            export MODELS_DIR="''${MODELS_DIR:-$PWD/.models}"
-
             echo "Starting Whisper on :8080..."
             ${pkgs.whisper-cpp}/bin/whisper-server \
-              --model "$MODELS_DIR/ggml-base.en.bin" \
+              --model "${whisperModel}" \
               --port 8080 &
 
             echo "Starting Piper TTS on :8880..."
