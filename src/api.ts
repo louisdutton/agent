@@ -462,35 +462,6 @@ export default {
 			}
 		}
 
-		// Create a new session with a specific cwd
-		if (path === "/sessions/new" && req.method === "POST") {
-			try {
-				const { cwd } = (await req.json()) as { cwd?: string };
-
-				// Validate directory exists if cwd is provided
-				if (cwd) {
-					const proc = Bun.spawn(["test", "-d", cwd]);
-					const exitCode = await proc.exited;
-					if (exitCode !== 0) {
-						return Response.json(
-							{ error: "Directory does not exist" },
-							{ status: 400, headers: corsHeaders },
-						);
-					}
-				}
-
-				// Clear active session and set new cwd
-				setActiveSession(null, cwd || getActiveSessionCwd());
-				return Response.json({ ok: true, cwd: cwd || getActiveSessionCwd() }, { headers: corsHeaders });
-			} catch (err) {
-				console.error("Failed to create new session:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
-			}
-		}
-
 		// List all sessions
 		if (path === "/sessions" && req.method === "GET") {
 			try {
@@ -519,7 +490,6 @@ export default {
 							created?: string;
 							modified: string;
 							gitBranch?: string;
-							projectPath?: string;
 						}) => ({
 							sessionId: e.sessionId,
 							firstPrompt: e.firstPrompt || "Untitled session",
@@ -527,7 +497,6 @@ export default {
 							created: e.created || e.modified,
 							modified: e.modified,
 							gitBranch: e.gitBranch,
-							cwd: e.projectPath || cwd,
 						}),
 					);
 
@@ -560,7 +529,6 @@ export default {
 				const indexPath = join(claudeDir, "sessions-index.json");
 
 				const indexFile = Bun.file(indexPath);
-				let sessionCwd = cwd;
 				if (await indexFile.exists()) {
 					const index = await indexFile.json();
 					const session = index.entries.find(
@@ -572,8 +540,6 @@ export default {
 							{ status: 404, headers: corsHeaders },
 						);
 					}
-					// Use the session's stored cwd if available
-					sessionCwd = session.projectPath || cwd;
 				} else {
 					return Response.json(
 						{ error: "No sessions found" },
@@ -581,12 +547,11 @@ export default {
 					);
 				}
 
-				// Set active session with its cwd
-				setActiveSession(sessionId, sessionCwd);
+				setActiveSession(sessionId);
 
 				// Return the session's messages for UI update
 				const messages = await getSessionHistoryById(sessionId);
-				return Response.json({ ok: true, messages, cwd: sessionCwd }, { headers: corsHeaders });
+				return Response.json({ ok: true, messages }, { headers: corsHeaders });
 			} catch (err) {
 				console.error("Failed to switch session:", err);
 				return Response.json(
