@@ -278,15 +278,22 @@ export function SessionManagerModal(props: {
 															<For each={project.sessions}>
 																{(session) => (
 																	<div
-																		class={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+																		onClick={() => {
+																			if (!isActiveSession(session.sessionId, project.name) && switching() !== session.sessionId) {
+																				switchSession(session.sessionId, project.name);
+																			}
+																		}}
+																		class={`w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left ${
 																			isActiveSession(session.sessionId, project.name)
-																				? "border-primary bg-muted/50"
-																				: "border-border hover:bg-muted/30"
-																		}`}
+																				? "border-primary bg-muted/50 cursor-default"
+																				: "border-border hover:bg-muted/30 cursor-pointer"
+																		} ${switching() === session.sessionId ? "opacity-50" : ""}`}
 																	>
 																		<div class="flex-1 min-w-0">
 																			<div class="text-sm font-medium truncate">
-																				{truncatePrompt(session.firstPrompt)}
+																				{switching() === session.sessionId
+																					? "Switching..."
+																					: truncatePrompt(session.firstPrompt)}
 																			</div>
 																			<div class="flex items-center gap-2 text-xs text-muted-foreground mt-1">
 																				<span>{formatDate(session.modified)}</span>
@@ -299,29 +306,20 @@ export function SessionManagerModal(props: {
 																			</div>
 																		</div>
 
-																		<div class="flex items-center gap-2">
-																			<Show when={!isActiveSession(session.sessionId, project.name)}>
-																				<button
-																					type="button"
-																					onClick={() => switchSession(session.sessionId, project.name)}
-																					disabled={switching() === session.sessionId}
-																					class="px-3 py-1.5 text-sm rounded-md bg-muted hover:bg-muted-foreground/20 disabled:opacity-50 transition-colors"
-																				>
-																					{switching() === session.sessionId ? "..." : "Switch"}
-																				</button>
-																			</Show>
-																			<button
-																				type="button"
-																				onClick={() => deleteSession(session.sessionId, project.name)}
-																				disabled={deleting() === session.sessionId}
-																				class="p-1.5 rounded-md text-red-400 hover:bg-red-500/20 disabled:opacity-50 transition-colors"
-																				title="Delete session"
-																			>
-																				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-																					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-																				</svg>
-																			</button>
-																		</div>
+																		<button
+																			type="button"
+																			onClick={(e) => {
+																				e.stopPropagation();
+																				deleteSession(session.sessionId, project.name);
+																			}}
+																			disabled={deleting() === session.sessionId}
+																			class="p-1.5 rounded-md text-red-400 hover:bg-red-500/20 disabled:opacity-50 transition-colors"
+																			title="Delete session"
+																		>
+																			<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+																				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+																			</svg>
+																		</button>
 																	</div>
 																)}
 															</For>
