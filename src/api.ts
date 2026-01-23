@@ -433,25 +433,54 @@ export default {
 		// Git status (for indicator)
 		if (path === "/git/status" && req.method === "GET") {
 			try {
-				const proc = Bun.spawn(["git", "diff", "--numstat"], {
+				// Get stats for tracked file changes
+				const diffProc = Bun.spawn(["git", "diff", "--numstat"], {
 					cwd: process.cwd(),
 					stdout: "pipe",
 					stderr: "pipe",
 				});
 
-				const output = await new Response(proc.stdout).text();
-				await proc.exited;
+				const diffOutput = await new Response(diffProc.stdout).text();
+				await diffProc.exited;
 
 				let insertions = 0;
 				let deletions = 0;
 				let filesChanged = 0;
 
-				for (const line of output.trim().split("\n")) {
+				for (const line of diffOutput.trim().split("\n")) {
 					if (!line) continue;
 					const [added, removed] = line.split("\t");
 					if (added !== "-") insertions += Number.parseInt(added) || 0;
 					if (removed !== "-") deletions += Number.parseInt(removed) || 0;
 					filesChanged++;
+				}
+
+				// Get untracked files and count their lines
+				const untrackedProc = Bun.spawn(
+					["git", "ls-files", "--others", "--exclude-standard"],
+					{
+						cwd: process.cwd(),
+						stdout: "pipe",
+						stderr: "pipe",
+					},
+				);
+				const untrackedOutput = await new Response(untrackedProc.stdout).text();
+				await untrackedProc.exited;
+
+				const untrackedFiles = untrackedOutput.trim().split("\n").filter(Boolean);
+				filesChanged += untrackedFiles.length;
+
+				// Count lines in untracked files
+				for (const filePath of untrackedFiles) {
+					try {
+						const file = Bun.file(join(process.cwd(), filePath));
+						if (await file.exists()) {
+							const content = await file.text();
+							insertions += content.split("\n").length;
+						}
+					} catch {
+						// Skip files we can't read
+					}
 				}
 
 				return Response.json(
@@ -470,16 +499,59 @@ export default {
 		// Git diff (for modal)
 		if (path === "/git/diff" && req.method === "GET") {
 			try {
-				const proc = Bun.spawn(["git", "diff"], {
+				// Get diff for tracked files
+				const diffProc = Bun.spawn(["git", "diff"], {
 					cwd: process.cwd(),
 					stdout: "pipe",
 					stderr: "pipe",
 				});
+				const diffOutput = await new Response(diffProc.stdout).text();
+				await diffProc.exited;
 
-				const output = await new Response(proc.stdout).text();
-				await proc.exited;
+				const files = parseDiff(diffOutput);
 
-				const files = parseDiff(output);
+				// Get untracked files
+				const untrackedProc = Bun.spawn(
+					["git", "ls-files", "--others", "--exclude-standard"],
+					{
+						cwd: process.cwd(),
+						stdout: "pipe",
+						stderr: "pipe",
+					},
+				);
+				const untrackedOutput = await new Response(untrackedProc.stdout).text();
+				await untrackedProc.exited;
+
+				const untrackedFiles = untrackedOutput.trim().split("\n").filter(Boolean);
+
+				// Generate diff-like output for untracked files
+				for (const filePath of untrackedFiles) {
+					try {
+						const file = Bun.file(join(process.cwd(), filePath));
+						if (await file.exists()) {
+							const content = await file.text();
+							const lines = content.split("\n");
+							const hunks: DiffHunk[] = [
+								{
+									header: `@@ -0,0 +1,${lines.length} @@`,
+									lines: lines.map((line, i) => ({
+										type: "addition" as const,
+										content: line,
+										newLineNum: i + 1,
+									})),
+								},
+							];
+							files.push({
+								path: filePath,
+								status: "added",
+								hunks,
+							});
+						}
+					} catch {
+						// Skip files we can't read
+					}
+				}
+
 				return Response.json({ files }, { headers: corsHeaders });
 			} catch (err) {
 				console.error("Git diff error:", err);

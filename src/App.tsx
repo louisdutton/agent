@@ -3,38 +3,15 @@ import {
 	createMemo,
 	createSignal,
 	For,
-	onCleanup,
 	onMount,
 	Show,
 } from "solid-js";
-import { bundledLanguages, codeToTokens } from "shiki";
 import Markdown from "./Markdown";
+import { GitDiffModal, GitStatusIndicator, useGitStatus } from "./Git";
 
 const API_URL = "";
 
 type ToolStatus = "running" | "complete" | "error";
-
-// Git diff types
-type GitStatus = {
-	hasChanges: boolean;
-	insertions: number;
-	deletions: number;
-	filesChanged: number;
-};
-
-type DiffLineType = "context" | "addition" | "deletion";
-type DiffLine = {
-	type: DiffLineType;
-	content: string;
-	oldLineNum?: number;
-	newLineNum?: number;
-};
-type DiffHunk = { header: string; lines: DiffLine[] };
-type DiffFile = {
-	path: string;
-	status: "modified" | "added" | "deleted" | "renamed";
-	hunks: DiffHunk[];
-};
 
 type Tool = {
   toolUseId: string;
@@ -166,218 +143,6 @@ function ToolGroup(props: { tools: Tool[]; defaultExpanded?: boolean }) {
   );
 }
 
-// Map file extensions to Shiki language identifiers
-function getLanguageFromPath(path: string): string {
-	const ext = path.split(".").pop()?.toLowerCase() || "";
-	const extMap: Record<string, string> = {
-		ts: "typescript",
-		tsx: "tsx",
-		js: "javascript",
-		jsx: "jsx",
-		py: "python",
-		rb: "ruby",
-		go: "go",
-		rs: "rust",
-		java: "java",
-		kt: "kotlin",
-		swift: "swift",
-		c: "c",
-		cpp: "cpp",
-		h: "c",
-		hpp: "cpp",
-		cs: "csharp",
-		php: "php",
-		sh: "bash",
-		bash: "bash",
-		zsh: "bash",
-		json: "json",
-		yaml: "yaml",
-		yml: "yaml",
-		toml: "toml",
-		xml: "xml",
-		html: "html",
-		css: "css",
-		scss: "scss",
-		less: "less",
-		md: "markdown",
-		sql: "sql",
-		graphql: "graphql",
-		dockerfile: "dockerfile",
-		makefile: "makefile",
-	};
-	return extMap[ext] || "text";
-}
-
-// Cache for highlighted hunks
-const hunkHighlightCache = new Map<string, Array<Array<{ content: string; color?: string }>>>();
-
-// Highlight a hunk and return tokens per line
-async function highlightHunk(
-	lines: DiffLine[],
-	lang: string
-): Promise<Array<Array<{ content: string; color?: string }>>> {
-	const code = lines.map((l) => l.content).join("\n");
-	const cacheKey = `${lang}:${code}`;
-
-	if (hunkHighlightCache.has(cacheKey)) {
-		return hunkHighlightCache.get(cacheKey)!;
-	}
-
-	const validLang = lang in bundledLanguages ? lang : "text";
-
-	try {
-		const { tokens } = await codeToTokens(code, {
-			lang: validLang,
-			theme: "vitesse-black",
-		});
-
-		// tokens is an array of lines, each line is an array of tokens
-		const result = tokens.map((lineTokens) =>
-			lineTokens.map((token) => ({
-				content: token.content,
-				color: token.color,
-			}))
-		);
-
-		hunkHighlightCache.set(cacheKey, result);
-		return result;
-	} catch {
-		// Fallback: return plain text tokens
-		return lines.map((l) => [{ content: l.content || " " }]);
-	}
-}
-
-function DiffHunkView(props: { hunk: DiffHunk; lang: string }) {
-	const [highlightedLines, setHighlightedLines] = createSignal<
-		Array<Array<{ content: string; color?: string }>> | null
-	>(null);
-
-	onMount(async () => {
-		const tokens = await highlightHunk(props.hunk.lines, props.lang);
-		setHighlightedLines(tokens);
-	});
-
-	return (
-		<div>
-			<div class="px-4 py-1 bg-blue-500/10 text-blue-400 font-mono text-xs">
-				{props.hunk.header}
-			</div>
-			<div class="font-mono text-sm">
-				<For each={props.hunk.lines}>
-					{(line, index) => (
-						<div
-							class={`flex ${
-								line.type === "addition"
-									? "bg-green-500/15"
-									: line.type === "deletion"
-										? "bg-red-500/15"
-										: ""
-							}`}
-						>
-							<span class="w-12 shrink-0 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
-								{line.oldLineNum ?? ""}
-							</span>
-							<span class="w-12 shrink-0 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
-								{line.newLineNum ?? ""}
-							</span>
-							<span
-								class={`w-6 shrink-0 text-center select-none ${
-									line.type === "addition"
-										? "text-green-500"
-										: line.type === "deletion"
-											? "text-red-500"
-											: "text-muted-foreground"
-								}`}
-							>
-								{line.type === "addition"
-									? "+"
-									: line.type === "deletion"
-										? "-"
-										: " "}
-							</span>
-							<pre class="px-2 whitespace-pre">
-								<Show
-									when={highlightedLines()?.[index()]}
-									fallback={line.content || " "}
-								>
-									<For each={highlightedLines()![index()]}>
-										{(token) => (
-											<span style={{ color: token.color }}>
-												{token.content}
-											</span>
-										)}
-									</For>
-								</Show>
-							</pre>
-						</div>
-					)}
-				</For>
-			</div>
-		</div>
-	);
-}
-
-function DiffFileView(props: { file: DiffFile }) {
-	const [expanded, setExpanded] = createSignal(true);
-
-	const lang = createMemo(() => getLanguageFromPath(props.file.path));
-
-	const statusColors: Record<string, string> = {
-		modified: "text-yellow-500",
-		added: "text-green-500",
-		deleted: "text-red-500",
-		renamed: "text-blue-500",
-	};
-
-	const statusIcons: Record<string, string> = {
-		modified: "M",
-		added: "A",
-		deleted: "D",
-		renamed: "R",
-	};
-
-	return (
-		<div class="border border-border rounded-lg overflow-hidden">
-			<button
-				type="button"
-				onClick={() => setExpanded(!expanded())}
-				class="w-full flex items-center gap-3 px-4 py-3 bg-muted hover:bg-muted/80 transition-colors"
-			>
-				<span
-					class={`font-mono text-sm font-medium ${statusColors[props.file.status]}`}
-				>
-					{statusIcons[props.file.status]}
-				</span>
-				<span class="font-mono text-sm flex-1 text-left truncate">
-					{props.file.path}
-				</span>
-				<svg
-					class={`w-4 h-4 transition-transform ${expanded() ? "rotate-180" : ""}`}
-					fill="none"
-					stroke="currentColor"
-					viewBox="0 0 24 24"
-				>
-					<path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						stroke-width="2"
-						d="M19 9l-7 7-7-7"
-					/>
-				</svg>
-			</button>
-
-			<Show when={expanded()}>
-				<div class="overflow-x-auto">
-					<div class="min-w-max">
-						<For each={props.file.hunks}>
-							{(hunk) => <DiffHunkView hunk={hunk} lang={lang()} />}
-						</For>
-					</div>
-				</div>
-			</Show>
-		</div>
-	);
-}
 
 export default function App() {
   const [events, setEvents] = createSignal<EventItem[]>([]);
@@ -390,11 +155,9 @@ export default function App() {
   const [isPlaying, setIsPlaying] = createSignal(false);
   const [showMenu, setShowMenu] = createSignal(false);
 
-  // Git diff state
-  const [gitStatus, setGitStatus] = createSignal<GitStatus | null>(null);
+  // Git state
+  const gitStatus = useGitStatus();
   const [showDiffModal, setShowDiffModal] = createSignal(false);
-  const [diffData, setDiffData] = createSignal<DiffFile[] | null>(null);
-  const [diffLoading, setDiffLoading] = createSignal(false);
   const [audioLevels, setAudioLevels] = createSignal<number[]>([0, 0, 0, 0]);
 
   let mainRef: HTMLElement | undefined;
@@ -422,48 +185,7 @@ export default function App() {
     }
   });
 
-  // Poll git status every 5 seconds
-  onMount(() => {
-    const fetchGitStatus = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/git/status`);
-        if (res.ok) {
-          const data = await res.json();
-          setGitStatus(data);
-        } else {
-          // Set default if endpoint fails
-          setGitStatus({ hasChanges: false, insertions: 0, deletions: 0, filesChanged: 0 });
-        }
-      } catch (err) {
-        console.error("Git status error:", err);
-        // Set default on error so indicator still shows
-        setGitStatus({ hasChanges: false, insertions: 0, deletions: 0, filesChanged: 0 });
-      }
-    };
-
-    fetchGitStatus();
-    const interval = setInterval(fetchGitStatus, 5000);
-    onCleanup(() => clearInterval(interval));
-  });
-
-  const openDiffModal = async () => {
-    setShowDiffModal(true);
-    setDiffLoading(true);
-
-    try {
-      const res = await fetch(`${API_URL}/api/git/diff`);
-      if (res.ok) {
-        const { files } = await res.json();
-        setDiffData(files);
-      }
-    } catch (err) {
-      console.error("Git diff error:", err);
-    } finally {
-      setDiffLoading(false);
-    }
-  };
-
-  const requestCommit = () => {
+  const handleCommit = () => {
     setShowDiffModal(false);
     setInput("Commit the current changes");
   };
@@ -1029,34 +751,10 @@ export default function App() {
           </div>
 
           {/* Git status indicator on the right */}
-          <Show when={gitStatus()}>
-            <button
-              type="button"
-              onClick={openDiffModal}
-              disabled={!gitStatus()?.hasChanges}
-              class={`absolute right-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-background border border-border transition-colors shadow-lg ${
-                gitStatus()?.hasChanges
-                  ? "hover:bg-muted"
-                  : "opacity-50 cursor-default"
-              }`}
-              title={gitStatus()?.hasChanges ? "View git changes" : "No changes"}
-            >
-              <span
-                class={`w-2 h-2 rounded-full ${
-                  gitStatus()?.hasChanges ? "bg-yellow-500" : "bg-muted-foreground"
-                }`}
-              />
-              <span class="text-sm text-muted-foreground font-mono">
-                <span class={gitStatus()?.hasChanges ? "text-green-500" : ""}>
-                  +{gitStatus()!.insertions}
-                </span>
-                {" "}
-                <span class={gitStatus()?.hasChanges ? "text-red-500" : ""}>
-                  -{gitStatus()!.deletions}
-                </span>
-              </span>
-            </button>
-          </Show>
+          <GitStatusIndicator
+            gitStatus={gitStatus()}
+            onClick={() => setShowDiffModal(true)}
+          />
 
           {/* Centered mic button */}
           <button
@@ -1124,60 +822,11 @@ export default function App() {
       </div>
 
       {/* Git Diff Modal */}
-      <Show when={showDiffModal()}>
-        <div
-          class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowDiffModal(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setShowDiffModal(false);
-          }}
-        >
-          <div class="h-full flex flex-col">
-            {/* Content */}
-            <div class="flex-1 overflow-y-auto p-4">
-              <Show when={diffLoading()}>
-                <div class="flex items-center justify-center h-32">
-                  <span class="text-muted-foreground">Loading diff...</span>
-                </div>
-              </Show>
-
-              <Show when={!diffLoading() && diffData()}>
-                <div class="space-y-6 max-w-4xl mx-auto">
-                  <For each={diffData()}>
-                    {(file) => <DiffFileView file={file} />}
-                  </For>
-                </div>
-              </Show>
-
-              <Show when={!diffLoading() && diffData()?.length === 0}>
-                <div class="text-center text-muted-foreground py-8">
-                  No changes detected
-                </div>
-              </Show>
-            </div>
-
-            {/* Bottom bar */}
-            <div class="flex items-center justify-end p-4 border-t border-border gap-2">
-              <button
-                type="button"
-                onClick={() => setShowDiffModal(false)}
-                class="btn-secondary px-4 py-2 text-sm"
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                onClick={requestCommit}
-                class="btn px-4 py-2 text-sm"
-              >
-                Commit
-              </button>
-            </div>
-          </div>
-        </div>
-      </Show>
+      <GitDiffModal
+        show={showDiffModal()}
+        onClose={() => setShowDiffModal(false)}
+        onCommit={handleCommit}
+      />
     </div>
   );
 }
