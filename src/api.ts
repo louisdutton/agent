@@ -934,7 +934,7 @@ export default {
 			}
 		}
 
-		// List available projects from ~/projects/
+		// List available projects from ~/projects/ with their sessions
 		if (path === "/projects" && req.method === "GET") {
 			try {
 				const projectsDir = join(homedir(), "projects");
@@ -942,23 +942,85 @@ export default {
 					new Bun.Glob("*").scan({ cwd: projectsDir, onlyFiles: false }),
 				);
 
-				// Filter to only directories and sort alphabetically
-				const projects: string[] = [];
+				// Filter to only directories
+				const projectNames: string[] = [];
 				for (const entry of entries) {
 					const fullPath = join(projectsDir, entry);
-					const stat = await Bun.file(fullPath).exists();
-					// Check if it's a directory by trying to read it
 					try {
 						const proc = Bun.spawn(["test", "-d", fullPath]);
 						if ((await proc.exited) === 0) {
-							projects.push(entry);
+							projectNames.push(entry);
 						}
 					} catch {
 						// Skip non-directories
 					}
 				}
 
-				projects.sort((a, b) => a.localeCompare(b));
+				projectNames.sort((a, b) => a.localeCompare(b));
+
+				// Load sessions for each project
+				type SessionInfo = {
+					sessionId: string;
+					firstPrompt: string;
+					messageCount: number;
+					created: string;
+					modified: string;
+					gitBranch?: string;
+				};
+				type ProjectWithSessions = {
+					name: string;
+					path: string;
+					sessions: SessionInfo[];
+				};
+
+				const projects: ProjectWithSessions[] = [];
+
+				for (const name of projectNames) {
+					const projectPath = join(projectsDir, name);
+					const projectFolder = projectPath.replace(/\//g, "-");
+					const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
+					const indexPath = join(claudeDir, "sessions-index.json");
+
+					const projectData: ProjectWithSessions = {
+						name,
+						path: projectPath,
+						sessions: [],
+					};
+
+					try {
+						const indexFile = Bun.file(indexPath);
+						if (await indexFile.exists()) {
+							const index = await indexFile.json();
+							projectData.sessions = index.entries
+								.filter((e: { isSidechain: boolean }) => !e.isSidechain)
+								.sort(
+									(a: { modified: string }, b: { modified: string }) =>
+										new Date(b.modified).getTime() - new Date(a.modified).getTime(),
+								)
+								.map(
+									(e: {
+										sessionId: string;
+										firstPrompt?: string;
+										messageCount?: number;
+										created?: string;
+										modified: string;
+										gitBranch?: string;
+									}) => ({
+										sessionId: e.sessionId,
+										firstPrompt: e.firstPrompt || "Untitled session",
+										messageCount: e.messageCount || 0,
+										created: e.created || e.modified,
+										modified: e.modified,
+										gitBranch: e.gitBranch,
+									}),
+								);
+						}
+					} catch {
+						// No sessions for this project
+					}
+
+					projects.push(projectData);
+				}
 
 				return Response.json(
 					{ projects, currentProject: getActiveSessionCwd().split("/").pop() },
