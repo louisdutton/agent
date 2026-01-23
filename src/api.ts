@@ -1,5 +1,5 @@
-import { homedir } from "os";
-import { join } from "path";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { clearSession, sendMessage } from "./claude";
 
 const corsHeaders = {
@@ -132,10 +132,20 @@ export default {
 		}
 
 		// Clear session
-		if ((path === "/session" && req.method === "DELETE") || (path === "/clear" && req.method === "POST")) {
-			clearSession();
-			console.log("Session cleared");
-			return Response.json({ ok: true }, { headers: corsHeaders });
+		if (
+			(path === "/session" && req.method === "DELETE") ||
+			(path === "/clear" && req.method === "POST")
+		) {
+			try {
+				await clearSession();
+				return Response.json({ ok: true }, { headers: corsHeaders });
+			} catch (err) {
+				console.error("Failed to clear session:", err);
+				return Response.json(
+					{ error: String(err) },
+					{ status: 500, headers: corsHeaders },
+				);
+			}
 		}
 
 		// Transcribe audio via Whisper
