@@ -41,11 +41,13 @@ export function SessionManagerModal(props: {
 	const [switching, setSwitching] = createSignal<string | null>(null);
 	const [deleting, setDeleting] = createSignal<string | null>(null);
 	const [starting, setStarting] = createSignal<string | null>(null);
+	const [showProjectPicker, setShowProjectPicker] = createSignal(false);
 
 	// Load projects when modal opens
 	createEffect(() => {
 		if (props.show) {
 			loadProjects();
+			setShowProjectPicker(false);
 		}
 	});
 
@@ -121,6 +123,7 @@ export function SessionManagerModal(props: {
 			alert("Failed to start session");
 		} finally {
 			setStarting(null);
+			setShowProjectPicker(false);
 		}
 	};
 
@@ -184,10 +187,12 @@ export function SessionManagerModal(props: {
 
 	// Check if a session is the current active one
 	const isActiveSession = (sessionId: string, projectName: string) => {
-		// The first session in the current project is active
 		const project = projects().find((p) => p.name === currentProject());
 		return projectName === currentProject() && project?.sessions[0]?.sessionId === sessionId;
 	};
+
+	// Only show projects that have sessions
+	const projectsWithSessions = () => projects().filter((p) => p.sessions.length > 0);
 
 	return (
 		<Show when={props.show}>
@@ -197,7 +202,13 @@ export function SessionManagerModal(props: {
 					if (e.target === e.currentTarget) props.onClose();
 				}}
 				onKeyDown={(e) => {
-					if (e.key === "Escape") props.onClose();
+					if (e.key === "Escape") {
+						if (showProjectPicker()) {
+							setShowProjectPicker(false);
+						} else {
+							props.onClose();
+						}
+					}
 				}}
 			>
 				<div class="h-full flex flex-col justify-end">
@@ -210,103 +221,145 @@ export function SessionManagerModal(props: {
 						</Show>
 
 						<Show when={!loading()}>
-							<div class="space-y-4 max-w-2xl mx-auto w-full">
-								<For each={projects()}>
-									{(project) => (
-										<div class="space-y-2">
-											{/* Project header */}
-											<div class="flex items-center gap-2">
-												<span class="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-													{project.name}
-												</span>
-												<Show when={project.name === currentProject()}>
-													<span class="text-xs text-primary">(current)</span>
-												</Show>
-											</div>
-
-											{/* Sessions or start button */}
-											<Show
-												when={project.sessions.length > 0}
-												fallback={
-													<button
-														type="button"
-														onClick={() => startNewSession(project.name)}
-														disabled={starting() === project.name}
-														class="w-full p-3 rounded-lg border border-dashed border-border hover:border-primary hover:bg-muted/30 transition-colors text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
-													>
-														{starting() === project.name ? "Starting..." : "Start new session"}
-													</button>
-												}
+							{/* Project picker overlay */}
+							<Show when={showProjectPicker()}>
+								<div class="space-y-2 max-w-2xl mx-auto w-full">
+									<div class="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+										Select project
+									</div>
+									<For each={projects()}>
+										{(project) => (
+											<button
+												type="button"
+												onClick={() => startNewSession(project.name)}
+												disabled={starting() === project.name}
+												class="w-full p-3 rounded-lg border border-border hover:border-primary hover:bg-muted/30 transition-colors text-left disabled:opacity-50"
 											>
-												<div class="space-y-1">
-													<For each={project.sessions}>
-														{(session) => (
-															<div
-																class={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
-																	isActiveSession(session.sessionId, project.name)
-																		? "border-primary bg-muted/50"
-																		: "border-border hover:bg-muted/30"
-																}`}
-															>
-																<div class="flex-1 min-w-0">
-																	<div class="text-sm font-medium truncate">
-																		{truncatePrompt(session.firstPrompt)}
-																	</div>
-																	<div class="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-																		<span>{formatDate(session.modified)}</span>
-																		<span>·</span>
-																		<span>{session.messageCount} messages</span>
-																		<Show when={session.gitBranch}>
-																			<span>·</span>
-																			<span class="font-mono">{session.gitBranch}</span>
-																		</Show>
-																	</div>
-																</div>
-
-																<div class="flex items-center gap-2">
-																	<Show when={!isActiveSession(session.sessionId, project.name)}>
-																		<button
-																			type="button"
-																			onClick={() => switchSession(session.sessionId, project.name)}
-																			disabled={switching() === session.sessionId}
-																			class="px-3 py-1.5 text-sm rounded-md bg-muted hover:bg-muted-foreground/20 disabled:opacity-50 transition-colors"
-																		>
-																			{switching() === session.sessionId ? "..." : "Switch"}
-																		</button>
-																	</Show>
-																	<button
-																		type="button"
-																		onClick={() => deleteSession(session.sessionId, project.name)}
-																		disabled={deleting() === session.sessionId}
-																		class="p-1.5 rounded-md text-red-400 hover:bg-red-500/20 disabled:opacity-50 transition-colors"
-																		title="Delete session"
-																	>
-																		<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-																			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-																		</svg>
-																	</button>
-																</div>
-															</div>
-														)}
-													</For>
+												<div class="text-sm font-medium">{project.name}</div>
+												<div class="text-xs text-muted-foreground mt-1">
+													{project.sessions.length} session{project.sessions.length !== 1 ? "s" : ""}
 												</div>
-											</Show>
+											</button>
+										)}
+									</For>
+								</div>
+							</Show>
+
+							{/* Sessions list */}
+							<Show when={!showProjectPicker()}>
+								<Show
+									when={projectsWithSessions().length > 0}
+									fallback={
+										<div class="text-center text-muted-foreground py-8">
+											No sessions found
 										</div>
-									)}
-								</For>
-							</div>
+									}
+								>
+									<div class="space-y-4 max-w-2xl mx-auto w-full">
+										<For each={projectsWithSessions()}>
+											{(project, index) => (
+												<>
+													<Show when={index() > 0}>
+														<hr class="border-border" />
+													</Show>
+													<div class="space-y-2">
+														{/* Project header */}
+														<div class="flex items-center gap-2">
+															<span class="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+																{project.name}
+															</span>
+															<Show when={project.name === currentProject()}>
+																<span class="text-xs text-primary">(current)</span>
+															</Show>
+														</div>
+
+														{/* Sessions */}
+														<div class="space-y-1">
+															<For each={project.sessions}>
+																{(session) => (
+																	<div
+																		class={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+																			isActiveSession(session.sessionId, project.name)
+																				? "border-primary bg-muted/50"
+																				: "border-border hover:bg-muted/30"
+																		}`}
+																	>
+																		<div class="flex-1 min-w-0">
+																			<div class="text-sm font-medium truncate">
+																				{truncatePrompt(session.firstPrompt)}
+																			</div>
+																			<div class="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+																				<span>{formatDate(session.modified)}</span>
+																				<span>·</span>
+																				<span>{session.messageCount} messages</span>
+																				<Show when={session.gitBranch}>
+																					<span>·</span>
+																					<span class="font-mono">{session.gitBranch}</span>
+																				</Show>
+																			</div>
+																		</div>
+
+																		<div class="flex items-center gap-2">
+																			<Show when={!isActiveSession(session.sessionId, project.name)}>
+																				<button
+																					type="button"
+																					onClick={() => switchSession(session.sessionId, project.name)}
+																					disabled={switching() === session.sessionId}
+																					class="px-3 py-1.5 text-sm rounded-md bg-muted hover:bg-muted-foreground/20 disabled:opacity-50 transition-colors"
+																				>
+																					{switching() === session.sessionId ? "..." : "Switch"}
+																				</button>
+																			</Show>
+																			<button
+																				type="button"
+																				onClick={() => deleteSession(session.sessionId, project.name)}
+																				disabled={deleting() === session.sessionId}
+																				class="p-1.5 rounded-md text-red-400 hover:bg-red-500/20 disabled:opacity-50 transition-colors"
+																				title="Delete session"
+																			>
+																				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+																					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+																				</svg>
+																			</button>
+																		</div>
+																	</div>
+																)}
+															</For>
+														</div>
+													</div>
+												</>
+											)}
+										</For>
+									</div>
+								</Show>
+							</Show>
 						</Show>
 					</div>
 
 					{/* Bottom bar */}
-					<div class="flex items-center justify-center px-4 pb-6 pt-2">
+					<div class="flex items-center justify-between px-4 pb-6 pt-2 max-w-2xl mx-auto w-full">
 						<button
 							type="button"
-							onClick={props.onClose}
+							onClick={() => {
+								if (showProjectPicker()) {
+									setShowProjectPicker(false);
+								} else {
+									props.onClose();
+								}
+							}}
 							class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
 						>
-							Close
+							{showProjectPicker() ? "Back" : "Close"}
 						</button>
+						<Show when={!showProjectPicker()}>
+							<button
+								type="button"
+								onClick={() => setShowProjectPicker(true)}
+								class="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+							>
+								New Session
+							</button>
+						</Show>
 					</div>
 				</div>
 			</div>
