@@ -1,13 +1,13 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { sendMessage } from "./claude";
 import {
 	cancelCurrentRequest,
 	clearSession,
 	getActiveSession,
 	getActiveSessionCwd,
-	sendMessage,
 	setActiveSession,
-} from "./claude";
+} from "./session";
 
 const corsHeaders = {
 	"Access-Control-Allow-Origin": "*",
