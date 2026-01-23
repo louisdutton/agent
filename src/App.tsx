@@ -395,6 +395,7 @@ export default function App() {
   const [showDiffModal, setShowDiffModal] = createSignal(false);
   const [diffData, setDiffData] = createSignal<DiffFile[] | null>(null);
   const [diffLoading, setDiffLoading] = createSignal(false);
+  const [audioLevels, setAudioLevels] = createSignal<number[]>([0, 0, 0, 0]);
 
   let mainRef: HTMLElement | undefined;
   let menuRef: HTMLDivElement | undefined;
@@ -403,6 +404,9 @@ export default function App() {
   let audioChunks: Blob[] = [];
   let currentAudio: HTMLAudioElement | null = null;
   let abortController: AbortController | null = null;
+  let audioContext: AudioContext | null = null;
+  let analyser: AnalyserNode | null = null;
+  let animationFrame: number | null = null;
 
   // Load chat history on mount
   onMount(async () => {
@@ -541,12 +545,43 @@ export default function App() {
       });
       audioChunks = [];
 
+      // Set up audio analyser for visualization
+      audioContext = new AudioContext();
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 32;
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const updateLevels = () => {
+        if (!analyser) return;
+        analyser.getByteFrequencyData(dataArray);
+        // Pick 4 frequency bands and normalize to 0-1
+        const levels = [
+          dataArray[1] / 255,
+          dataArray[3] / 255,
+          dataArray[5] / 255,
+          dataArray[7] / 255,
+        ];
+        setAudioLevels(levels);
+        animationFrame = requestAnimationFrame(updateLevels);
+      };
+      updateLevels();
+
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunks.push(e.data);
       };
 
       mediaRecorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
+        // Clean up audio visualizer
+        if (animationFrame) cancelAnimationFrame(animationFrame);
+        if (audioContext) audioContext.close();
+        audioContext = null;
+        analyser = null;
+        animationFrame = null;
+        setAudioLevels([0, 0, 0, 0]);
+
         if (audioChunks.length === 0) return;
 
         const audioBlob = new Blob(audioChunks, {
@@ -950,7 +985,7 @@ export default function App() {
       </main>
 
       {/* Bottom controls */}
-      <div class="flex flex-col items-center py-4 gap-3">
+      <div class="flex flex-col items-center py-8 gap-3">
         <div class="flex items-center justify-center gap-12 relative w-full">
           {/* Left buttons */}
           <div class="absolute left-4 flex items-center gap-2">
@@ -1039,22 +1074,25 @@ export default function App() {
                       : "bg-foreground hover:scale-105 active:scale-95"
               }`}
           >
+            {status() === "recording" ? (
+              <div class="flex items-center justify-center gap-1 w-12 h-12 bg-white/20 rounded-full">
+                <For each={audioLevels()}>
+                  {(level) => (
+                    <div
+                      class="w-1.5 bg-black rounded-full transition-all duration-75"
+                      style={{ height: `${8 + level * 24}px` }}
+                    />
+                  )}
+                </For>
+              </div>
+            ) : (
             <svg
               class={`w-8 h-8 ${status() === "idle" ? "text-background" : "text-white"}`}
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
             >
-              {status() === "recording" ? (
-                <rect
-                  x="6"
-                  y="6"
-                  width="12"
-                  height="12"
-                  rx="2"
-                  fill="currentColor"
-                />
-              ) : status() === "thinking" ? (
+              {status() === "thinking" ? (
                 <rect
                   x="6"
                   y="6"
@@ -1079,6 +1117,7 @@ export default function App() {
                 />
               )}
             </svg>
+            )}
           </button>
         </div>
 
