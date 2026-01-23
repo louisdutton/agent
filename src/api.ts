@@ -490,6 +490,56 @@ export default {
 			}
 		}
 
+		// Git commit
+		if (path === "/git/commit" && req.method === "POST") {
+			try {
+				const { message } = (await req.json()) as { message: string };
+
+				if (!message?.trim()) {
+					return Response.json(
+						{ error: "Commit message required" },
+						{ status: 400, headers: corsHeaders },
+					);
+				}
+
+				// Stage all changes
+				const addProc = Bun.spawn(["git", "add", "-A"], {
+					cwd: process.cwd(),
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+				await addProc.exited;
+
+				// Commit
+				const commitProc = Bun.spawn(["git", "commit", "-m", message.trim()], {
+					cwd: process.cwd(),
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+
+				const stdout = await new Response(commitProc.stdout).text();
+				const stderr = await new Response(commitProc.stderr).text();
+				const exitCode = await commitProc.exited;
+
+				if (exitCode !== 0) {
+					console.error("Git commit error:", stderr);
+					return Response.json(
+						{ error: stderr || "Commit failed" },
+						{ status: 500, headers: corsHeaders },
+					);
+				}
+
+				console.log("Git commit:", stdout);
+				return Response.json({ ok: true, output: stdout }, { headers: corsHeaders });
+			} catch (err) {
+				console.error("Git commit error:", err);
+				return Response.json(
+					{ error: String(err) },
+					{ status: 500, headers: corsHeaders },
+				);
+			}
+		}
+
 		return Response.json(
 			{ error: "Not found" },
 			{ status: 404, headers: corsHeaders },

@@ -460,6 +460,11 @@ export default function App() {
     }
   };
 
+  const requestCommit = () => {
+    setShowDiffModal(false);
+    setInput("Commit the current changes");
+  };
+
   createEffect(() => {
     events();
     streamingContent();
@@ -1136,7 +1141,7 @@ export default function App() {
         >
           <div class="h-full flex flex-col">
             {/* Header */}
-            <div class="flex items-center justify-between p-4 border-b border-border">
+            <div class="flex items-center justify-between p-4 border-b border-border gap-4">
               <div class="flex items-center gap-3">
                 <h2 class="text-lg font-medium">Git Changes</h2>
                 <Show when={gitStatus()}>
@@ -1146,6 +1151,16 @@ export default function App() {
                   </span>
                 </Show>
               </div>
+
+              {/* Commit button */}
+              <button
+                type="button"
+                onClick={requestCommit}
+                class="btn px-4 py-2 text-sm"
+              >
+                Commit
+              </button>
+
               <button
                 type="button"
                 onClick={() => setShowDiffModal(false)}
