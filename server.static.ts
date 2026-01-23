@@ -1,5 +1,5 @@
 // Production static file server
-import api from "./src/api";
+import api from "./api.js";
 
 const distDir = import.meta.dir;
 

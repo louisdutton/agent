@@ -46,8 +46,8 @@ in
       # Link pre-fetched dependencies
       ln -s ${node_modules}/node_modules node_modules
 
-      # Build frontend (uses plugins from bunfig.toml for SolidJS)
-      bun build index.html --outdir=dist --minify
+      # Build frontend with plugins (SolidJS + Tailwind)
+      bun run build.ts
 
       # Build API for the static server
       bun build --target=bun --minify src/api.ts --outdir=dist
