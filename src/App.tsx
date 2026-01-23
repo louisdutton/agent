@@ -1068,7 +1068,7 @@ export default function App() {
                 : status() === "speaking"
                   ? "bg-green-500"
                   : status() === "thinking"
-                    ? "bg-yellow-500 hover:scale-105 active:scale-95"
+                    ? "bg-red-500 hover:scale-105 active:scale-95"
                     : status() === "transcribing"
                       ? "bg-yellow-500"
                       : "bg-foreground hover:scale-105 active:scale-95"
