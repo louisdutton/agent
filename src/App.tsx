@@ -214,6 +214,7 @@ function DiffFileView(props: { file: DiffFile }) {
 
 			<Show when={expanded()}>
 				<div class="overflow-x-auto">
+					<div class="min-w-max">
 					<For each={props.file.hunks}>
 						{(hunk) => (
 							<div>
@@ -232,14 +233,14 @@ function DiffFileView(props: { file: DiffFile }) {
 															: ""
 												}`}
 											>
-												<span class="w-12 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
+												<span class="w-12 shrink-0 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
 													{line.oldLineNum ?? ""}
 												</span>
-												<span class="w-12 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
+												<span class="w-12 shrink-0 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
 													{line.newLineNum ?? ""}
 												</span>
 												<span
-													class={`w-6 text-center select-none ${
+													class={`w-6 shrink-0 text-center select-none ${
 														line.type === "addition"
 															? "text-green-500"
 															: line.type === "deletion"
@@ -253,7 +254,7 @@ function DiffFileView(props: { file: DiffFile }) {
 															? "-"
 															: " "}
 												</span>
-												<pre class="flex-1 px-2 whitespace-pre overflow-x-auto">
+												<pre class="px-2 whitespace-pre">
 													{line.content || " "}
 												</pre>
 											</div>
@@ -263,6 +264,7 @@ function DiffFileView(props: { file: DiffFile }) {
 							</div>
 						)}
 					</For>
+					</div>
 				</div>
 			</Show>
 		</div>
