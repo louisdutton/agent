@@ -985,7 +985,7 @@ export default function App() {
       </main>
 
       {/* Bottom controls */}
-      <div class="flex flex-col items-center py-8 gap-3">
+      <div class="flex flex-col items-center pt-2 pb-6 gap-3">
         <div class="flex items-center justify-center gap-12 relative w-full">
           {/* Left buttons */}
           <div class="absolute left-4 flex items-center gap-2">
