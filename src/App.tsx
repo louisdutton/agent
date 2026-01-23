@@ -7,6 +7,7 @@ import {
 	onMount,
 	Show,
 } from "solid-js";
+import { bundledLanguages, codeToTokens } from "shiki";
 import Markdown from "./Markdown";
 
 const API_URL = "";
@@ -165,8 +166,161 @@ function ToolGroup(props: { tools: Tool[]; defaultExpanded?: boolean }) {
   );
 }
 
+// Map file extensions to Shiki language identifiers
+function getLanguageFromPath(path: string): string {
+	const ext = path.split(".").pop()?.toLowerCase() || "";
+	const extMap: Record<string, string> = {
+		ts: "typescript",
+		tsx: "tsx",
+		js: "javascript",
+		jsx: "jsx",
+		py: "python",
+		rb: "ruby",
+		go: "go",
+		rs: "rust",
+		java: "java",
+		kt: "kotlin",
+		swift: "swift",
+		c: "c",
+		cpp: "cpp",
+		h: "c",
+		hpp: "cpp",
+		cs: "csharp",
+		php: "php",
+		sh: "bash",
+		bash: "bash",
+		zsh: "bash",
+		json: "json",
+		yaml: "yaml",
+		yml: "yaml",
+		toml: "toml",
+		xml: "xml",
+		html: "html",
+		css: "css",
+		scss: "scss",
+		less: "less",
+		md: "markdown",
+		sql: "sql",
+		graphql: "graphql",
+		dockerfile: "dockerfile",
+		makefile: "makefile",
+	};
+	return extMap[ext] || "text";
+}
+
+// Cache for highlighted hunks
+const hunkHighlightCache = new Map<string, Array<Array<{ content: string; color?: string }>>>();
+
+// Highlight a hunk and return tokens per line
+async function highlightHunk(
+	lines: DiffLine[],
+	lang: string
+): Promise<Array<Array<{ content: string; color?: string }>>> {
+	const code = lines.map((l) => l.content).join("\n");
+	const cacheKey = `${lang}:${code}`;
+
+	if (hunkHighlightCache.has(cacheKey)) {
+		return hunkHighlightCache.get(cacheKey)!;
+	}
+
+	const validLang = lang in bundledLanguages ? lang : "text";
+
+	try {
+		const { tokens } = await codeToTokens(code, {
+			lang: validLang,
+			theme: "vitesse-black",
+		});
+
+		// tokens is an array of lines, each line is an array of tokens
+		const result = tokens.map((lineTokens) =>
+			lineTokens.map((token) => ({
+				content: token.content,
+				color: token.color,
+			}))
+		);
+
+		hunkHighlightCache.set(cacheKey, result);
+		return result;
+	} catch {
+		// Fallback: return plain text tokens
+		return lines.map((l) => [{ content: l.content || " " }]);
+	}
+}
+
+function DiffHunkView(props: { hunk: DiffHunk; lang: string }) {
+	const [highlightedLines, setHighlightedLines] = createSignal<
+		Array<Array<{ content: string; color?: string }>> | null
+	>(null);
+
+	onMount(async () => {
+		const tokens = await highlightHunk(props.hunk.lines, props.lang);
+		setHighlightedLines(tokens);
+	});
+
+	return (
+		<div>
+			<div class="px-4 py-1 bg-blue-500/10 text-blue-400 font-mono text-xs">
+				{props.hunk.header}
+			</div>
+			<div class="font-mono text-sm">
+				<For each={props.hunk.lines}>
+					{(line, index) => (
+						<div
+							class={`flex ${
+								line.type === "addition"
+									? "bg-green-500/15"
+									: line.type === "deletion"
+										? "bg-red-500/15"
+										: ""
+							}`}
+						>
+							<span class="w-12 shrink-0 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
+								{line.oldLineNum ?? ""}
+							</span>
+							<span class="w-12 shrink-0 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
+								{line.newLineNum ?? ""}
+							</span>
+							<span
+								class={`w-6 shrink-0 text-center select-none ${
+									line.type === "addition"
+										? "text-green-500"
+										: line.type === "deletion"
+											? "text-red-500"
+											: "text-muted-foreground"
+								}`}
+							>
+								{line.type === "addition"
+									? "+"
+									: line.type === "deletion"
+										? "-"
+										: " "}
+							</span>
+							<pre class="px-2 whitespace-pre">
+								<Show
+									when={highlightedLines()?.[index()]}
+									fallback={line.content || " "}
+								>
+									<For each={highlightedLines()![index()]}>
+										{(token) => (
+											<span style={{ color: token.color }}>
+												{token.content}
+											</span>
+										)}
+									</For>
+								</Show>
+							</pre>
+						</div>
+					)}
+				</For>
+			</div>
+		</div>
+	);
+}
+
 function DiffFileView(props: { file: DiffFile }) {
 	const [expanded, setExpanded] = createSignal(true);
+
+	const lang = createMemo(() => getLanguageFromPath(props.file.path));
 
 	const statusColors: Record<string, string> = {
 		modified: "text-yellow-500",
@@ -215,55 +369,9 @@ function DiffFileView(props: { file: DiffFile }) {
 			<Show when={expanded()}>
 				<div class="overflow-x-auto">
 					<div class="min-w-max">
-					<For each={props.file.hunks}>
-						{(hunk) => (
-							<div>
-								<div class="px-4 py-1 bg-blue-500/10 text-blue-400 font-mono text-xs">
-									{hunk.header}
-								</div>
-								<div class="font-mono text-sm">
-									<For each={hunk.lines}>
-										{(line) => (
-											<div
-												class={`flex ${
-													line.type === "addition"
-														? "bg-green-500/15"
-														: line.type === "deletion"
-															? "bg-red-500/15"
-															: ""
-												}`}
-											>
-												<span class="w-12 shrink-0 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
-													{line.oldLineNum ?? ""}
-												</span>
-												<span class="w-12 shrink-0 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
-													{line.newLineNum ?? ""}
-												</span>
-												<span
-													class={`w-6 shrink-0 text-center select-none ${
-														line.type === "addition"
-															? "text-green-500"
-															: line.type === "deletion"
-																? "text-red-500"
-																: "text-muted-foreground"
-													}`}
-												>
-													{line.type === "addition"
-														? "+"
-														: line.type === "deletion"
-															? "-"
-															: " "}
-												</span>
-												<pre class="px-2 whitespace-pre">
-													{line.content || " "}
-												</pre>
-											</div>
-										)}
-									</For>
-								</div>
-							</div>
-						)}
-					</For>
+						<For each={props.file.hunks}>
+							{(hunk) => <DiffHunkView hunk={hunk} lang={lang()} />}
+						</For>
 					</div>
 				</div>
 			</Show>
