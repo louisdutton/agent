@@ -116,27 +116,98 @@ async function getSessionHistory() {
 		const content = await transcriptFile.text();
 		const lines = content.trim().split("\n").filter(Boolean);
 
-		type Message = { type: "user" | "assistant"; id: string; content: string };
+		type Tool = {
+			toolUseId: string;
+			name: string;
+			input: Record<string, unknown>;
+			status: "running" | "complete" | "error";
+		};
+		type Message =
+			| { type: "user"; id: string; content: string }
+			| { type: "assistant"; id: string; content: string }
+			| { type: "tools"; id: string; tools: Tool[] };
 		const messages: Message[] = [];
 
+		// Track tool results to update tool status
+		const toolResults = new Map<string, boolean>(); // toolUseId -> isError
+
+		// First pass: collect all tool results
 		for (const line of lines) {
 			try {
 				const entry = JSON.parse(line);
 				if (entry.type === "user" && entry.message?.content) {
-					const textBlocks = entry.message.content.filter(
-						(b: { type: string }) => b.type === "text",
-					);
-					const text = textBlocks.map((b: { text: string }) => b.text).join("");
-					if (text) {
-						messages.push({ type: "user", id: entry.uuid, content: text });
+					const content = entry.message.content;
+					// Handle array content (tool results)
+					if (Array.isArray(content)) {
+						for (const block of content) {
+							if (block.type === "tool_result" && block.tool_use_id) {
+								toolResults.set(block.tool_use_id, !!block.is_error);
+							}
+						}
+					}
+				}
+			} catch {
+				// Skip invalid JSON
+			}
+		}
+
+		// Second pass: build messages with correct tool statuses
+		for (const line of lines) {
+			try {
+				const entry = JSON.parse(line);
+				if (entry.type === "user" && entry.message?.content) {
+					const content = entry.message.content;
+					// Handle string content (regular user messages)
+					if (typeof content === "string") {
+						// Skip meta/command messages
+						if (!entry.isMeta && !content.startsWith("<")) {
+							messages.push({ type: "user", id: entry.uuid, content });
+						}
+					} else if (Array.isArray(content)) {
+						// Handle array content (messages with text blocks)
+						const textBlocks = content.filter(
+							(b: { type: string }) => b.type === "text",
+						);
+						const text = textBlocks.map((b: { text: string }) => b.text).join("");
+						if (text) {
+							messages.push({ type: "user", id: entry.uuid, content: text });
+						}
 					}
 				} else if (entry.type === "assistant" && entry.message?.content) {
-					const textBlocks = entry.message.content.filter(
+					const content = entry.message.content;
+					if (!Array.isArray(content)) continue;
+
+					// Extract text content
+					const textBlocks = content.filter(
 						(b: { type: string }) => b.type === "text",
 					);
 					const text = textBlocks.map((b: { text: string }) => b.text).join("");
 					if (text) {
 						messages.push({ type: "assistant", id: entry.uuid, content: text });
+					}
+
+					// Extract tool uses
+					const toolUses = content.filter(
+						(b: { type: string }) => b.type === "tool_use",
+					);
+					if (toolUses.length > 0) {
+						const tools: Tool[] = toolUses.map(
+							(t: { id: string; name: string; input: Record<string, unknown> }) => ({
+								toolUseId: t.id,
+								name: t.name,
+								input: t.input || {},
+								status: toolResults.has(t.id)
+									? toolResults.get(t.id)
+										? "error"
+										: "complete"
+									: "complete", // Default to complete for historical tools
+							}),
+						);
+						messages.push({
+							type: "tools",
+							id: `tools-${entry.uuid}`,
+							tools,
+						});
 					}
 				}
 			} catch {
