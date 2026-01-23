@@ -220,7 +220,22 @@ async function getSessionHistory() {
 			}
 		}
 
-		return messages;
+		// Merge consecutive tool groups (mimics live streaming behavior)
+		const mergedMessages: Message[] = [];
+		for (const msg of messages) {
+			const last = mergedMessages[mergedMessages.length - 1];
+			if (msg.type === "tools" && last && last.type === "tools") {
+				// Merge tools into the previous group
+				mergedMessages[mergedMessages.length - 1] = {
+					...last,
+					tools: [...last.tools, ...msg.tools],
+				};
+			} else {
+				mergedMessages.push(msg);
+			}
+		}
+
+		return mergedMessages;
 	} catch (err) {
 		console.error("Error reading session history:", err);
 		return [];
@@ -344,7 +359,22 @@ async function getSessionHistoryById(sessionId: string) {
 			}
 		}
 
-		return messages;
+		// Merge consecutive tool groups (mimics live streaming behavior)
+		const mergedMessages: Message[] = [];
+		for (const msg of messages) {
+			const last = mergedMessages[mergedMessages.length - 1];
+			if (msg.type === "tools" && last && last.type === "tools") {
+				// Merge tools into the previous group
+				mergedMessages[mergedMessages.length - 1] = {
+					...last,
+					tools: [...last.tools, ...msg.tools],
+				};
+			} else {
+				mergedMessages.push(msg);
+			}
+		}
+
+		return mergedMessages;
 	} catch (err) {
 		console.error("Error reading session history by ID:", err);
 		return [];
