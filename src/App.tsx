@@ -1064,7 +1064,7 @@ export default function App() {
             onClick={handleMicClick}
             disabled={isTranscribing()}
             class={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg ${status() === "recording"
-                ? "bg-red-500 scale-110"
+                ? "bg-foreground scale-110"
                 : status() === "speaking"
                   ? "bg-green-500"
                   : status() === "thinking"
