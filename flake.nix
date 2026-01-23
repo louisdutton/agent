@@ -59,8 +59,6 @@
           tailwindcss-language-server
 
           # server
-          odin
-          ols
           whisper-cpp
           ffmpeg
           piper-tts
@@ -108,24 +106,7 @@
           '');
         };
 
-        # Odin TTS server (requires ./tts/build.sh to be run first)
-        tts-odin = {
-          type = "app";
-          program = toString (pkgs.writeShellScript "tts-odin" ''
-            if [ -d "$PWD/tts/.build/install/lib" ]; then
-              export LD_LIBRARY_PATH="$PWD/tts/.build/install/lib:$LD_LIBRARY_PATH"
-            fi
-            if [ ! -f "$PWD/tts/tts-server" ]; then
-              echo "Odin TTS server not built. Run: cd tts && ./build.sh"
-              exit 1
-            fi
-            echo "Starting Odin TTS server on :8880..."
-            export PIPER_MODEL="${piperModel}/en_GB-alba-medium.onnx"
-            exec $PWD/tts/tts-server
-          '');
-        };
-
-        services = {
+        default = {
           type = "app";
           program = toString (pkgs.writeShellScript "all-services" ''
             trap 'kill $(jobs -p)' EXIT
