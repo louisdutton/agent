@@ -46,8 +46,11 @@ in
       # Link pre-fetched dependencies
       ln -s ${node_modules}/node_modules node_modules
 
-      # Build the server binary (embeds the frontend via index.html import)
-      bun build --compile --minify server.ts --outfile agent-server
+      # Build frontend (uses plugins from bunfig.toml for SolidJS)
+      bun build index.html --outdir=dist --minify
+
+      # Build API for the static server
+      bun build --target=bun --minify src/api.ts --outdir=dist
 
       runHook postBuild
     '';
@@ -55,23 +58,21 @@ in
     installPhase = ''
       runHook preInstall
 
-      mkdir -p $out/bin $out/share/agent-mobile
+      mkdir -p $out/bin $out/share/agent-mobile/dist
 
-      # Install the binary
-      cp agent-server $out/bin/
+      # Install built frontend and API
+      cp -r dist/* $out/share/agent-mobile/dist/
+      cp -r public $out/share/agent-mobile/dist/
 
-      # Install public assets
-      cp -r public $out/share/agent-mobile/
+      # Install static server
+      cp server.static.ts $out/share/agent-mobile/dist/server.ts
 
-      # Wrap binary to set working directory for public assets
-      wrapProgram $out/bin/agent-server \
-        --chdir $out/share/agent-mobile
+      # Create wrapper
+      makeWrapper ${bun}/bin/bun $out/bin/agent-server \
+        --add-flags "$out/share/agent-mobile/dist/server.ts"
 
       runHook postInstall
     '';
-
-    # Don't strip - it corrupts Bun's embedded bytecode
-    dontStrip = true;
 
     meta = with lib; {
       description = "Agent Mobile - SolidJS frontend for managing Agent sessions";
