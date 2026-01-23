@@ -4,6 +4,7 @@ import {
 	cancelCurrentRequest,
 	clearSession,
 	getActiveSession,
+	getActiveSessionCwd,
 	sendMessage,
 	setActiveSession,
 } from "./claude";
@@ -95,7 +96,7 @@ function parseDiff(rawDiff: string): DiffFile[] {
 
 // Get Claude session history from ~/.claude/projects/
 async function getSessionHistory() {
-	const cwd = process.cwd();
+	const cwd = getActiveSessionCwd();
 	const projectFolder = cwd.replace(/\//g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 	const indexPath = join(claudeDir, "sessions-index.json");
@@ -245,7 +246,7 @@ async function getSessionHistory() {
 
 // Get session history by specific session ID
 async function getSessionHistoryById(sessionId: string) {
-	const cwd = process.cwd();
+	const cwd = getActiveSessionCwd();
 	const projectFolder = cwd.replace(/\//g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 	const indexPath = join(claudeDir, "sessions-index.json");
@@ -461,10 +462,39 @@ export default {
 			}
 		}
 
+		// Create a new session with a specific cwd
+		if (path === "/sessions/new" && req.method === "POST") {
+			try {
+				const { cwd } = (await req.json()) as { cwd?: string };
+
+				// Validate directory exists if cwd is provided
+				if (cwd) {
+					const proc = Bun.spawn(["test", "-d", cwd]);
+					const exitCode = await proc.exited;
+					if (exitCode !== 0) {
+						return Response.json(
+							{ error: "Directory does not exist" },
+							{ status: 400, headers: corsHeaders },
+						);
+					}
+				}
+
+				// Clear active session and set new cwd
+				setActiveSession(null, cwd || getActiveSessionCwd());
+				return Response.json({ ok: true, cwd: cwd || getActiveSessionCwd() }, { headers: corsHeaders });
+			} catch (err) {
+				console.error("Failed to create new session:", err);
+				return Response.json(
+					{ error: String(err) },
+					{ status: 500, headers: corsHeaders },
+				);
+			}
+		}
+
 		// List all sessions
 		if (path === "/sessions" && req.method === "GET") {
 			try {
-				const cwd = process.cwd();
+				const cwd = getActiveSessionCwd();
 				const projectFolder = cwd.replace(/\//g, "-");
 				const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 				const indexPath = join(claudeDir, "sessions-index.json");
@@ -489,6 +519,7 @@ export default {
 							created?: string;
 							modified: string;
 							gitBranch?: string;
+							projectPath?: string;
 						}) => ({
 							sessionId: e.sessionId,
 							firstPrompt: e.firstPrompt || "Untitled session",
@@ -496,6 +527,7 @@ export default {
 							created: e.created || e.modified,
 							modified: e.modified,
 							gitBranch: e.gitBranch,
+							cwd: e.projectPath || cwd,
 						}),
 					);
 
@@ -522,12 +554,13 @@ export default {
 				}
 
 				// Validate session exists
-				const cwd = process.cwd();
+				const cwd = getActiveSessionCwd();
 				const projectFolder = cwd.replace(/\//g, "-");
 				const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 				const indexPath = join(claudeDir, "sessions-index.json");
 
 				const indexFile = Bun.file(indexPath);
+				let sessionCwd = cwd;
 				if (await indexFile.exists()) {
 					const index = await indexFile.json();
 					const session = index.entries.find(
@@ -539,6 +572,8 @@ export default {
 							{ status: 404, headers: corsHeaders },
 						);
 					}
+					// Use the session's stored cwd if available
+					sessionCwd = session.projectPath || cwd;
 				} else {
 					return Response.json(
 						{ error: "No sessions found" },
@@ -546,11 +581,12 @@ export default {
 					);
 				}
 
-				setActiveSession(sessionId);
+				// Set active session with its cwd
+				setActiveSession(sessionId, sessionCwd);
 
 				// Return the session's messages for UI update
 				const messages = await getSessionHistoryById(sessionId);
-				return Response.json({ ok: true, messages }, { headers: corsHeaders });
+				return Response.json({ ok: true, messages, cwd: sessionCwd }, { headers: corsHeaders });
 			} catch (err) {
 				console.error("Failed to switch session:", err);
 				return Response.json(
@@ -565,7 +601,7 @@ export default {
 			try {
 				const sessionId = path.replace("/sessions/", "");
 
-				const cwd = process.cwd();
+				const cwd = getActiveSessionCwd();
 				const projectFolder = cwd.replace(/\//g, "-");
 				const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 				const indexPath = join(claudeDir, "sessions-index.json");
@@ -756,7 +792,7 @@ export default {
 			try {
 				// Get stats for tracked file changes
 				const diffProc = Bun.spawn(["git", "diff", "--numstat"], {
-					cwd: process.cwd(),
+					cwd: getActiveSessionCwd(),
 					stdout: "pipe",
 					stderr: "pipe",
 				});
@@ -780,7 +816,7 @@ export default {
 				const untrackedProc = Bun.spawn(
 					["git", "ls-files", "--others", "--exclude-standard"],
 					{
-						cwd: process.cwd(),
+						cwd: getActiveSessionCwd(),
 						stdout: "pipe",
 						stderr: "pipe",
 					},
@@ -794,7 +830,7 @@ export default {
 				// Count lines in untracked files
 				for (const filePath of untrackedFiles) {
 					try {
-						const file = Bun.file(join(process.cwd(), filePath));
+						const file = Bun.file(join(getActiveSessionCwd(), filePath));
 						if (await file.exists()) {
 							const content = await file.text();
 							insertions += content.split("\n").length;
@@ -822,7 +858,7 @@ export default {
 			try {
 				// Get diff for tracked files
 				const diffProc = Bun.spawn(["git", "diff"], {
-					cwd: process.cwd(),
+					cwd: getActiveSessionCwd(),
 					stdout: "pipe",
 					stderr: "pipe",
 				});
@@ -835,7 +871,7 @@ export default {
 				const untrackedProc = Bun.spawn(
 					["git", "ls-files", "--others", "--exclude-standard"],
 					{
-						cwd: process.cwd(),
+						cwd: getActiveSessionCwd(),
 						stdout: "pipe",
 						stderr: "pipe",
 					},
@@ -848,7 +884,7 @@ export default {
 				// Generate diff-like output for untracked files
 				for (const filePath of untrackedFiles) {
 					try {
-						const file = Bun.file(join(process.cwd(), filePath));
+						const file = Bun.file(join(getActiveSessionCwd(), filePath));
 						if (await file.exists()) {
 							const content = await file.text();
 							const lines = content.split("\n");
@@ -897,7 +933,7 @@ export default {
 
 				// Stage all changes
 				const addProc = Bun.spawn(["git", "add", "-A"], {
-					cwd: process.cwd(),
+					cwd: getActiveSessionCwd(),
 					stdout: "pipe",
 					stderr: "pipe",
 				});
@@ -905,7 +941,7 @@ export default {
 
 				// Commit
 				const commitProc = Bun.spawn(["git", "commit", "-m", message.trim()], {
-					cwd: process.cwd(),
+					cwd: getActiveSessionCwd(),
 					stdout: "pipe",
 					stderr: "pipe",
 				});

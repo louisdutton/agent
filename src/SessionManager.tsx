@@ -9,6 +9,7 @@ type SessionListItem = {
 	created: string;
 	modified: string;
 	gitBranch?: string;
+	cwd: string;
 };
 
 type Tool = {
@@ -34,6 +35,8 @@ export function SessionManagerModal(props: {
 	const [switching, setSwitching] = createSignal<string | null>(null);
 	const [deleting, setDeleting] = createSignal<string | null>(null);
 	const [creating, setCreating] = createSignal(false);
+	const [newProjectPath, setNewProjectPath] = createSignal("");
+	const [openingProject, setOpeningProject] = createSignal(false);
 
 	// Load sessions when modal opens
 	createEffect(() => {
@@ -136,6 +139,32 @@ export function SessionManagerModal(props: {
 		}
 	};
 
+	const openProject = async () => {
+		const path = newProjectPath().trim();
+		if (!path) return;
+
+		setOpeningProject(true);
+		try {
+			const res = await fetch(`${API_URL}/api/sessions/new`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ cwd: path }),
+			});
+			const data = await res.json();
+			if (data.ok) {
+				setNewProjectPath("");
+				props.onNewSession();
+			} else {
+				alert(data.error || "Failed to open project");
+			}
+		} catch (err) {
+			console.error("Failed to open project:", err);
+			alert("Failed to open project");
+		} finally {
+			setOpeningProject(false);
+		}
+	};
+
 	return (
 		<Show when={props.show}>
 			<div
@@ -187,6 +216,15 @@ export function SessionManagerModal(props: {
 														<span>·</span>
 														<span class="font-mono">{session.gitBranch}</span>
 													</Show>
+													<Show when={session.cwd}>
+														<span>·</span>
+														<span
+															class="font-mono text-primary/70 truncate max-w-[200px]"
+															title={session.cwd}
+														>
+															{session.cwd.split("/").slice(-2).join("/")}
+														</span>
+													</Show>
 												</div>
 											</div>
 
@@ -220,6 +258,30 @@ export function SessionManagerModal(props: {
 								</For>
 							</div>
 						</Show>
+					</div>
+
+					{/* Open project section */}
+					<div class="px-4 pb-4 max-w-2xl mx-auto w-full">
+						<div class="flex items-center gap-2">
+							<input
+								type="text"
+								placeholder="Open project path..."
+								value={newProjectPath()}
+								onInput={(e) => setNewProjectPath(e.currentTarget.value)}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") openProject();
+								}}
+								class="flex-1 px-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 font-mono"
+							/>
+							<button
+								type="button"
+								onClick={openProject}
+								disabled={openingProject() || !newProjectPath().trim()}
+								class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted disabled:opacity-50 transition-colors"
+							>
+								{openingProject() ? "Opening..." : "Open"}
+							</button>
+						</div>
 					</div>
 
 					{/* Bottom bar - secondary on left, primary on right */}

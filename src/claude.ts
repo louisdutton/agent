@@ -2,25 +2,74 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
-// Track the current abort controller for cancellation
-let currentAbortController: AbortController | null = null;
+// Session state - each session has its own context
+type SessionState = {
+	sessionId: string;
+	cwd: string;
+	abortController: AbortController | null;
+};
 
-// Track the active session ID for resuming
+// Track all active sessions by ID
+const sessions = new Map<string, SessionState>();
+
+// The currently active session
 let activeSessionId: string | null = null;
 
-export function setActiveSession(sessionId: string | null): void {
+// Default cwd for new sessions (can be changed when starting a new session)
+let pendingCwd: string = process.cwd();
+
+export function getOrCreateSession(sessionId: string, cwd?: string): SessionState {
+	if (!sessions.has(sessionId)) {
+		sessions.set(sessionId, {
+			sessionId,
+			cwd: cwd ?? pendingCwd,
+			abortController: null,
+		});
+	}
+	return sessions.get(sessionId)!;
+}
+
+export function setActiveSession(sessionId: string | null, cwd?: string): void {
 	activeSessionId = sessionId;
+	if (sessionId && cwd) {
+		getOrCreateSession(sessionId, cwd);
+	}
+	// If clearing session (null) with a cwd, set it as pending for next session
+	if (!sessionId && cwd) {
+		pendingCwd = cwd;
+	}
 }
 
 export function getActiveSession(): string | null {
 	return activeSessionId;
 }
 
+export function getActiveSessionCwd(): string {
+	if (activeSessionId && sessions.has(activeSessionId)) {
+		return sessions.get(activeSessionId)!.cwd;
+	}
+	return pendingCwd;
+}
+
+export function setPendingCwd(cwd: string): void {
+	pendingCwd = cwd;
+}
+
 export async function* sendMessage(message: string): AsyncGenerator<string> {
 	console.log(`Sending: ${message.slice(0, 50)}...`);
 
-	// Create a new abort controller for this request
-	currentAbortController = new AbortController();
+	// Determine which session this message belongs to
+	const sessionId = activeSessionId;
+	const cwd = getActiveSessionCwd();
+
+	// Create abort controller for this specific request
+	const abortController = new AbortController();
+
+	// If we have a session, track the abort controller
+	if (sessionId) {
+		const session = getOrCreateSession(sessionId, cwd);
+		session.abortController = abortController;
+	}
 
 	try {
 		const options: Parameters<typeof query>[0]["options"] = {
@@ -33,12 +82,13 @@ export async function* sendMessage(message: string): AsyncGenerator<string> {
 			permissionMode: "bypassPermissions",
 			allowDangerouslySkipPermissions: true,
 			includePartialMessages: true,
-			abortController: currentAbortController,
+			abortController,
+			cwd,
 		};
 
 		// If we have an active session, resume it; otherwise continue latest
-		if (activeSessionId) {
-			options.resume = activeSessionId;
+		if (sessionId) {
+			options.resume = sessionId;
 		} else {
 			options.continue = true;
 		}
@@ -50,23 +100,30 @@ export async function* sendMessage(message: string): AsyncGenerator<string> {
 			yield JSON.stringify(event);
 		}
 	} finally {
-		currentAbortController = null;
+		// Clear abort controller for this session
+		if (sessionId && sessions.has(sessionId)) {
+			sessions.get(sessionId)!.abortController = null;
+		}
 	}
 }
 
 export function cancelCurrentRequest(): boolean {
-	if (currentAbortController) {
-		currentAbortController.abort();
-		currentAbortController = null;
-		console.log("Request cancelled");
-		return true;
+	// Cancel the request for the currently active session
+	if (activeSessionId && sessions.has(activeSessionId)) {
+		const session = sessions.get(activeSessionId)!;
+		if (session.abortController) {
+			session.abortController.abort();
+			session.abortController = null;
+			console.log("Request cancelled");
+			return true;
+		}
 	}
 	return false;
 }
 
 export async function clearSession(): Promise<void> {
 	try {
-		const cwd = process.cwd();
+		const cwd = getActiveSessionCwd();
 		const projectFolder = cwd.replace(/\//g, "-");
 		const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 		const indexPath = join(claudeDir, "sessions-index.json");
@@ -78,19 +135,19 @@ export async function clearSession(): Promise<void> {
 		}
 
 		const index = await indexFile.json();
-		const sessions = index.entries
+		const sessionList = index.entries
 			.filter((e: { isSidechain: boolean }) => !e.isSidechain)
 			.sort(
 				(a: { modified: string }, b: { modified: string }) =>
 					new Date(b.modified).getTime() - new Date(a.modified).getTime(),
 			);
 
-		if (sessions.length === 0) {
+		if (sessionList.length === 0) {
 			console.log("No sessions to clear");
 			return;
 		}
 
-		const latestSession = sessions[0];
+		const latestSession = sessionList[0];
 		const transcriptPath = latestSession.fullPath;
 
 		// Delete the transcript file
