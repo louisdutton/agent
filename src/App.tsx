@@ -160,6 +160,7 @@ export default function App() {
   let mediaRecorder: MediaRecorder | null = null;
   let audioChunks: Blob[] = [];
   let currentAudio: HTMLAudioElement | null = null;
+  let abortController: AbortController | null = null;
 
   // Load chat history on mount
   onMount(async () => {
@@ -363,11 +364,14 @@ export default function App() {
     setIsLoading(true);
     setStreamingContent("");
 
+    abortController = new AbortController();
+
     try {
       const res = await fetch(`${API_URL}/api/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
+        signal: abortController.signal,
       });
 
       const reader = res.body?.getReader();
@@ -478,14 +482,18 @@ export default function App() {
         });
       }
     } catch (err) {
-      addEvent({
-        type: "error",
-        id: String(++idCounter),
-        message: String(err),
-      });
+      // Don't show error if request was aborted
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        addEvent({
+          type: "error",
+          id: String(++idCounter),
+          message: String(err),
+        });
+      }
     } finally {
       setIsLoading(false);
       setStreamingContent("");
+      abortController = null;
     }
   };
 
@@ -498,15 +506,28 @@ export default function App() {
     return "idle";
   };
 
-  const handleMicClick = () => {
+  const handleMicClick = async () => {
     if (isRecording()) {
       stopRecording();
+    } else if (isLoading()) {
+      // Cancel the AI response on both frontend and backend
+      if (abortController) {
+        abortController.abort();
+      }
+      // Tell the backend to cancel the Claude request
+      try {
+        await fetch(`${API_URL}/api/cancel`, { method: "POST" });
+      } catch {
+        // Ignore errors - the request may have already finished
+      }
+      setIsLoading(false);
+      setStreamingContent("");
     } else if (isPlaying() && currentAudio) {
       currentAudio.pause();
       currentAudio = null;
       setPlayingId(null);
       setIsPlaying(false);
-    } else if (!isLoading() && !isTranscribing()) {
+    } else if (!isTranscribing()) {
       startRecording();
     }
   };
@@ -684,14 +705,16 @@ export default function App() {
           <button
             type="button"
             onClick={handleMicClick}
-            disabled={isTranscribing() || isLoading()}
+            disabled={isTranscribing()}
             class={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg ${status() === "recording"
                 ? "bg-red-500 scale-110"
                 : status() === "speaking"
                   ? "bg-green-500"
-                  : status() === "thinking" || status() === "transcribing"
-                    ? "bg-yellow-500"
-                    : "bg-foreground hover:scale-105 active:scale-95"
+                  : status() === "thinking"
+                    ? "bg-yellow-500 hover:scale-105 active:scale-95"
+                    : status() === "transcribing"
+                      ? "bg-yellow-500"
+                      : "bg-foreground hover:scale-105 active:scale-95"
               }`}
           >
             <svg
@@ -701,6 +724,15 @@ export default function App() {
               viewBox="0 0 24 24"
             >
               {status() === "recording" ? (
+                <rect
+                  x="6"
+                  y="6"
+                  width="12"
+                  height="12"
+                  rx="2"
+                  fill="currentColor"
+                />
+              ) : status() === "thinking" ? (
                 <rect
                   x="6"
                   y="6"

@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { clearSession, sendMessage } from "./claude";
+import { cancelCurrentRequest, clearSession, sendMessage } from "./claude";
 
 const corsHeaders = {
 	"Access-Control-Allow-Origin": "*",
@@ -129,6 +129,12 @@ export default {
 		if (path === "/history" && req.method === "GET") {
 			const messages = await getSessionHistory();
 			return Response.json({ messages }, { headers: corsHeaders });
+		}
+
+		// Cancel current request
+		if (path === "/cancel" && req.method === "POST") {
+			const cancelled = cancelCurrentRequest();
+			return Response.json({ cancelled }, { headers: corsHeaders });
 		}
 
 		// Clear session
