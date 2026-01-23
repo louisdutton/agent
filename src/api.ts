@@ -934,6 +934,81 @@ export default {
 			}
 		}
 
+		// List available projects from ~/projects/
+		if (path === "/projects" && req.method === "GET") {
+			try {
+				const projectsDir = join(homedir(), "projects");
+				const entries = await Array.fromAsync(
+					new Bun.Glob("*").scan({ cwd: projectsDir, onlyFiles: false }),
+				);
+
+				// Filter to only directories and sort alphabetically
+				const projects: string[] = [];
+				for (const entry of entries) {
+					const fullPath = join(projectsDir, entry);
+					const stat = await Bun.file(fullPath).exists();
+					// Check if it's a directory by trying to read it
+					try {
+						const proc = Bun.spawn(["test", "-d", fullPath]);
+						if ((await proc.exited) === 0) {
+							projects.push(entry);
+						}
+					} catch {
+						// Skip non-directories
+					}
+				}
+
+				projects.sort((a, b) => a.localeCompare(b));
+
+				return Response.json(
+					{ projects, currentProject: getActiveSessionCwd().split("/").pop() },
+					{ headers: corsHeaders },
+				);
+			} catch (err) {
+				console.error("Failed to list projects:", err);
+				return Response.json(
+					{ error: String(err) },
+					{ status: 500, headers: corsHeaders },
+				);
+			}
+		}
+
+		// Switch to a different project
+		if (path === "/projects/switch" && req.method === "POST") {
+			try {
+				const { project } = (await req.json()) as { project: string };
+
+				if (!project) {
+					return Response.json(
+						{ error: "project name required" },
+						{ status: 400, headers: corsHeaders },
+					);
+				}
+
+				const projectPath = join(homedir(), "projects", project);
+
+				// Validate it's a directory
+				const proc = Bun.spawn(["test", "-d", projectPath]);
+				if ((await proc.exited) !== 0) {
+					return Response.json(
+						{ error: "Project not found" },
+						{ status: 404, headers: corsHeaders },
+					);
+				}
+
+				// Clear current session and set new cwd
+				setActiveSession(null, projectPath);
+
+				return Response.json({ ok: true, cwd: projectPath }, { headers: corsHeaders });
+			} catch (err) {
+				console.error("Failed to switch project:", err);
+				return Response.json(
+					{ error: String(err) },
+					{ status: 500, headers: corsHeaders },
+				);
+			}
+		}
+
 		return Response.json(
 			{ error: "Not found" },
 			{ status: 404, headers: corsHeaders },

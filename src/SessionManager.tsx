@@ -30,15 +30,19 @@ export function SessionManagerModal(props: {
 	onNewSession: () => void;
 }) {
 	const [sessions, setSessions] = createSignal<SessionListItem[]>([]);
+	const [projects, setProjects] = createSignal<string[]>([]);
+	const [currentProject, setCurrentProject] = createSignal<string>("");
 	const [loading, setLoading] = createSignal(false);
 	const [switching, setSwitching] = createSignal<string | null>(null);
 	const [deleting, setDeleting] = createSignal<string | null>(null);
 	const [creating, setCreating] = createSignal(false);
+	const [switchingProject, setSwitchingProject] = createSignal<string | null>(null);
 
-	// Load sessions when modal opens
+	// Load sessions and projects when modal opens
 	createEffect(() => {
 		if (props.show) {
 			loadSessions();
+			loadProjects();
 		}
 	});
 
@@ -52,6 +56,42 @@ export function SessionManagerModal(props: {
 			console.error("Failed to load sessions:", err);
 		} finally {
 			setLoading(false);
+		}
+	};
+
+	const loadProjects = async () => {
+		try {
+			const res = await fetch(`${API_URL}/api/projects`);
+			const data = await res.json();
+			setProjects(data.projects || []);
+			setCurrentProject(data.currentProject || "");
+		} catch (err) {
+			console.error("Failed to load projects:", err);
+		}
+	};
+
+	const switchProject = async (project: string) => {
+		if (project === currentProject()) return;
+
+		setSwitchingProject(project);
+		try {
+			const res = await fetch(`${API_URL}/api/projects/switch`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ project }),
+			});
+			const data = await res.json();
+			if (data.ok) {
+				setCurrentProject(project);
+				props.onNewSession();
+			} else {
+				alert(data.error || "Failed to switch project");
+			}
+		} catch (err) {
+			console.error("Failed to switch project:", err);
+			alert("Failed to switch project");
+		} finally {
+			setSwitchingProject(null);
 		}
 	};
 
@@ -221,6 +261,31 @@ export function SessionManagerModal(props: {
 							</div>
 						</Show>
 					</div>
+
+					{/* Project picker */}
+					<Show when={projects().length > 0}>
+						<div class="px-4 pb-4 max-w-2xl mx-auto w-full">
+							<div class="flex items-center gap-2 overflow-x-auto pb-2">
+								<span class="text-xs text-muted-foreground shrink-0">Project:</span>
+								<For each={projects()}>
+									{(project) => (
+										<button
+											type="button"
+											onClick={() => switchProject(project)}
+											disabled={switchingProject() === project}
+											class={`px-3 py-1.5 text-sm rounded-md shrink-0 transition-colors ${
+												project === currentProject()
+													? "bg-primary text-primary-foreground"
+													: "bg-muted hover:bg-muted-foreground/20"
+											} disabled:opacity-50`}
+										>
+											{switchingProject() === project ? "..." : project}
+										</button>
+									)}
+								</For>
+							</div>
+						</div>
+					</Show>
 
 					{/* Bottom bar - secondary on left, primary on right */}
 					<div class="flex items-center justify-between px-4 pb-6 pt-2">
