@@ -24,6 +24,11 @@ const server = Bun.serve({
         return new Response(null, { status: 404 });
       }
     },
+  },
+
+  development: {
+    hmr: true,
+    console: true
   }
 });
 

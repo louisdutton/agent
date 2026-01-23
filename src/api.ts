@@ -11,6 +11,82 @@ const corsHeaders = {
 const WHISPER_URL = process.env.WHISPER_URL || "http://localhost:8080";
 const KOKORO_URL = process.env.KOKORO_URL || "http://localhost:8880";
 
+// Git diff types
+type DiffLineType = "context" | "addition" | "deletion";
+type DiffLine = {
+	type: DiffLineType;
+	content: string;
+	oldLineNum?: number;
+	newLineNum?: number;
+};
+type DiffHunk = { header: string; lines: DiffLine[] };
+type DiffFile = {
+	path: string;
+	status: "modified" | "added" | "deleted" | "renamed";
+	hunks: DiffHunk[];
+};
+
+// Parse git diff output into structured format
+function parseDiff(rawDiff: string): DiffFile[] {
+	const files: DiffFile[] = [];
+	const fileChunks = rawDiff.split(/^diff --git /m).filter(Boolean);
+
+	for (const chunk of fileChunks) {
+		const lines = chunk.split("\n");
+		const pathMatch = lines[0]?.match(/a\/(.+) b\/(.+)/);
+		if (!pathMatch) continue;
+
+		const file: DiffFile = {
+			path: pathMatch[2],
+			status: "modified",
+			hunks: [],
+		};
+
+		// Detect status from header
+		if (lines.some((l) => l.startsWith("new file"))) file.status = "added";
+		if (lines.some((l) => l.startsWith("deleted file")))
+			file.status = "deleted";
+		if (lines.some((l) => l.startsWith("rename"))) file.status = "renamed";
+
+		// Parse hunks
+		let currentHunk: DiffHunk | null = null;
+		let oldLineNum = 0;
+		let newLineNum = 0;
+
+		for (const line of lines) {
+			if (line.startsWith("@@")) {
+				const match = line.match(/@@ -(\d+),?\d* \+(\d+),?\d* @@/);
+				if (match) {
+					oldLineNum = Number.parseInt(match[1]);
+					newLineNum = Number.parseInt(match[2]);
+					currentHunk = { header: line, lines: [] };
+					file.hunks.push(currentHunk);
+				}
+			} else if (
+				currentHunk &&
+				(line.startsWith("+") || line.startsWith("-") || line.startsWith(" "))
+			) {
+				const type: DiffLineType =
+					line[0] === "+"
+						? "addition"
+						: line[0] === "-"
+							? "deletion"
+							: "context";
+				currentHunk.lines.push({
+					type,
+					content: line.slice(1),
+					oldLineNum: type !== "addition" ? oldLineNum++ : undefined,
+					newLineNum: type !== "deletion" ? newLineNum++ : undefined,
+				});
+			}
+		}
+
+		files.push(file);
+	}
+
+	return files;
+}
+
 // Get Claude session history from ~/.claude/projects/
 async function getSessionHistory() {
 	const cwd = process.cwd();
@@ -276,6 +352,66 @@ export default {
 				});
 			} catch (err) {
 				console.error("TTS error:", err);
+				return Response.json(
+					{ error: String(err) },
+					{ status: 500, headers: corsHeaders },
+				);
+			}
+		}
+
+		// Git status (for indicator)
+		if (path === "/git/status" && req.method === "GET") {
+			try {
+				const proc = Bun.spawn(["git", "diff", "--numstat"], {
+					cwd: process.cwd(),
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+
+				const output = await new Response(proc.stdout).text();
+				await proc.exited;
+
+				let insertions = 0;
+				let deletions = 0;
+				let filesChanged = 0;
+
+				for (const line of output.trim().split("\n")) {
+					if (!line) continue;
+					const [added, removed] = line.split("\t");
+					if (added !== "-") insertions += Number.parseInt(added) || 0;
+					if (removed !== "-") deletions += Number.parseInt(removed) || 0;
+					filesChanged++;
+				}
+
+				return Response.json(
+					{ hasChanges: filesChanged > 0, insertions, deletions, filesChanged },
+					{ headers: corsHeaders },
+				);
+			} catch (err) {
+				console.error("Git status error:", err);
+				return Response.json(
+					{ error: String(err) },
+					{ status: 500, headers: corsHeaders },
+				);
+			}
+		}
+
+		// Git diff (for modal)
+		if (path === "/git/diff" && req.method === "GET") {
+			try {
+				const proc = Bun.spawn(["git", "diff"], {
+					cwd: process.cwd(),
+					stdout: "pipe",
+					stderr: "pipe",
+				});
+
+				const output = await new Response(proc.stdout).text();
+				await proc.exited;
+
+				const files = parseDiff(output);
+				return Response.json({ files }, { headers: corsHeaders });
+			} catch (err) {
+				console.error("Git diff error:", err);
 				return Response.json(
 					{ error: String(err) },
 					{ status: 500, headers: corsHeaders },

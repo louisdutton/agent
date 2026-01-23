@@ -3,6 +3,7 @@ import {
 	createMemo,
 	createSignal,
 	For,
+	onCleanup,
 	onMount,
 	Show,
 } from "solid-js";
@@ -11,6 +12,28 @@ import Markdown from "./Markdown";
 const API_URL = "";
 
 type ToolStatus = "running" | "complete" | "error";
+
+// Git diff types
+type GitStatus = {
+	hasChanges: boolean;
+	insertions: number;
+	deletions: number;
+	filesChanged: number;
+};
+
+type DiffLineType = "context" | "addition" | "deletion";
+type DiffLine = {
+	type: DiffLineType;
+	content: string;
+	oldLineNum?: number;
+	newLineNum?: number;
+};
+type DiffHunk = { header: string; lines: DiffLine[] };
+type DiffFile = {
+	path: string;
+	status: "modified" | "added" | "deleted" | "renamed";
+	hunks: DiffHunk[];
+};
 
 type Tool = {
   toolUseId: string;
@@ -142,6 +165,110 @@ function ToolGroup(props: { tools: Tool[]; defaultExpanded?: boolean }) {
   );
 }
 
+function DiffFileView(props: { file: DiffFile }) {
+	const [expanded, setExpanded] = createSignal(true);
+
+	const statusColors: Record<string, string> = {
+		modified: "text-yellow-500",
+		added: "text-green-500",
+		deleted: "text-red-500",
+		renamed: "text-blue-500",
+	};
+
+	const statusIcons: Record<string, string> = {
+		modified: "M",
+		added: "A",
+		deleted: "D",
+		renamed: "R",
+	};
+
+	return (
+		<div class="border border-border rounded-lg overflow-hidden">
+			<button
+				type="button"
+				onClick={() => setExpanded(!expanded())}
+				class="w-full flex items-center gap-3 px-4 py-3 bg-muted hover:bg-muted/80 transition-colors"
+			>
+				<span
+					class={`font-mono text-sm font-medium ${statusColors[props.file.status]}`}
+				>
+					{statusIcons[props.file.status]}
+				</span>
+				<span class="font-mono text-sm flex-1 text-left truncate">
+					{props.file.path}
+				</span>
+				<svg
+					class={`w-4 h-4 transition-transform ${expanded() ? "rotate-180" : ""}`}
+					fill="none"
+					stroke="currentColor"
+					viewBox="0 0 24 24"
+				>
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2"
+						d="M19 9l-7 7-7-7"
+					/>
+				</svg>
+			</button>
+
+			<Show when={expanded()}>
+				<div class="overflow-x-auto">
+					<For each={props.file.hunks}>
+						{(hunk) => (
+							<div>
+								<div class="px-4 py-1 bg-blue-500/10 text-blue-400 font-mono text-xs">
+									{hunk.header}
+								</div>
+								<div class="font-mono text-sm">
+									<For each={hunk.lines}>
+										{(line) => (
+											<div
+												class={`flex ${
+													line.type === "addition"
+														? "bg-green-500/15"
+														: line.type === "deletion"
+															? "bg-red-500/15"
+															: ""
+												}`}
+											>
+												<span class="w-12 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
+													{line.oldLineNum ?? ""}
+												</span>
+												<span class="w-12 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
+													{line.newLineNum ?? ""}
+												</span>
+												<span
+													class={`w-6 text-center select-none ${
+														line.type === "addition"
+															? "text-green-500"
+															: line.type === "deletion"
+																? "text-red-500"
+																: "text-muted-foreground"
+													}`}
+												>
+													{line.type === "addition"
+														? "+"
+														: line.type === "deletion"
+															? "-"
+															: " "}
+												</span>
+												<pre class="flex-1 px-2 whitespace-pre overflow-x-auto">
+													{line.content || " "}
+												</pre>
+											</div>
+										)}
+									</For>
+								</div>
+							</div>
+						)}
+					</For>
+				</div>
+			</Show>
+		</div>
+	);
+}
+
 export default function App() {
   const [events, setEvents] = createSignal<EventItem[]>([]);
   const [input, setInput] = createSignal("");
@@ -153,6 +280,12 @@ export default function App() {
   const [isPlaying, setIsPlaying] = createSignal(false);
   const [showTextInput, setShowTextInput] = createSignal(false);
   const [showMenu, setShowMenu] = createSignal(false);
+
+  // Git diff state
+  const [gitStatus, setGitStatus] = createSignal<GitStatus | null>(null);
+  const [showDiffModal, setShowDiffModal] = createSignal(false);
+  const [diffData, setDiffData] = createSignal<DiffFile[] | null>(null);
+  const [diffLoading, setDiffLoading] = createSignal(false);
 
   let mainRef: HTMLElement | undefined;
   let menuRef: HTMLDivElement | undefined;
@@ -175,6 +308,47 @@ export default function App() {
       console.error("Failed to load history:", err);
     }
   });
+
+  // Poll git status every 5 seconds
+  onMount(() => {
+    const fetchGitStatus = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/git/status`);
+        if (res.ok) {
+          const data = await res.json();
+          setGitStatus(data);
+        } else {
+          // Set default if endpoint fails
+          setGitStatus({ hasChanges: false, insertions: 0, deletions: 0, filesChanged: 0 });
+        }
+      } catch (err) {
+        console.error("Git status error:", err);
+        // Set default on error so indicator still shows
+        setGitStatus({ hasChanges: false, insertions: 0, deletions: 0, filesChanged: 0 });
+      }
+    };
+
+    fetchGitStatus();
+    const interval = setInterval(fetchGitStatus, 5000);
+    onCleanup(() => clearInterval(interval));
+  });
+
+  const openDiffModal = async () => {
+    setShowDiffModal(true);
+    setDiffLoading(true);
+
+    try {
+      const res = await fetch(`${API_URL}/api/git/diff`);
+      if (res.ok) {
+        const { files } = await res.json();
+        setDiffData(files);
+      }
+    } catch (err) {
+      console.error("Git diff error:", err);
+    } finally {
+      setDiffLoading(false);
+    }
+  };
 
   createEffect(() => {
     events();
@@ -701,6 +875,36 @@ export default function App() {
             </Show>
           </div>
 
+          {/* Git status indicator on the right */}
+          <Show when={gitStatus()}>
+            <button
+              type="button"
+              onClick={openDiffModal}
+              disabled={!gitStatus()?.hasChanges}
+              class={`absolute right-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-background border border-border transition-colors shadow-lg ${
+                gitStatus()?.hasChanges
+                  ? "hover:bg-muted"
+                  : "opacity-50 cursor-default"
+              }`}
+              title={gitStatus()?.hasChanges ? "View git changes" : "No changes"}
+            >
+              <span
+                class={`w-2 h-2 rounded-full ${
+                  gitStatus()?.hasChanges ? "bg-yellow-500" : "bg-muted-foreground"
+                }`}
+              />
+              <span class="text-sm text-muted-foreground font-mono">
+                <span class={gitStatus()?.hasChanges ? "text-green-500" : ""}>
+                  +{gitStatus()!.insertions}
+                </span>
+                {" "}
+                <span class={gitStatus()?.hasChanges ? "text-red-500" : ""}>
+                  -{gitStatus()!.deletions}
+                </span>
+              </span>
+            </button>
+          </Show>
+
           {/* Centered mic button */}
           <button
             type="button"
@@ -808,6 +1012,76 @@ export default function App() {
           </form>
         </Show>
       </div>
+
+      {/* Git Diff Modal */}
+      <Show when={showDiffModal()}>
+        <div
+          class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowDiffModal(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setShowDiffModal(false);
+          }}
+        >
+          <div class="h-full flex flex-col">
+            {/* Header */}
+            <div class="flex items-center justify-between p-4 border-b border-border">
+              <div class="flex items-center gap-3">
+                <h2 class="text-lg font-medium">Git Changes</h2>
+                <Show when={gitStatus()}>
+                  <span class="text-sm text-muted-foreground">
+                    {gitStatus()!.filesChanged} file
+                    {gitStatus()!.filesChanged !== 1 ? "s" : ""} changed
+                  </span>
+                </Show>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDiffModal(false)}
+                class="p-2 rounded-lg hover:bg-muted transition-colors"
+              >
+                <svg
+                  class="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div class="flex-1 overflow-y-auto p-4">
+              <Show when={diffLoading()}>
+                <div class="flex items-center justify-center h-32">
+                  <span class="text-muted-foreground">Loading diff...</span>
+                </div>
+              </Show>
+
+              <Show when={!diffLoading() && diffData()}>
+                <div class="space-y-6 max-w-4xl mx-auto">
+                  <For each={diffData()}>
+                    {(file) => <DiffFileView file={file} />}
+                  </For>
+                </div>
+              </Show>
+
+              <Show when={!diffLoading() && diffData()?.length === 0}>
+                <div class="text-center text-muted-foreground py-8">
+                  No changes detected
+                </div>
+              </Show>
+            </div>
+          </div>
+        </div>
+      </Show>
     </div>
   );
 }
