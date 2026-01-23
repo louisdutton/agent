@@ -591,25 +591,6 @@ export default function App() {
     }
   });
 
-  const clearSession = async () => {
-    if (!confirm("Are you sure you want to clear the entire session? This cannot be undone.")) {
-      return;
-    }
-
-    try {
-      await fetch(`${API_URL}/api/clear`, { method: "POST" });
-      setEvents([]);
-      setInput("");
-      setStreamingContent("");
-      idCounter = 0;
-    } catch (err) {
-      console.error("Failed to clear session:", err);
-      alert("Failed to clear session");
-    } finally {
-      setShowMenu(false);
-    }
-  };
-
   // Close menu when clicking outside
   createEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -748,14 +729,6 @@ export default function App() {
                   >
                     Manage Sessions
                   </button>
-                  <button
-                    type="button"
-                    onClick={clearSession}
-                    disabled={isLoading() || isTranscribing() || events().length === 0}
-                    class="w-full text-left px-4 py-2 hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-                  >
-                    Clear Session
-                  </button>
                 </div>
               </Show>
             </div>
@@ -847,6 +820,11 @@ export default function App() {
         onSwitch={(messages) => {
           setEvents(messages);
           idCounter = messages.length;
+          setShowSessionModal(false);
+        }}
+        onNewSession={() => {
+          setEvents([]);
+          idCounter = 0;
           setShowSessionModal(false);
         }}
       />

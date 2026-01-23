@@ -27,11 +27,13 @@ export function SessionManagerModal(props: {
 	show: boolean;
 	onClose: () => void;
 	onSwitch: (messages: Message[]) => void;
+	onNewSession: () => void;
 }) {
 	const [sessions, setSessions] = createSignal<SessionListItem[]>([]);
 	const [loading, setLoading] = createSignal(false);
 	const [switching, setSwitching] = createSignal<string | null>(null);
 	const [deleting, setDeleting] = createSignal<string | null>(null);
+	const [creating, setCreating] = createSignal(false);
 
 	// Load sessions when modal opens
 	createEffect(() => {
@@ -112,6 +114,24 @@ export function SessionManagerModal(props: {
 		return prompt.slice(0, maxLen) + "...";
 	};
 
+	const createNewSession = async () => {
+		setCreating(true);
+		try {
+			const res = await fetch(`${API_URL}/api/clear`, { method: "POST" });
+			const data = await res.json();
+			if (data.ok) {
+				props.onNewSession();
+			} else {
+				alert(data.error || "Failed to create session");
+			}
+		} catch (err) {
+			console.error("Failed to create session:", err);
+			alert("Failed to create session");
+		} finally {
+			setCreating(false);
+		}
+	};
+
 	return (
 		<Show when={props.show}>
 			<div
@@ -123,17 +143,9 @@ export function SessionManagerModal(props: {
 					if (e.key === "Escape") props.onClose();
 				}}
 			>
-				<div class="h-full flex flex-col">
-					{/* Header */}
-					<div class="p-4 border-b border-border">
-						<h2 class="text-lg font-medium">Sessions</h2>
-						<p class="text-sm text-muted-foreground">
-							Switch between or manage your conversation sessions
-						</p>
-					</div>
-
-					{/* Content */}
-					<div class="flex-1 overflow-y-auto p-4">
+				<div class="h-full flex flex-col justify-end">
+					{/* Content - pinned to bottom */}
+					<div class="flex-1 overflow-y-auto p-4 flex flex-col justify-end">
 						<Show when={loading()}>
 							<div class="flex items-center justify-center h-32">
 								<span class="text-muted-foreground">Loading sessions...</span>
@@ -147,7 +159,7 @@ export function SessionManagerModal(props: {
 						</Show>
 
 						<Show when={!loading() && sessions().length > 0}>
-							<div class="space-y-2 max-w-2xl mx-auto">
+							<div class="space-y-2 max-w-2xl mx-auto w-full">
 								<For each={sessions()}>
 									{(session, index) => (
 										<div
@@ -162,11 +174,6 @@ export function SessionManagerModal(props: {
 													<span class="text-sm font-medium truncate">
 														{truncatePrompt(session.firstPrompt)}
 													</span>
-													<Show when={index() === 0}>
-														<span class="text-xs px-1.5 py-0.5 rounded bg-primary text-primary-foreground">
-															Current
-														</span>
-													</Show>
 												</div>
 												<div class="flex items-center gap-2 text-xs text-muted-foreground mt-1">
 													<span>{formatDate(session.modified)}</span>
@@ -196,9 +203,12 @@ export function SessionManagerModal(props: {
 													type="button"
 													onClick={() => deleteSession(session.sessionId)}
 													disabled={deleting() === session.sessionId}
-													class="px-3 py-1.5 text-sm rounded-md text-red-400 hover:bg-red-500/20 disabled:opacity-50 transition-colors"
+													class="p-1.5 rounded-md text-red-400 hover:bg-red-500/20 disabled:opacity-50 transition-colors"
+													title="Delete session"
 												>
-													{deleting() === session.sessionId ? "..." : "Delete"}
+													<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+													</svg>
 												</button>
 											</div>
 										</div>
@@ -208,14 +218,22 @@ export function SessionManagerModal(props: {
 						</Show>
 					</div>
 
-					{/* Bottom bar */}
-					<div class="flex items-center justify-end p-4 border-t border-border">
+					{/* Bottom bar - secondary on left, primary on right */}
+					<div class="flex items-center justify-between px-4 pb-6 pt-2">
 						<button
 							type="button"
 							onClick={props.onClose}
-							class="btn-secondary px-4 py-2 text-sm"
+							class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
 						>
 							Close
+						</button>
+						<button
+							type="button"
+							onClick={createNewSession}
+							disabled={creating()}
+							class="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+						>
+							{creating() ? "Creating..." : "New Session"}
 						</button>
 					</div>
 				</div>

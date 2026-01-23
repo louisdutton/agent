@@ -379,12 +379,12 @@ export function GitDiffModal(props: {
 						</Show>
 					</div>
 
-					{/* Bottom bar */}
-					<div class="flex items-center justify-end p-4 border-t border-border gap-2">
+					{/* Bottom bar - secondary on left, primary on right */}
+					<div class="flex items-center justify-between px-4 pb-6 pt-2">
 						<button
 							type="button"
 							onClick={props.onClose}
-							class="btn-secondary px-4 py-2 text-sm"
+							class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
 						>
 							Close
 						</button>
