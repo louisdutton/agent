@@ -7,9 +7,51 @@ import {
 	onMount,
 	Show,
 } from "solid-js";
-import { bundledLanguages, codeToTokens } from "shiki";
+import {
+	createHighlighter,
+	type BundledLanguage,
+	type Highlighter,
+} from "shiki";
 
 const API_URL = "";
+
+// Pre-initialize highlighter with common languages
+let highlighterPromise: Promise<Highlighter> | null = null;
+let highlighterInstance: Highlighter | null = null;
+
+function getHighlighter(): Highlighter | null {
+	if (highlighterInstance) return highlighterInstance;
+
+	if (!highlighterPromise) {
+		highlighterPromise = createHighlighter({
+			themes: ["vitesse-black"],
+			langs: [
+				"typescript",
+				"tsx",
+				"javascript",
+				"jsx",
+				"python",
+				"go",
+				"rust",
+				"json",
+				"yaml",
+				"html",
+				"css",
+				"bash",
+				"markdown",
+				"sql",
+			],
+		}).then((h) => {
+			highlighterInstance = h;
+			return h;
+		});
+	}
+
+	return null;
+}
+
+// Start loading immediately
+getHighlighter();
 
 // Git diff types
 export type GitStatus = {
@@ -81,11 +123,11 @@ const hunkHighlightCache = new Map<
 	Array<Array<{ content: string; color?: string }>>
 >();
 
-// Highlight a hunk and return tokens per line
-async function highlightHunk(
+// Highlight a hunk synchronously if highlighter is ready
+function highlightHunkSync(
 	lines: DiffLine[],
 	lang: string
-): Promise<Array<Array<{ content: string; color?: string }>>> {
+): Array<Array<{ content: string; color?: string }>> | null {
 	const code = lines.map((l) => l.content).join("\n");
 	const cacheKey = `${lang}:${code}`;
 
@@ -93,15 +135,20 @@ async function highlightHunk(
 		return hunkHighlightCache.get(cacheKey)!;
 	}
 
-	const validLang = lang in bundledLanguages ? lang : "text";
+	const highlighter = getHighlighter();
+	if (!highlighter) return null;
+
+	const loadedLangs = highlighter.getLoadedLanguages();
+	const validLang = (
+		loadedLangs.includes(lang) ? lang : "text"
+	) as BundledLanguage;
 
 	try {
-		const { tokens } = await codeToTokens(code, {
+		const { tokens } = highlighter.codeToTokens(code, {
 			lang: validLang,
 			theme: "vitesse-black",
 		});
 
-		// tokens is an array of lines, each line is an array of tokens
 		const result = tokens.map((lineTokens) =>
 			lineTokens.map((token) => ({
 				content: token.content,
@@ -112,20 +159,15 @@ async function highlightHunk(
 		hunkHighlightCache.set(cacheKey, result);
 		return result;
 	} catch {
-		// Fallback: return plain text tokens
 		return lines.map((l) => [{ content: l.content || " " }]);
 	}
 }
 
 function DiffHunkView(props: { hunk: DiffHunk; lang: string }) {
-	const [highlightedLines, setHighlightedLines] = createSignal<
-		Array<Array<{ content: string; color?: string }>> | null
-	>(null);
-
-	onMount(async () => {
-		const tokens = await highlightHunk(props.hunk.lines, props.lang);
-		setHighlightedLines(tokens);
-	});
+	// Try to highlight synchronously - will return null if highlighter not ready
+	const highlightedLines = createMemo(() =>
+		highlightHunkSync(props.hunk.lines, props.lang)
+	);
 
 	return (
 		<div>
