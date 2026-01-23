@@ -83,7 +83,8 @@ export function SessionManagerModal(props: {
 			const data = await res.json();
 			if (data.ok) {
 				setCurrentProject(project);
-				props.onNewSession();
+				// Reload sessions for the new project
+				await loadSessions();
 			} else {
 				alert(data.error || "Failed to switch project");
 			}

@@ -173,19 +173,21 @@ export default function App() {
   let analyser: AnalyserNode | null = null;
   let animationFrame: number | null = null;
 
-  // Load chat history on mount
-  onMount(async () => {
+  // Load chat history
+  const loadHistory = async () => {
     try {
       const res = await fetch(`${API_URL}/api/history`);
       const { messages } = await res.json();
-      if (messages?.length) {
-        setEvents(messages);
-        idCounter = messages.length;
-      }
+      setEvents(messages?.length ? messages : []);
+      idCounter = messages?.length || 0;
     } catch (err) {
       console.error("Failed to load history:", err);
+      setEvents([]);
+      idCounter = 0;
     }
-  });
+  };
+
+  onMount(loadHistory);
 
   const handleCommit = () => {
     setShowDiffModal(false);
@@ -822,10 +824,9 @@ export default function App() {
           idCounter = messages.length;
           setShowSessionModal(false);
         }}
-        onNewSession={() => {
-          setEvents([]);
-          idCounter = 0;
+        onNewSession={async () => {
           setShowSessionModal(false);
+          await loadHistory();
         }}
       />
     </div>
