@@ -88,6 +88,10 @@ export function SessionManagerModal(props: {
 			const data = await res.json();
 			if (data.ok) {
 				setSessions((prev) => prev.filter((s) => s.sessionId !== sessionId));
+				// If the deleted session was the active one, clear the UI
+				if (data.wasActiveSession) {
+					props.onNewSession();
+				}
 			} else {
 				alert(data.error || "Failed to delete session");
 			}

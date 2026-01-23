@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
 	cancelCurrentRequest,
 	clearSession,
+	getActiveSession,
 	sendMessage,
 	setActiveSession,
 } from "./claude";
@@ -589,6 +590,12 @@ export default {
 					);
 				}
 
+				// Check if this is the currently active session
+				const wasActiveSession = getActiveSession() === sessionId;
+				if (wasActiveSession) {
+					setActiveSession(null);
+				}
+
 				// Delete the transcript file
 				const transcriptFile = Bun.file(session.fullPath);
 				if (await transcriptFile.exists()) {
@@ -605,7 +612,7 @@ export default {
 
 				await Bun.write(indexPath, JSON.stringify(updatedIndex, null, 2));
 
-				return Response.json({ ok: true }, { headers: corsHeaders });
+				return Response.json({ ok: true, wasActiveSession }, { headers: corsHeaders });
 			} catch (err) {
 				console.error("Failed to delete session:", err);
 				return Response.json(
