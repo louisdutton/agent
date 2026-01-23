@@ -557,43 +557,7 @@ export default function App() {
   });
 
   return (
-    <div class="h-dvh flex flex-col bg-background relative">
-      {/* Floating options menu */}
-      <div ref={menuRef} class="fixed top-4 right-4 z-50">
-        <button
-          type="button"
-          onClick={() => setShowMenu(!showMenu())}
-          class="p-2 rounded-lg bg-background border border-border hover:bg-muted transition-colors shadow-lg"
-          title="Options"
-        >
-          <svg
-            class="w-5 h-5 text-muted-foreground"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-            />
-          </svg>
-        </button>
-
-        <Show when={showMenu()}>
-          <div class="absolute right-0 mt-2 bg-background border border-border rounded-lg shadow-lg min-w-48">
-            <button
-              type="button"
-              onClick={clearSession}
-              disabled={isLoading() || isTranscribing() || events().length === 0}
-              class="w-full text-left px-4 py-2 hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-            >
-              Clear Session
-            </button>
-          </div>
-        </Show>
-      </div>
+    <div class="h-dvh flex flex-col bg-background">
 
       {/* Scrollable chat history */}
       <main ref={mainRef} class="flex-1 overflow-y-auto p-4 mask-fade">
@@ -678,19 +642,58 @@ export default function App() {
 
       {/* Bottom controls */}
       <div class="flex flex-col items-center py-4 gap-3">
-        <button
-          type="button"
-          onClick={handleMicClick}
-          disabled={isTranscribing() || isLoading()}
-          class={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg ${status() === "recording"
-              ? "bg-red-500 scale-110"
-              : status() === "speaking"
-                ? "bg-green-500"
-                : status() === "thinking" || status() === "transcribing"
-                  ? "bg-yellow-500"
-                  : "bg-foreground hover:scale-105 active:scale-95"
-            }`}
-        >
+        <div class="flex items-center justify-center gap-12 relative w-full">
+          {/* Options menu on the left */}
+          <div ref={menuRef} class="absolute left-4">
+            <button
+              type="button"
+              onClick={() => setShowMenu(!showMenu())}
+              class="p-2 rounded-lg bg-background border border-border hover:bg-muted transition-colors shadow-lg"
+              title="Options"
+            >
+              <svg
+                class="w-5 h-5 text-muted-foreground"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                />
+              </svg>
+            </button>
+
+            <Show when={showMenu()}>
+              <div class="absolute left-0 mt-2 bg-background border border-border rounded-lg shadow-lg min-w-48">
+                <button
+                  type="button"
+                  onClick={clearSession}
+                  disabled={isLoading() || isTranscribing() || events().length === 0}
+                  class="w-full text-left px-4 py-2 hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                >
+                  Clear Session
+                </button>
+              </div>
+            </Show>
+          </div>
+
+          {/* Centered mic button */}
+          <button
+            type="button"
+            onClick={handleMicClick}
+            disabled={isTranscribing() || isLoading()}
+            class={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg ${status() === "recording"
+                ? "bg-red-500 scale-110"
+                : status() === "speaking"
+                  ? "bg-green-500"
+                  : status() === "thinking" || status() === "transcribing"
+                    ? "bg-yellow-500"
+                    : "bg-foreground hover:scale-105 active:scale-95"
+              }`}
+          >
             <svg
               class={`w-8 h-8 ${status() === "idle" ? "text-background" : "text-white"}`}
               fill="none"
@@ -722,7 +725,8 @@ export default function App() {
                 />
               )}
             </svg>
-        </button>
+          </button>
+        </div>
 
         {/* Text input toggle */}
         <button
