@@ -388,7 +388,6 @@ export default function App() {
   const [isTranscribing, setIsTranscribing] = createSignal(false);
   const [playingId, setPlayingId] = createSignal<string | null>(null);
   const [isPlaying, setIsPlaying] = createSignal(false);
-  const [showTextInput, setShowTextInput] = createSignal(false);
   const [showMenu, setShowMenu] = createSignal(false);
 
   // Git diff state
@@ -953,41 +952,45 @@ export default function App() {
       {/* Bottom controls */}
       <div class="flex flex-col items-center py-4 gap-3">
         <div class="flex items-center justify-center gap-12 relative w-full">
-          {/* Options menu on the left */}
-          <div ref={menuRef} class="absolute left-4">
-            <button
-              type="button"
-              onClick={() => setShowMenu(!showMenu())}
-              class="p-2 rounded-lg bg-background border border-border hover:bg-muted transition-colors shadow-lg"
-              title="Options"
-            >
-              <svg
-                class="w-5 h-5 text-muted-foreground"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+          {/* Left buttons */}
+          <div class="absolute left-4 flex items-center gap-2">
+            {/* Options menu */}
+            <div ref={menuRef} class="relative">
+              <button
+                type="button"
+                onClick={() => setShowMenu(!showMenu())}
+                class="p-2 rounded-lg bg-background border border-border hover:bg-muted transition-colors shadow-lg"
+                title="Options"
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-                />
-              </svg>
-            </button>
-
-            <Show when={showMenu()}>
-              <div class="absolute left-0 mt-2 bg-background border border-border rounded-lg shadow-lg min-w-48">
-                <button
-                  type="button"
-                  onClick={clearSession}
-                  disabled={isLoading() || isTranscribing() || events().length === 0}
-                  class="w-full text-left px-4 py-2 hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                <svg
+                  class="w-5 h-5 text-muted-foreground"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
-                  Clear Session
-                </button>
-              </div>
-            </Show>
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                  />
+                </svg>
+              </button>
+
+              <Show when={showMenu()}>
+                <div class="absolute left-0 mt-2 bg-background border border-border rounded-lg shadow-lg min-w-48">
+                  <button
+                    type="button"
+                    onClick={clearSession}
+                    disabled={isLoading() || isTranscribing() || events().length === 0}
+                    class="w-full text-left px-4 py-2 hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                  >
+                    Clear Session
+                  </button>
+                </div>
+              </Show>
+            </div>
+
           </div>
 
           {/* Git status indicator on the right */}
@@ -1079,53 +1082,6 @@ export default function App() {
           </button>
         </div>
 
-        {/* Text input toggle */}
-        <button
-          type="button"
-          onClick={() => setShowTextInput(!showTextInput())}
-          class="text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {showTextInput() ? "Hide keyboard" : "Type instead"}
-        </button>
-
-        {/* Collapsible text input */}
-        <Show when={showTextInput()}>
-          <form
-            class="flex gap-2 w-full max-w-md px-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              sendMessage();
-            }}
-          >
-            <input
-              type="text"
-              class="input flex-1"
-              placeholder="Type a message..."
-              value={input()}
-              onInput={(e) => setInput(e.currentTarget.value)}
-              disabled={isLoading() || isTranscribing()}
-            />
-            <button
-              type="submit"
-              class="btn px-4"
-              disabled={!input().trim() || isLoading() || isTranscribing()}
-            >
-              <svg
-                class="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M5 12h14M12 5l7 7-7 7"
-                />
-              </svg>
-            </button>
-          </form>
-        </Show>
       </div>
 
       {/* Git Diff Modal */}
