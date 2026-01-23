@@ -5,6 +5,17 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 // Track the current abort controller for cancellation
 let currentAbortController: AbortController | null = null;
 
+// Track the active session ID for resuming
+let activeSessionId: string | null = null;
+
+export function setActiveSession(sessionId: string | null): void {
+	activeSessionId = sessionId;
+}
+
+export function getActiveSession(): string | null {
+	return activeSessionId;
+}
+
 export async function* sendMessage(message: string): AsyncGenerator<string> {
 	console.log(`Sending: ${message.slice(0, 50)}...`);
 
@@ -12,21 +23,29 @@ export async function* sendMessage(message: string): AsyncGenerator<string> {
 	currentAbortController = new AbortController();
 
 	try {
+		const options: Parameters<typeof query>[0]["options"] = {
+			systemPrompt: {
+				type: "preset",
+				preset: "claude_code",
+				append: "Your reponses must always be accurate and concise.",
+			},
+			// model: "claude-haiku-4-5",
+			permissionMode: "bypassPermissions",
+			allowDangerouslySkipPermissions: true,
+			includePartialMessages: true,
+			abortController: currentAbortController,
+		};
+
+		// If we have an active session, resume it; otherwise continue latest
+		if (activeSessionId) {
+			options.resume = activeSessionId;
+		} else {
+			options.continue = true;
+		}
+
 		for await (const event of query({
 			prompt: message,
-			options: {
-				systemPrompt: {
-					type: "preset",
-					preset: "claude_code",
-					append: "Your reponses must always be accurate and concise.",
-				},
-				// model: "claude-haiku-4-5",
-				permissionMode: "bypassPermissions",
-				allowDangerouslySkipPermissions: true,
-				includePartialMessages: true,
-				continue: true, // Always continue most recent session
-				abortController: currentAbortController,
-			},
+			options,
 		})) {
 			yield JSON.stringify(event);
 		}

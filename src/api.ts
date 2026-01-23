@@ -1,6 +1,11 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { cancelCurrentRequest, clearSession, sendMessage } from "./claude";
+import {
+	cancelCurrentRequest,
+	clearSession,
+	sendMessage,
+	setActiveSession,
+} from "./claude";
 
 const corsHeaders = {
 	"Access-Control-Allow-Origin": "*",
@@ -222,6 +227,130 @@ async function getSessionHistory() {
 	}
 }
 
+// Get session history by specific session ID
+async function getSessionHistoryById(sessionId: string) {
+	const cwd = process.cwd();
+	const projectFolder = cwd.replace(/\//g, "-");
+	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
+	const indexPath = join(claudeDir, "sessions-index.json");
+
+	try {
+		const indexFile = Bun.file(indexPath);
+		if (!(await indexFile.exists())) return [];
+
+		const index = await indexFile.json();
+		const session = index.entries.find(
+			(e: { sessionId: string }) => e.sessionId === sessionId,
+		);
+
+		if (!session) return [];
+
+		const transcriptFile = Bun.file(session.fullPath);
+		if (!(await transcriptFile.exists())) return [];
+
+		const content = await transcriptFile.text();
+		const lines = content.trim().split("\n").filter(Boolean);
+
+		type Tool = {
+			toolUseId: string;
+			name: string;
+			input: Record<string, unknown>;
+			status: "running" | "complete" | "error";
+		};
+		type Message =
+			| { type: "user"; id: string; content: string }
+			| { type: "assistant"; id: string; content: string }
+			| { type: "tools"; id: string; tools: Tool[] };
+		const messages: Message[] = [];
+
+		// Track tool results to update tool status
+		const toolResults = new Map<string, boolean>();
+
+		// First pass: collect all tool results
+		for (const line of lines) {
+			try {
+				const entry = JSON.parse(line);
+				if (entry.type === "user" && entry.message?.content) {
+					const content = entry.message.content;
+					if (Array.isArray(content)) {
+						for (const block of content) {
+							if (block.type === "tool_result" && block.tool_use_id) {
+								toolResults.set(block.tool_use_id, !!block.is_error);
+							}
+						}
+					}
+				}
+			} catch {
+				// Skip invalid JSON
+			}
+		}
+
+		// Second pass: build messages
+		for (const line of lines) {
+			try {
+				const entry = JSON.parse(line);
+				if (entry.type === "user" && entry.message?.content) {
+					const content = entry.message.content;
+					if (typeof content === "string") {
+						if (!entry.isMeta && !content.startsWith("<")) {
+							messages.push({ type: "user", id: entry.uuid, content });
+						}
+					} else if (Array.isArray(content)) {
+						const textBlocks = content.filter(
+							(b: { type: string }) => b.type === "text",
+						);
+						const text = textBlocks.map((b: { text: string }) => b.text).join("");
+						if (text) {
+							messages.push({ type: "user", id: entry.uuid, content: text });
+						}
+					}
+				} else if (entry.type === "assistant" && entry.message?.content) {
+					const content = entry.message.content;
+					if (!Array.isArray(content)) continue;
+
+					const textBlocks = content.filter(
+						(b: { type: string }) => b.type === "text",
+					);
+					const text = textBlocks.map((b: { text: string }) => b.text).join("");
+					if (text) {
+						messages.push({ type: "assistant", id: entry.uuid, content: text });
+					}
+
+					const toolUses = content.filter(
+						(b: { type: string }) => b.type === "tool_use",
+					);
+					if (toolUses.length > 0) {
+						const tools: Tool[] = toolUses.map(
+							(t: { id: string; name: string; input: Record<string, unknown> }) => ({
+								toolUseId: t.id,
+								name: t.name,
+								input: t.input || {},
+								status: toolResults.has(t.id)
+									? toolResults.get(t.id)
+										? "error"
+										: "complete"
+									: "complete",
+							}),
+						);
+						messages.push({
+							type: "tools",
+							id: `tools-${entry.uuid}`,
+							tools,
+						});
+					}
+				}
+			} catch {
+				// Skip invalid JSON lines
+			}
+		}
+
+		return messages;
+	} catch (err) {
+		console.error("Error reading session history by ID:", err);
+		return [];
+	}
+}
+
 export default {
 	async fetch(req: Request): Promise<Response> {
 		const url = new URL(req.url);
@@ -294,6 +423,161 @@ export default {
 				return Response.json({ ok: true }, { headers: corsHeaders });
 			} catch (err) {
 				console.error("Failed to clear session:", err);
+				return Response.json(
+					{ error: String(err) },
+					{ status: 500, headers: corsHeaders },
+				);
+			}
+		}
+
+		// List all sessions
+		if (path === "/sessions" && req.method === "GET") {
+			try {
+				const cwd = process.cwd();
+				const projectFolder = cwd.replace(/\//g, "-");
+				const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
+				const indexPath = join(claudeDir, "sessions-index.json");
+
+				const indexFile = Bun.file(indexPath);
+				if (!(await indexFile.exists())) {
+					return Response.json({ sessions: [] }, { headers: corsHeaders });
+				}
+
+				const index = await indexFile.json();
+				const sessions = index.entries
+					.filter((e: { isSidechain: boolean }) => !e.isSidechain)
+					.sort(
+						(a: { modified: string }, b: { modified: string }) =>
+							new Date(b.modified).getTime() - new Date(a.modified).getTime(),
+					)
+					.map(
+						(e: {
+							sessionId: string;
+							firstPrompt?: string;
+							messageCount?: number;
+							created?: string;
+							modified: string;
+							gitBranch?: string;
+						}) => ({
+							sessionId: e.sessionId,
+							firstPrompt: e.firstPrompt || "Untitled session",
+							messageCount: e.messageCount || 0,
+							created: e.created || e.modified,
+							modified: e.modified,
+							gitBranch: e.gitBranch,
+						}),
+					);
+
+				return Response.json({ sessions }, { headers: corsHeaders });
+			} catch (err) {
+				console.error("Failed to list sessions:", err);
+				return Response.json(
+					{ error: String(err) },
+					{ status: 500, headers: corsHeaders },
+				);
+			}
+		}
+
+		// Switch to a specific session
+		if (path === "/sessions/switch" && req.method === "POST") {
+			try {
+				const { sessionId } = (await req.json()) as { sessionId: string };
+
+				if (!sessionId) {
+					return Response.json(
+						{ error: "sessionId required" },
+						{ status: 400, headers: corsHeaders },
+					);
+				}
+
+				// Validate session exists
+				const cwd = process.cwd();
+				const projectFolder = cwd.replace(/\//g, "-");
+				const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
+				const indexPath = join(claudeDir, "sessions-index.json");
+
+				const indexFile = Bun.file(indexPath);
+				if (await indexFile.exists()) {
+					const index = await indexFile.json();
+					const session = index.entries.find(
+						(e: { sessionId: string }) => e.sessionId === sessionId,
+					);
+					if (!session) {
+						return Response.json(
+							{ error: "Session not found" },
+							{ status: 404, headers: corsHeaders },
+						);
+					}
+				} else {
+					return Response.json(
+						{ error: "No sessions found" },
+						{ status: 404, headers: corsHeaders },
+					);
+				}
+
+				setActiveSession(sessionId);
+
+				// Return the session's messages for UI update
+				const messages = await getSessionHistoryById(sessionId);
+				return Response.json({ ok: true, messages }, { headers: corsHeaders });
+			} catch (err) {
+				console.error("Failed to switch session:", err);
+				return Response.json(
+					{ error: String(err) },
+					{ status: 500, headers: corsHeaders },
+				);
+			}
+		}
+
+		// Delete a specific session
+		if (path.startsWith("/sessions/") && req.method === "DELETE") {
+			try {
+				const sessionId = path.replace("/sessions/", "");
+
+				const cwd = process.cwd();
+				const projectFolder = cwd.replace(/\//g, "-");
+				const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
+				const indexPath = join(claudeDir, "sessions-index.json");
+
+				const indexFile = Bun.file(indexPath);
+				if (!(await indexFile.exists())) {
+					return Response.json(
+						{ error: "No sessions found" },
+						{ status: 404, headers: corsHeaders },
+					);
+				}
+
+				const index = await indexFile.json();
+				const session = index.entries.find(
+					(e: { sessionId: string }) => e.sessionId === sessionId,
+				);
+
+				if (!session) {
+					return Response.json(
+						{ error: "Session not found" },
+						{ status: 404, headers: corsHeaders },
+					);
+				}
+
+				// Delete the transcript file
+				const transcriptFile = Bun.file(session.fullPath);
+				if (await transcriptFile.exists()) {
+					await Bun.file(session.fullPath).delete();
+				}
+
+				// Update the index
+				const updatedIndex = {
+					...index,
+					entries: index.entries.filter(
+						(e: { sessionId: string }) => e.sessionId !== sessionId,
+					),
+				};
+
+				await Bun.write(indexPath, JSON.stringify(updatedIndex, null, 2));
+
+				return Response.json({ ok: true }, { headers: corsHeaders });
+			} catch (err) {
+				console.error("Failed to delete session:", err);
 				return Response.json(
 					{ error: String(err) },
 					{ status: 500, headers: corsHeaders },

@@ -8,6 +8,7 @@ import {
 } from "solid-js";
 import Markdown from "./Markdown";
 import { GitDiffModal, GitStatusIndicator, useGitStatus } from "./Git";
+import { SessionManagerModal } from "./SessionManager";
 
 const API_URL = "";
 
@@ -154,6 +155,7 @@ export default function App() {
   const [playingId, setPlayingId] = createSignal<string | null>(null);
   const [isPlaying, setIsPlaying] = createSignal(false);
   const [showMenu, setShowMenu] = createSignal(false);
+  const [showSessionModal, setShowSessionModal] = createSignal(false);
 
   // Git state
   const gitStatus = useGitStatus();
@@ -735,7 +737,17 @@ export default function App() {
               </button>
 
               <Show when={showMenu()}>
-                <div class="absolute left-0 mt-2 bg-background border border-border rounded-lg shadow-lg min-w-48">
+                <div class="absolute left-0 bottom-full mb-2 bg-background border border-border rounded-lg shadow-lg min-w-48">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSessionModal(true);
+                      setShowMenu(false);
+                    }}
+                    class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm"
+                  >
+                    Manage Sessions
+                  </button>
                   <button
                     type="button"
                     onClick={clearSession}
@@ -826,6 +838,17 @@ export default function App() {
         show={showDiffModal()}
         onClose={() => setShowDiffModal(false)}
         onCommit={handleCommit}
+      />
+
+      {/* Session Manager Modal */}
+      <SessionManagerModal
+        show={showSessionModal()}
+        onClose={() => setShowSessionModal(false)}
+        onSwitch={(messages) => {
+          setEvents(messages);
+          idCounter = messages.length;
+          setShowSessionModal(false);
+        }}
       />
     </div>
   );
