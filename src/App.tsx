@@ -152,8 +152,10 @@ export default function App() {
   const [playingId, setPlayingId] = createSignal<string | null>(null);
   const [isPlaying, setIsPlaying] = createSignal(false);
   const [showTextInput, setShowTextInput] = createSignal(false);
+  const [showMenu, setShowMenu] = createSignal(false);
 
   let mainRef: HTMLElement | undefined;
+  let menuRef: HTMLDivElement | undefined;
   let idCounter = 0;
   let mediaRecorder: MediaRecorder | null = null;
   let audioChunks: Blob[] = [];
@@ -521,8 +523,78 @@ export default function App() {
     }
   });
 
+  const clearSession = async () => {
+    if (!confirm("Are you sure you want to clear the entire session? This cannot be undone.")) {
+      return;
+    }
+
+    try {
+      await fetch(`${API_URL}/api/clear`, { method: "POST" });
+      setEvents([]);
+      setInput("");
+      setStreamingContent("");
+      idCounter = 0;
+    } catch (err) {
+      console.error("Failed to clear session:", err);
+      alert("Failed to clear session");
+    } finally {
+      setShowMenu(false);
+    }
+  };
+
+  // Close menu when clicking outside
+  createEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef && !menuRef.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+
+    if (showMenu()) {
+      document.addEventListener("click", handleClickOutside);
+      return () => document.removeEventListener("click", handleClickOutside);
+    }
+  });
+
   return (
-    <div class="h-dvh flex flex-col bg-background">
+    <div class="h-dvh flex flex-col bg-background relative">
+      {/* Floating options menu */}
+      <div ref={menuRef} class="fixed top-4 right-4 z-50">
+        <button
+          type="button"
+          onClick={() => setShowMenu(!showMenu())}
+          class="p-2 rounded-lg bg-background border border-border hover:bg-muted transition-colors shadow-lg"
+          title="Options"
+        >
+          <svg
+            class="w-5 h-5 text-muted-foreground"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+            />
+          </svg>
+        </button>
+
+        <Show when={showMenu()}>
+          <div class="absolute right-0 mt-2 bg-background border border-border rounded-lg shadow-lg min-w-48">
+            <button
+              type="button"
+              onClick={clearSession}
+              disabled={isLoading() || isTranscribing() || events().length === 0}
+              class="w-full text-left px-4 py-2 hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+            >
+              Clear Session
+            </button>
+          </div>
+        </Show>
+      </div>
+
       {/* Scrollable chat history */}
       <main ref={mainRef} class="flex-1 overflow-y-auto p-4 mask-fade">
         <div class="max-w-2xl mx-auto space-y-4 w-full pb-4">
@@ -619,37 +691,37 @@ export default function App() {
                   : "bg-foreground hover:scale-105 active:scale-95"
             }`}
         >
-          <svg
-            class={`w-8 h-8 ${status() === "idle" ? "text-background" : "text-white"}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            {status() === "recording" ? (
-              <rect
-                x="6"
-                y="6"
-                width="12"
-                height="12"
-                rx="2"
-                fill="currentColor"
-              />
-            ) : status() === "speaking" ? (
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-3.5v14l-5-3.5H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z"
-              />
-            ) : (
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-              />
-            )}
-          </svg>
+            <svg
+              class={`w-8 h-8 ${status() === "idle" ? "text-background" : "text-white"}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              {status() === "recording" ? (
+                <rect
+                  x="6"
+                  y="6"
+                  width="12"
+                  height="12"
+                  rx="2"
+                  fill="currentColor"
+                />
+              ) : status() === "speaking" ? (
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-3.5v14l-5-3.5H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z"
+                />
+              ) : (
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                />
+              )}
+            </svg>
         </button>
 
         {/* Text input toggle */}

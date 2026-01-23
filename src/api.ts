@@ -132,7 +132,7 @@ export default {
 		}
 
 		// Clear session
-		if (path === "/session" && req.method === "DELETE") {
+		if ((path === "/session" && req.method === "DELETE") || (path === "/clear" && req.method === "POST")) {
 			clearSession();
 			console.log("Session cleared");
 			return Response.json({ ok: true }, { headers: corsHeaders });
