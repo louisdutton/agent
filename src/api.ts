@@ -15,8 +15,8 @@ const corsHeaders = {
 	"Access-Control-Allow-Headers": "Content-Type",
 };
 
-const WHISPER_URL = process.env.WHISPER_URL || "http://localhost:8080";
-const KOKORO_URL = process.env.KOKORO_URL || "http://localhost:8880";
+const WHISPER_URL = process.env.WHISPER_URL || "http://localhost:9371";
+const KOKORO_URL = process.env.KOKORO_URL || "http://localhost:9372";
 
 // Git diff types
 type DiffLineType = "context" | "addition" | "deletion";
@@ -175,7 +175,9 @@ async function getSessionHistory() {
 						const textBlocks = content.filter(
 							(b: { type: string }) => b.type === "text",
 						);
-						const text = textBlocks.map((b: { text: string }) => b.text).join("");
+						const text = textBlocks
+							.map((b: { text: string }) => b.text)
+							.join("");
 						if (text) {
 							messages.push({ type: "user", id: entry.uuid, content: text });
 						}
@@ -199,7 +201,11 @@ async function getSessionHistory() {
 					);
 					if (toolUses.length > 0) {
 						const tools: Tool[] = toolUses.map(
-							(t: { id: string; name: string; input: Record<string, unknown> }) => ({
+							(t: {
+								id: string;
+								name: string;
+								input: Record<string, unknown>;
+							}) => ({
 								toolUseId: t.id,
 								name: t.name,
 								input: t.input || {},
@@ -316,7 +322,9 @@ async function getSessionHistoryById(sessionId: string) {
 						const textBlocks = content.filter(
 							(b: { type: string }) => b.type === "text",
 						);
-						const text = textBlocks.map((b: { text: string }) => b.text).join("");
+						const text = textBlocks
+							.map((b: { text: string }) => b.text)
+							.join("");
 						if (text) {
 							messages.push({ type: "user", id: entry.uuid, content: text });
 						}
@@ -338,7 +346,11 @@ async function getSessionHistoryById(sessionId: string) {
 					);
 					if (toolUses.length > 0) {
 						const tools: Tool[] = toolUses.map(
-							(t: { id: string; name: string; input: Record<string, unknown> }) => ({
+							(t: {
+								id: string;
+								name: string;
+								input: Record<string, unknown>;
+							}) => ({
 								toolUseId: t.id,
 								name: t.name,
 								input: t.input || {},
@@ -613,7 +625,10 @@ export default {
 
 				await Bun.write(indexPath, JSON.stringify(updatedIndex, null, 2));
 
-				return Response.json({ ok: true, wasActiveSession }, { headers: corsHeaders });
+				return Response.json(
+					{ ok: true, wasActiveSession },
+					{ headers: corsHeaders },
+				);
 			} catch (err) {
 				console.error("Failed to delete session:", err);
 				return Response.json(
@@ -789,7 +804,10 @@ export default {
 				const untrackedOutput = await new Response(untrackedProc.stdout).text();
 				await untrackedProc.exited;
 
-				const untrackedFiles = untrackedOutput.trim().split("\n").filter(Boolean);
+				const untrackedFiles = untrackedOutput
+					.trim()
+					.split("\n")
+					.filter(Boolean);
 				filesChanged += untrackedFiles.length;
 
 				// Count lines in untracked files
@@ -844,7 +862,10 @@ export default {
 				const untrackedOutput = await new Response(untrackedProc.stdout).text();
 				await untrackedProc.exited;
 
-				const untrackedFiles = untrackedOutput.trim().split("\n").filter(Boolean);
+				const untrackedFiles = untrackedOutput
+					.trim()
+					.split("\n")
+					.filter(Boolean);
 
 				// Generate diff-like output for untracked files
 				for (const filePath of untrackedFiles) {
@@ -924,7 +945,10 @@ export default {
 				}
 
 				console.log("Git commit:", stdout);
-				return Response.json({ ok: true, output: stdout }, { headers: corsHeaders });
+				return Response.json(
+					{ ok: true, output: stdout },
+					{ headers: corsHeaders },
+				);
 			} catch (err) {
 				console.error("Git commit error:", err);
 				return Response.json(
@@ -978,7 +1002,12 @@ export default {
 				for (const name of projectNames) {
 					const projectPath = join(projectsDir, name);
 					const projectFolder = projectPath.replace(/\//g, "-");
-					const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
+					const claudeDir = join(
+						homedir(),
+						".claude",
+						"projects",
+						projectFolder,
+					);
 					const indexPath = join(claudeDir, "sessions-index.json");
 
 					const projectData: ProjectWithSessions = {
@@ -995,7 +1024,8 @@ export default {
 								.filter((e: { isSidechain: boolean }) => !e.isSidechain)
 								.sort(
 									(a: { modified: string }, b: { modified: string }) =>
-										new Date(b.modified).getTime() - new Date(a.modified).getTime(),
+										new Date(b.modified).getTime() -
+										new Date(a.modified).getTime(),
 								)
 								.map(
 									(e: {
@@ -1061,7 +1091,10 @@ export default {
 				// Clear current session and set new cwd
 				setActiveSession(null, projectPath);
 
-				return Response.json({ ok: true, cwd: projectPath }, { headers: corsHeaders });
+				return Response.json(
+					{ ok: true, cwd: projectPath },
+					{ headers: corsHeaders },
+				);
 			} catch (err) {
 				console.error("Failed to switch project:", err);
 				return Response.json(

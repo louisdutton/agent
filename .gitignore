@@ -1,12 +1,7 @@
 node_modules
 .DS_Store
 dist
-dist-ssr
 *.local
 .env
-.nitro
-.tanstack
-.wrangler
-backend/repos
 .direnv
-.models
+result

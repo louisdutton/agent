@@ -1,16 +1,9 @@
 import api from "./src/api";
 import app from "./index.html";
 
-const tls = {
-  cert: Bun.file(`${Bun.env.HOME}/.local/share/tailscale/certs/mini.taila65fcf.ts.net.crt`),
-  key: Bun.file(`${Bun.env.HOME}/.local/share/tailscale/certs/mini.taila65fcf.ts.net.key`),
-};
-
 const server = Bun.serve({
-  port: 3000,
-  hostname: "0.0.0.0",
+  port: Number(Bun.env.PORT) || 3000,
   idleTimeout: 120,
-  tls: (await tls.cert.exists()) && (await tls.key.exists()) ? tls : undefined,
 
   routes: {
     "/": app,
@@ -24,11 +17,6 @@ const server = Bun.serve({
         return new Response(null, { status: 404 });
       }
     },
-  },
-
-  development: {
-    hmr: true,
-    console: true
   }
 });
 
