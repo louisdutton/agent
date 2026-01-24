@@ -95,6 +95,15 @@ in {
       after = ["network.target" "agent-whisper.service" "agent-tts.service"];
       wants = ["agent-whisper.service" "agent-tts.service"];
 
+      path = with pkgs; [
+        git
+        ffmpeg
+        coreutils
+        findutils
+        gnugrep
+        gnused
+      ];
+
       environment = {
         WHISPER_URL = "http://localhost:${toString cfg.whisperPort}";
         KOKORO_URL = "http://localhost:${toString cfg.ttsPort}";
