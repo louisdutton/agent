@@ -102,6 +102,7 @@ in {
         findutils
         gnugrep
         gnused
+        claude-code
       ];
 
       environment = {
