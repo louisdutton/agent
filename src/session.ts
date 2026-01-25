@@ -8,38 +8,54 @@ type SessionState = {
 	abortController: AbortController | null;
 };
 
-// Track all active sessions by ID
-const sessions = new Map<string, SessionState>();
+// Track the current session only (no need for a Map since we only have one active at a time)
+let currentSession: SessionState | null = null;
 
-// The currently active session
+// The currently active session ID
 let activeSessionId: string | null = null;
 
 // Default cwd for new sessions (can be changed when starting a new session)
 let pendingCwd: string = process.cwd();
 
-export function getOrCreateSession(sessionId: string, cwd?: string): SessionState {
-	if (!sessions.has(sessionId)) {
-		sessions.set(sessionId, {
+export function getOrCreateSession(
+	sessionId: string,
+	cwd?: string,
+): SessionState {
+	// If switching to a different session, clear the old one
+	if (currentSession && currentSession.sessionId !== sessionId) {
+		currentSession = null;
+	}
+
+	if (!currentSession || currentSession.sessionId !== sessionId) {
+		currentSession = {
 			sessionId,
 			cwd: cwd ?? pendingCwd,
 			abortController: null,
-		});
+		};
 	}
-	return sessions.get(sessionId)!;
+	return currentSession;
 }
 
 export function getSession(sessionId: string): SessionState | undefined {
-	return sessions.get(sessionId);
+	if (currentSession?.sessionId === sessionId) {
+		return currentSession;
+	}
+	return undefined;
 }
 
 export function setActiveSession(sessionId: string | null, cwd?: string): void {
 	activeSessionId = sessionId;
 	if (sessionId && cwd) {
 		getOrCreateSession(sessionId, cwd);
-	}
-	// If clearing session (null) with a cwd, set it as pending for next session
-	if (!sessionId && cwd) {
-		pendingCwd = cwd;
+	} else if (sessionId && currentSession?.sessionId !== sessionId) {
+		// Switching to a session without cwd - create with pending
+		getOrCreateSession(sessionId, pendingCwd);
+	} else if (!sessionId) {
+		// Clearing session
+		currentSession = null;
+		if (cwd) {
+			pendingCwd = cwd;
+		}
 	}
 }
 
@@ -48,8 +64,8 @@ export function getActiveSession(): string | null {
 }
 
 export function getActiveSessionCwd(): string {
-	if (activeSessionId && sessions.has(activeSessionId)) {
-		return sessions.get(activeSessionId)!.cwd;
+	if (activeSessionId && currentSession?.sessionId === activeSessionId) {
+		return currentSession.cwd;
 	}
 	return pendingCwd;
 }
@@ -58,19 +74,20 @@ export function setPendingCwd(cwd: string): void {
 	pendingCwd = cwd;
 }
 
-export function setAbortController(sessionId: string, controller: AbortController | null): void {
-	const session = sessions.get(sessionId);
-	if (session) {
-		session.abortController = controller;
+export function setAbortController(
+	sessionId: string,
+	controller: AbortController | null,
+): void {
+	if (currentSession?.sessionId === sessionId) {
+		currentSession.abortController = controller;
 	}
 }
 
 export function cancelCurrentRequest(): boolean {
-	if (activeSessionId && sessions.has(activeSessionId)) {
-		const session = sessions.get(activeSessionId)!;
-		if (session.abortController) {
-			session.abortController.abort();
-			session.abortController = null;
+	if (activeSessionId && currentSession?.sessionId === activeSessionId) {
+		if (currentSession.abortController) {
+			currentSession.abortController.abort();
+			currentSession.abortController = null;
 			console.log("Request cancelled");
 			return true;
 		}
@@ -124,6 +141,12 @@ export async function clearSession(): Promise<void> {
 
 		await Bun.write(indexPath, JSON.stringify(updatedIndex, null, 2));
 		console.log("Session removed from index");
+
+		// Clear the active session if it was the one we deleted
+		if (activeSessionId === latestSession.sessionId) {
+			activeSessionId = null;
+			currentSession = null;
+		}
 	} catch (err) {
 		console.error("Failed to clear session:", err);
 		throw err;

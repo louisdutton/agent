@@ -58,6 +58,7 @@ export function SessionManagerModal(props: {
 			const data = await res.json();
 			setProjects(data.projects || []);
 			setCurrentProject(data.currentProject || "");
+			setActiveSessionId(data.activeSessionId || null);
 		} catch (err) {
 			console.error("Failed to load projects:", err);
 		} finally {
@@ -90,6 +91,7 @@ export function SessionManagerModal(props: {
 			});
 			const data = await res.json();
 			if (data.ok) {
+				setActiveSessionId(sessionId);
 				props.onSwitch(data.messages || []);
 			} else {
 				alert(data.error || "Failed to switch session");
@@ -117,6 +119,7 @@ export function SessionManagerModal(props: {
 				return;
 			}
 			setCurrentProject(projectName);
+			setActiveSessionId(null); // New session has no ID yet
 			props.onNewSession();
 		} catch (err) {
 			console.error("Failed to start session:", err);
@@ -127,31 +130,30 @@ export function SessionManagerModal(props: {
 		}
 	};
 
-	const deleteSession = async (sessionId: string, projectName: string) => {
+	const deleteSession = async (
+		sessionId: string,
+		projectName: string,
+		projectPath: string,
+	) => {
 		if (!confirm("Delete this session? This cannot be undone.")) return;
 
 		setDeleting(sessionId);
 		try {
-			// If deleting from a different project, switch first
-			if (projectName !== currentProject()) {
-				const switchRes = await fetch(`${API_URL}/api/projects/switch`, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ project: projectName }),
-				});
-				await switchRes.json();
-			}
-
-			const res = await fetch(`${API_URL}/api/sessions/${sessionId}`, {
-				method: "DELETE",
-			});
+			// Pass project path as query param so backend doesn't need to switch context
+			const res = await fetch(
+				`${API_URL}/api/sessions/${sessionId}?project=${encodeURIComponent(projectPath)}`,
+				{ method: "DELETE" },
+			);
 			const data = await res.json();
 			if (data.ok) {
 				// Remove session from local state
 				setProjects((prev) =>
 					prev.map((p) =>
 						p.name === projectName
-							? { ...p, sessions: p.sessions.filter((s) => s.sessionId !== sessionId) }
+							? {
+									...p,
+									sessions: p.sessions.filter((s) => s.sessionId !== sessionId),
+								}
 							: p,
 					),
 				);
@@ -185,10 +187,14 @@ export function SessionManagerModal(props: {
 		return prompt.slice(0, maxLen) + "...";
 	};
 
+	const [activeSessionId, setActiveSessionId] = createSignal<string | null>(
+		null,
+	);
+
 	// Check if a session is the current active one
 	const isActiveSession = (sessionId: string, projectName: string) => {
-		const project = projects().find((p) => p.name === currentProject());
-		return projectName === currentProject() && project?.sessions[0]?.sessionId === sessionId;
+		// A session is active if it matches the tracked active session ID and is in the current project
+		return projectName === currentProject() && sessionId === activeSessionId();
 	};
 
 	// Only show projects that have sessions
@@ -310,7 +316,7 @@ export function SessionManagerModal(props: {
 																			type="button"
 																			onClick={(e) => {
 																				e.stopPropagation();
-																				deleteSession(session.sessionId, project.name);
+																				deleteSession(session.sessionId, project.name, project.path);
 																			}}
 																			disabled={deleting() === session.sessionId}
 																			class="p-1.5 rounded-md text-red-400 hover:bg-red-500/20 disabled:opacity-50 transition-colors"

@@ -94,8 +94,129 @@ function parseDiff(rawDiff: string): DiffFile[] {
 	return files;
 }
 
+// Shared types for session history
+type Tool = {
+	toolUseId: string;
+	name: string;
+	input: Record<string, unknown>;
+	status: "running" | "complete" | "error";
+};
+type Message =
+	| { type: "user"; id: string; content: string }
+	| { type: "assistant"; id: string; content: string }
+	| { type: "tools"; id: string; tools: Tool[] };
+
+// Parse transcript content into messages
+function parseTranscript(content: string): Message[] {
+	const lines = content.trim().split("\n").filter(Boolean);
+	const messages: Message[] = [];
+	const toolResults = new Map<string, boolean>();
+
+	// First pass: collect all tool results
+	for (const line of lines) {
+		try {
+			const entry = JSON.parse(line);
+			if (entry.type === "user" && entry.message?.content) {
+				const entryContent = entry.message.content;
+				if (Array.isArray(entryContent)) {
+					for (const block of entryContent) {
+						if (block.type === "tool_result" && block.tool_use_id) {
+							toolResults.set(block.tool_use_id, !!block.is_error);
+						}
+					}
+				}
+			}
+		} catch {
+			// Skip invalid JSON
+		}
+	}
+
+	// Second pass: build messages
+	for (const line of lines) {
+		try {
+			const entry = JSON.parse(line);
+			if (entry.type === "user" && entry.message?.content) {
+				const entryContent = entry.message.content;
+				if (typeof entryContent === "string") {
+					if (!entry.isMeta && !entryContent.startsWith("<")) {
+						messages.push({ type: "user", id: entry.uuid, content: entryContent });
+					}
+				} else if (Array.isArray(entryContent)) {
+					const textBlocks = entryContent.filter(
+						(b: { type: string }) => b.type === "text",
+					);
+					const text = textBlocks
+						.map((b: { text: string }) => b.text)
+						.join("");
+					if (text) {
+						messages.push({ type: "user", id: entry.uuid, content: text });
+					}
+				}
+			} else if (entry.type === "assistant" && entry.message?.content) {
+				const entryContent = entry.message.content;
+				if (!Array.isArray(entryContent)) continue;
+
+				const textBlocks = entryContent.filter(
+					(b: { type: string }) => b.type === "text",
+				);
+				const text = textBlocks
+					.map((b: { text: string }) => b.text)
+					.join("");
+				if (text) {
+					messages.push({ type: "assistant", id: entry.uuid, content: text });
+				}
+
+				const toolUses = entryContent.filter(
+					(b: { type: string }) => b.type === "tool_use",
+				);
+				if (toolUses.length > 0) {
+					const tools: Tool[] = toolUses.map(
+						(t: {
+							id: string;
+							name: string;
+							input: Record<string, unknown>;
+						}) => ({
+							toolUseId: t.id,
+							name: t.name,
+							input: t.input || {},
+							status: toolResults.has(t.id)
+								? toolResults.get(t.id)
+									? "error"
+									: "complete"
+								: "complete",
+						}),
+					);
+					messages.push({
+						type: "tools",
+						id: `tools-${entry.uuid}`,
+						tools,
+					});
+				}
+			}
+		} catch {
+			// Skip invalid JSON lines
+		}
+	}
+
+	// Merge consecutive tool groups
+	const mergedMessages: Message[] = [];
+	for (const msg of messages) {
+		const last = mergedMessages[mergedMessages.length - 1];
+		if (msg.type === "tools" && last && last.type === "tools") {
+			mergedMessages[mergedMessages.length - 1] = {
+				...last,
+				tools: [...last.tools, ...msg.tools],
+			};
+		} else {
+			mergedMessages.push(msg);
+		}
+	}
+
+	return mergedMessages;
+}
+
 // Get Claude session history from ~/.claude/projects/
-async function getSessionHistory() {
+async function getSessionHistory(): Promise<Message[]> {
 	const cwd = getActiveSessionCwd();
 	const projectFolder = cwd.replace(/\//g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
@@ -116,143 +237,23 @@ async function getSessionHistory() {
 		if (sessions.length === 0) return [];
 
 		const latestSession = sessions[0];
-		const transcriptPath = latestSession.fullPath;
-		const transcriptFile = Bun.file(transcriptPath);
+		const transcriptFile = Bun.file(latestSession.fullPath);
 		if (!(await transcriptFile.exists())) return [];
 
 		const content = await transcriptFile.text();
-		const lines = content.trim().split("\n").filter(Boolean);
-
-		type Tool = {
-			toolUseId: string;
-			name: string;
-			input: Record<string, unknown>;
-			status: "running" | "complete" | "error";
-		};
-		type Message =
-			| { type: "user"; id: string; content: string }
-			| { type: "assistant"; id: string; content: string }
-			| { type: "tools"; id: string; tools: Tool[] };
-		const messages: Message[] = [];
-
-		// Track tool results to update tool status
-		const toolResults = new Map<string, boolean>(); // toolUseId -> isError
-
-		// First pass: collect all tool results
-		for (const line of lines) {
-			try {
-				const entry = JSON.parse(line);
-				if (entry.type === "user" && entry.message?.content) {
-					const content = entry.message.content;
-					// Handle array content (tool results)
-					if (Array.isArray(content)) {
-						for (const block of content) {
-							if (block.type === "tool_result" && block.tool_use_id) {
-								toolResults.set(block.tool_use_id, !!block.is_error);
-							}
-						}
-					}
-				}
-			} catch {
-				// Skip invalid JSON
-			}
-		}
-
-		// Second pass: build messages with correct tool statuses
-		for (const line of lines) {
-			try {
-				const entry = JSON.parse(line);
-				if (entry.type === "user" && entry.message?.content) {
-					const content = entry.message.content;
-					// Handle string content (regular user messages)
-					if (typeof content === "string") {
-						// Skip meta/command messages
-						if (!entry.isMeta && !content.startsWith("<")) {
-							messages.push({ type: "user", id: entry.uuid, content });
-						}
-					} else if (Array.isArray(content)) {
-						// Handle array content (messages with text blocks)
-						const textBlocks = content.filter(
-							(b: { type: string }) => b.type === "text",
-						);
-						const text = textBlocks
-							.map((b: { text: string }) => b.text)
-							.join("");
-						if (text) {
-							messages.push({ type: "user", id: entry.uuid, content: text });
-						}
-					}
-				} else if (entry.type === "assistant" && entry.message?.content) {
-					const content = entry.message.content;
-					if (!Array.isArray(content)) continue;
-
-					// Extract text content
-					const textBlocks = content.filter(
-						(b: { type: string }) => b.type === "text",
-					);
-					const text = textBlocks.map((b: { text: string }) => b.text).join("");
-					if (text) {
-						messages.push({ type: "assistant", id: entry.uuid, content: text });
-					}
-
-					// Extract tool uses
-					const toolUses = content.filter(
-						(b: { type: string }) => b.type === "tool_use",
-					);
-					if (toolUses.length > 0) {
-						const tools: Tool[] = toolUses.map(
-							(t: {
-								id: string;
-								name: string;
-								input: Record<string, unknown>;
-							}) => ({
-								toolUseId: t.id,
-								name: t.name,
-								input: t.input || {},
-								status: toolResults.has(t.id)
-									? toolResults.get(t.id)
-										? "error"
-										: "complete"
-									: "complete", // Default to complete for historical tools
-							}),
-						);
-						messages.push({
-							type: "tools",
-							id: `tools-${entry.uuid}`,
-							tools,
-						});
-					}
-				}
-			} catch {
-				// Skip invalid JSON lines
-			}
-		}
-
-		// Merge consecutive tool groups (mimics live streaming behavior)
-		const mergedMessages: Message[] = [];
-		for (const msg of messages) {
-			const last = mergedMessages[mergedMessages.length - 1];
-			if (msg.type === "tools" && last && last.type === "tools") {
-				// Merge tools into the previous group
-				mergedMessages[mergedMessages.length - 1] = {
-					...last,
-					tools: [...last.tools, ...msg.tools],
-				};
-			} else {
-				mergedMessages.push(msg);
-			}
-		}
-
-		return mergedMessages;
+		return parseTranscript(content);
 	} catch (err) {
 		console.error("Error reading session history:", err);
 		return [];
 	}
 }
 
-// Get session history by specific session ID
-async function getSessionHistoryById(sessionId: string) {
-	const cwd = getActiveSessionCwd();
+// Get session history by specific session ID and project path
+async function getSessionHistoryById(
+	sessionId: string,
+	projectPath?: string,
+): Promise<Message[]> {
+	const cwd = projectPath ?? getActiveSessionCwd();
 	const projectFolder = cwd.replace(/\//g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 	const indexPath = join(claudeDir, "sessions-index.json");
@@ -272,123 +273,7 @@ async function getSessionHistoryById(sessionId: string) {
 		if (!(await transcriptFile.exists())) return [];
 
 		const content = await transcriptFile.text();
-		const lines = content.trim().split("\n").filter(Boolean);
-
-		type Tool = {
-			toolUseId: string;
-			name: string;
-			input: Record<string, unknown>;
-			status: "running" | "complete" | "error";
-		};
-		type Message =
-			| { type: "user"; id: string; content: string }
-			| { type: "assistant"; id: string; content: string }
-			| { type: "tools"; id: string; tools: Tool[] };
-		const messages: Message[] = [];
-
-		// Track tool results to update tool status
-		const toolResults = new Map<string, boolean>();
-
-		// First pass: collect all tool results
-		for (const line of lines) {
-			try {
-				const entry = JSON.parse(line);
-				if (entry.type === "user" && entry.message?.content) {
-					const content = entry.message.content;
-					if (Array.isArray(content)) {
-						for (const block of content) {
-							if (block.type === "tool_result" && block.tool_use_id) {
-								toolResults.set(block.tool_use_id, !!block.is_error);
-							}
-						}
-					}
-				}
-			} catch {
-				// Skip invalid JSON
-			}
-		}
-
-		// Second pass: build messages
-		for (const line of lines) {
-			try {
-				const entry = JSON.parse(line);
-				if (entry.type === "user" && entry.message?.content) {
-					const content = entry.message.content;
-					if (typeof content === "string") {
-						if (!entry.isMeta && !content.startsWith("<")) {
-							messages.push({ type: "user", id: entry.uuid, content });
-						}
-					} else if (Array.isArray(content)) {
-						const textBlocks = content.filter(
-							(b: { type: string }) => b.type === "text",
-						);
-						const text = textBlocks
-							.map((b: { text: string }) => b.text)
-							.join("");
-						if (text) {
-							messages.push({ type: "user", id: entry.uuid, content: text });
-						}
-					}
-				} else if (entry.type === "assistant" && entry.message?.content) {
-					const content = entry.message.content;
-					if (!Array.isArray(content)) continue;
-
-					const textBlocks = content.filter(
-						(b: { type: string }) => b.type === "text",
-					);
-					const text = textBlocks.map((b: { text: string }) => b.text).join("");
-					if (text) {
-						messages.push({ type: "assistant", id: entry.uuid, content: text });
-					}
-
-					const toolUses = content.filter(
-						(b: { type: string }) => b.type === "tool_use",
-					);
-					if (toolUses.length > 0) {
-						const tools: Tool[] = toolUses.map(
-							(t: {
-								id: string;
-								name: string;
-								input: Record<string, unknown>;
-							}) => ({
-								toolUseId: t.id,
-								name: t.name,
-								input: t.input || {},
-								status: toolResults.has(t.id)
-									? toolResults.get(t.id)
-										? "error"
-										: "complete"
-									: "complete",
-							}),
-						);
-						messages.push({
-							type: "tools",
-							id: `tools-${entry.uuid}`,
-							tools,
-						});
-					}
-				}
-			} catch {
-				// Skip invalid JSON lines
-			}
-		}
-
-		// Merge consecutive tool groups (mimics live streaming behavior)
-		const mergedMessages: Message[] = [];
-		for (const msg of messages) {
-			const last = mergedMessages[mergedMessages.length - 1];
-			if (msg.type === "tools" && last && last.type === "tools") {
-				// Merge tools into the previous group
-				mergedMessages[mergedMessages.length - 1] = {
-					...last,
-					tools: [...last.tools, ...msg.tools],
-				};
-			} else {
-				mergedMessages.push(msg);
-			}
-		}
-
-		return mergedMessages;
+		return parseTranscript(content);
 	} catch (err) {
 		console.error("Error reading session history by ID:", err);
 		return [];
@@ -535,7 +420,7 @@ export default {
 					);
 				}
 
-				// Validate session exists
+				// Validate session exists (project should already be switched by frontend)
 				const cwd = getActiveSessionCwd();
 				const projectFolder = cwd.replace(/\//g, "-");
 				const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
@@ -578,8 +463,10 @@ export default {
 		if (path.startsWith("/sessions/") && req.method === "DELETE") {
 			try {
 				const sessionId = path.replace("/sessions/", "");
+				const projectPath = url.searchParams.get("project");
 
-				const cwd = getActiveSessionCwd();
+				// Use provided project path or fall back to active session's cwd
+				const cwd = projectPath ?? getActiveSessionCwd();
 				const projectFolder = cwd.replace(/\//g, "-");
 				const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 				const indexPath = join(claudeDir, "sessions-index.json");
@@ -1054,7 +941,11 @@ export default {
 				}
 
 				return Response.json(
-					{ projects, currentProject: getActiveSessionCwd().split("/").pop() },
+					{
+						projects,
+						currentProject: getActiveSessionCwd().split("/").pop(),
+						activeSessionId: getActiveSession(),
+					},
 					{ headers: corsHeaders },
 				);
 			} catch (err) {
