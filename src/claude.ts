@@ -32,6 +32,7 @@ export async function* sendMessage(message: string): AsyncGenerator<string> {
 			includePartialMessages: true,
 			abortController,
 			cwd,
+			pathToClaudeCodeExecutable: process.env.CLAUDE_CODE_PATH,
 		};
 
 		if (sessionId) {

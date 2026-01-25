@@ -4,6 +4,14 @@
   bun,
   makeWrapper,
   cacert,
+  # Runtime dependencies
+  git,
+  ffmpeg,
+  coreutils,
+  findutils,
+  gnugrep,
+  gnused,
+  claude-code,
 }: let
   src = ./..;
 
@@ -67,9 +75,19 @@ in
       # Install static server
       cp server.static.ts $out/share/agent-mobile/dist/server.ts
 
-      # Create wrapper
+      # Create wrapper with runtime dependencies
       makeWrapper ${bun}/bin/bun $out/bin/agent-server \
-        --add-flags "$out/share/agent-mobile/dist/server.ts"
+        --add-flags "$out/share/agent-mobile/dist/server.ts" \
+        --set CLAUDE_CODE_PATH "${claude-code}/bin/claude" \
+        --prefix PATH : ${lib.makeBinPath [
+          git
+          ffmpeg
+          coreutils
+          findutils
+          gnugrep
+          gnused
+          claude-code
+        ]}
 
       runHook postInstall
     '';
