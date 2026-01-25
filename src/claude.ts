@@ -4,6 +4,7 @@ import {
 	getActiveSessionCwd,
 	getOrCreateSession,
 	setAbortController,
+	setActiveSession,
 } from "./session";
 
 export async function* sendMessage(message: string): AsyncGenerator<string> {
@@ -44,6 +45,15 @@ export async function* sendMessage(message: string): AsyncGenerator<string> {
 			prompt: message,
 			options,
 		})) {
+			// Capture session_id from result events to persist the session
+			if (
+				event.type === "result" &&
+				"session_id" in event &&
+				typeof event.session_id === "string"
+			) {
+				setActiveSession(event.session_id, cwd);
+			}
+
 			yield JSON.stringify(event);
 		}
 	} finally {
