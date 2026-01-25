@@ -448,7 +448,8 @@ export default {
 		// Get session history
 		if (path === "/history" && req.method === "GET") {
 			const messages = await getSessionHistory();
-			return Response.json({ messages }, { headers: corsHeaders });
+			const cwd = getActiveSessionCwd();
+			return Response.json({ messages, cwd }, { headers: corsHeaders });
 		}
 
 		// Cancel current request
@@ -561,9 +562,9 @@ export default {
 
 				setActiveSession(sessionId);
 
-				// Return the session's messages for UI update
+				// Return the session's messages and cwd for UI update
 				const messages = await getSessionHistoryById(sessionId);
-				return Response.json({ ok: true, messages }, { headers: corsHeaders });
+				return Response.json({ ok: true, messages, cwd }, { headers: corsHeaders });
 			} catch (err) {
 				console.error("Failed to switch session:", err);
 				return Response.json(

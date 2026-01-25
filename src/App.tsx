@@ -157,6 +157,7 @@ export default function App() {
   const [isPlaying, setIsPlaying] = createSignal(false);
   const [showMenu, setShowMenu] = createSignal(false);
   const [showSessionModal, setShowSessionModal] = createSignal(false);
+  const [cwd, setCwd] = createSignal("");
 
   // Git state
   const gitStatus = useGitStatus();
@@ -174,12 +175,13 @@ export default function App() {
   let analyser: AnalyserNode | null = null;
   let animationFrame: number | null = null;
 
-  // Load chat history
+  // Load chat history and cwd
   const loadHistory = async () => {
     try {
       const res = await fetch(`${API_URL}/api/history`);
-      const { messages } = await res.json();
+      const { messages, cwd } = await res.json();
       setEvents(messages?.length ? messages : []);
+      setCwd(cwd || "");
       idCounter = messages?.length || 0;
     } catch (err) {
       console.error("Failed to load history:", err);
@@ -612,6 +614,14 @@ export default function App() {
 
   return (
     <div class="h-dvh flex flex-col bg-background">
+      {/* Header */}
+      <Show when={cwd()}>
+        <header class="flex-none px-4 py-2 border-b border-border">
+          <div class="max-w-2xl mx-auto">
+            <span class="text-sm text-muted-foreground font-mono">{cwd()}</span>
+          </div>
+        </header>
+      </Show>
 
       {/* Scrollable chat history */}
       <main ref={mainRef} class="flex-1 overflow-y-auto p-4 mask-fade">
