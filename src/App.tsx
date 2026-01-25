@@ -152,6 +152,7 @@ export default function App() {
   const [streamingContent, setStreamingContent] = createSignal("");
   const [isRecording, setIsRecording] = createSignal(false);
   const [isTranscribing, setIsTranscribing] = createSignal(false);
+  const [pendingVoiceInput, setPendingVoiceInput] = createSignal(false);
   const [playingId, setPlayingId] = createSignal<string | null>(null);
   const [isPlaying, setIsPlaying] = createSignal(false);
   const [showMenu, setShowMenu] = createSignal(false);
@@ -347,6 +348,7 @@ export default function App() {
       const { text } = await res.json();
       if (text?.trim()) {
         setInput(text.trim());
+        setPendingVoiceInput(true);
       }
     } catch (err) {
       console.error("Transcription error:", err);
@@ -581,10 +583,11 @@ export default function App() {
     }
   };
 
-  // Auto-send after transcription
+  // Auto-send after voice transcription only
   createEffect(() => {
     const text = input();
-    if (text && !isTranscribing() && !isLoading()) {
+    if (text && pendingVoiceInput() && !isTranscribing() && !isLoading()) {
+      setPendingVoiceInput(false);
       setTimeout(() => {
         if (input().trim()) {
           sendMessage();
@@ -693,6 +696,35 @@ export default function App() {
 
       {/* Bottom controls */}
       <div class="flex flex-col items-center pt-2 pb-6 gap-3">
+        {/* Text input */}
+        <div class="w-full max-w-2xl px-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              sendMessage();
+            }}
+            class="flex gap-2"
+          >
+            <input
+              type="text"
+              value={input()}
+              onInput={(e) => setInput(e.currentTarget.value)}
+              placeholder="Type a message..."
+              disabled={isLoading() || isRecording() || isTranscribing()}
+              class="input flex-1"
+            />
+            <button
+              type="submit"
+              disabled={!input().trim() || isLoading() || isRecording() || isTranscribing()}
+              class="px-4 py-2 rounded-lg bg-foreground text-background disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          </form>
+        </div>
+
         <div class="flex items-center justify-center gap-12 relative w-full">
           {/* Left buttons */}
           <div class="absolute left-4 flex items-center gap-2">

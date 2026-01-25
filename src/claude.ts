@@ -37,9 +37,8 @@ export async function* sendMessage(message: string): AsyncGenerator<string> {
 
 		if (sessionId) {
 			options.resume = sessionId;
-		} else {
-			options.continue = true;
 		}
+		// When sessionId is null, we start a fresh session by not setting resume or continue
 
 		for await (const event of query({
 			prompt: message,
