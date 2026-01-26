@@ -6,6 +6,7 @@ import {
 	clearSession,
 	getActiveSession,
 	getActiveSessionCwd,
+	isRequestInProgress,
 	setActiveSession,
 } from "./session";
 
@@ -336,6 +337,14 @@ export default {
 			}
 
 			return Response.json({ cwd }, { headers: corsHeaders });
+		}
+
+		// Check if a request is in progress for a session
+		const sessionStatusMatch = path.match(/^\/session\/([^/]+)\/status$/);
+		if (sessionStatusMatch && req.method === "GET") {
+			const sessionId = sessionStatusMatch[1];
+			const busy = isRequestInProgress(sessionId);
+			return Response.json({ busy }, { headers: corsHeaders });
 		}
 
 		// Cancel current request

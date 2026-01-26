@@ -95,6 +95,15 @@ export function cancelCurrentRequest(): boolean {
 	return false;
 }
 
+export function isRequestInProgress(sessionId?: string): boolean {
+	const targetSessionId = sessionId ?? activeSessionId;
+	return !!(
+		targetSessionId &&
+		currentSession?.sessionId === targetSessionId &&
+		currentSession.abortController
+	);
+}
+
 export async function clearSession(): Promise<void> {
 	try {
 		const cwd = getActiveSessionCwd();

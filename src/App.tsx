@@ -203,6 +203,16 @@ export default function App() {
           idCounter = 0;
         }
       }
+
+      // Check if the backend is busy processing a request for this session
+      const currentSessionId = localStorage.getItem("sessionId");
+      if (currentSessionId) {
+        const statusRes = await fetch(`${API_URL}/api/session/${encodeURIComponent(currentSessionId)}/status`);
+        const statusData = await statusRes.json();
+        if (statusData.busy) {
+          setIsLoading(true);
+        }
+      }
     } catch (err) {
       console.error("Failed to load history:", err);
       setEvents([]);
