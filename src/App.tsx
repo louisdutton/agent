@@ -800,7 +800,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setShowMenu(!showMenu())}
-              class="w-14 h-14 rounded-full flex items-center justify-center bg-background border border-border hover:bg-muted transition-colors shadow-lg"
+              class="w-14 h-14 rounded-full flex items-center justify-center bg-background border border-white/30 hover:bg-muted transition-colors shadow-lg"
               title="Options"
             >
               <svg

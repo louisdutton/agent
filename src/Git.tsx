@@ -338,7 +338,7 @@ export function GitStatusIndicator(props: {
 				type="button"
 				onClick={props.onClick}
 				disabled={!props.gitStatus?.hasChanges}
-				class={`w-14 h-14 rounded-full flex flex-col items-center justify-center bg-background border border-border transition-colors shadow-lg ${
+				class={`w-14 h-14 rounded-full flex flex-col items-center justify-center bg-background border border-white/30 transition-colors shadow-lg ${
 					props.gitStatus?.hasChanges
 						? "hover:bg-muted"
 						: "opacity-50 cursor-default"
