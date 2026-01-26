@@ -750,6 +750,13 @@ export default function App() {
               <span>Thinking...</span>
             </div>
           </Show>
+
+          <Show when={isCompacting()}>
+            <div class="flex items-center gap-2 text-sm text-muted-foreground">
+              <span class="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              <span>Compacting context...</span>
+            </div>
+          </Show>
         </div>
       </main>
 
