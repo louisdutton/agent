@@ -160,6 +160,7 @@ export default function App() {
   const [cwd, setCwd] = createSignal("");
   const [isCompacting, setIsCompacting] = createSignal(false);
   const [isCompacted, setIsCompacted] = createSignal(false);
+  const [showTextInput, setShowTextInput] = createSignal(false);
 
   // Git state
   const gitStatus = useGitStatus();
@@ -229,7 +230,7 @@ export default function App() {
 
   const handleCommit = () => {
     setShowDiffModal(false);
-    setInput("Commit the current changes");
+    sendMessage("Commit the current changes");
   };
 
   createEffect(() => {
@@ -443,12 +444,12 @@ export default function App() {
     }
   };
 
-  const sendMessage = async () => {
-    const text = input().trim();
+  const sendMessage = async (directMessage?: string) => {
+    const text = directMessage ?? input().trim();
     if (!text || isLoading()) return;
 
     addEvent({ type: "user", id: String(++idCounter), content: text });
-    setInput("");
+    if (!directMessage) setInput("");
     setIsLoading(true);
     setStreamingContent("");
 
@@ -763,33 +764,35 @@ export default function App() {
       {/* Bottom controls */}
       <div class="flex flex-col items-center pt-2 pb-6 gap-3">
         {/* Text input */}
-        <div class="w-full max-w-2xl px-4">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              sendMessage();
-            }}
-            class="flex gap-2"
-          >
-            <input
-              type="text"
-              value={input()}
-              onInput={(e) => setInput(e.currentTarget.value)}
-              placeholder="Type a message..."
-              disabled={isLoading() || isRecording() || isTranscribing()}
-              class="input flex-1"
-            />
-            <button
-              type="submit"
-              disabled={!input().trim() || isLoading() || isRecording() || isTranscribing()}
-              class="px-4 py-2 rounded-lg bg-foreground text-background disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+        <Show when={showTextInput()}>
+          <div class="w-full max-w-2xl px-4">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                sendMessage();
+              }}
+              class="flex gap-2"
             >
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-            </button>
-          </form>
-        </div>
+              <input
+                type="text"
+                value={input()}
+                onInput={(e) => setInput(e.currentTarget.value)}
+                placeholder="Type a message..."
+                disabled={isLoading() || isRecording() || isTranscribing()}
+                class="input flex-1"
+              />
+              <button
+                type="submit"
+                disabled={!input().trim() || isLoading() || isRecording() || isTranscribing()}
+                class="px-4 py-2 rounded-lg bg-foreground text-background disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              </button>
+            </form>
+          </div>
+        </Show>
 
         <div class="flex items-center justify-center gap-6">
           {/* Options menu button */}
@@ -820,10 +823,20 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setShowSessionModal(true);
+                    setShowTextInput(!showTextInput());
                     setShowMenu(false);
                   }}
                   class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm rounded-t-lg"
+                >
+                  {showTextInput() ? "Hide Text Input" : "Show Text Input"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSessionModal(true);
+                    setShowMenu(false);
+                  }}
+                  class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm"
                 >
                   Manage Sessions
                 </button>
