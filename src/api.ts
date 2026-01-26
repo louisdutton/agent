@@ -850,25 +850,26 @@ export default {
 		if (path === "/projects" && req.method === "GET") {
 			try {
 				const projectsDir = join(homedir(), "projects");
-				const entries = await Array.fromAsync(
-					new Bun.Glob("*").scan({ cwd: projectsDir, onlyFiles: false }),
+
+				// Use fd to recursively find all git repositories
+				const fdProc = Bun.spawn(
+					["fd", "--type", "d", "--hidden", "--no-ignore", "^.git$", projectsDir],
+					{ stdout: "pipe", stderr: "pipe" },
 				);
+				const fdOutput = await new Response(fdProc.stdout).text();
+				await fdProc.exited;
 
-				// Filter to only directories
-				const projectNames: string[] = [];
-				for (const entry of entries) {
-					const fullPath = join(projectsDir, entry);
-					try {
-						const proc = Bun.spawn(["test", "-d", fullPath]);
-						if ((await proc.exited) === 0) {
-							projectNames.push(entry);
-						}
-					} catch {
-						// Skip non-directories
-					}
-				}
+				// Extract project paths (parent of .git directories)
+				const projectPaths = fdOutput
+					.trim()
+					.split("\n")
+					.filter(Boolean)
+					.map((gitDir) => gitDir.replace(/\/.git\/?$/, ""));
 
-				projectNames.sort((a, b) => a.localeCompare(b));
+				// Convert to project names (relative to projectsDir)
+				const projectNames = projectPaths
+					.map((p) => p.replace(`${projectsDir}/`, ""))
+					.sort((a, b) => a.localeCompare(b));
 
 				// Load sessions for each project
 				type SessionInfo = {
@@ -940,10 +941,16 @@ export default {
 					projects.push(projectData);
 				}
 
+				// Compute relative path for current project
+				const currentCwd = getActiveSessionCwd();
+				const currentProject = currentCwd.startsWith(projectsDir)
+					? currentCwd.replace(`${projectsDir}/`, "")
+					: currentCwd.split("/").pop();
+
 				return Response.json(
 					{
 						projects,
-						currentProject: getActiveSessionCwd().split("/").pop(),
+						currentProject,
 						activeSessionId: getActiveSession(),
 					},
 					{ headers: corsHeaders },
