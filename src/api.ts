@@ -215,39 +215,6 @@ function parseTranscript(content: string): Message[] {
 	return mergedMessages;
 }
 
-// Get Claude session history from ~/.claude/projects/
-async function getSessionHistory(): Promise<Message[]> {
-	const cwd = getActiveSessionCwd();
-	const projectFolder = cwd.replace(/\//g, "-");
-	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
-	const indexPath = join(claudeDir, "sessions-index.json");
-
-	try {
-		const indexFile = Bun.file(indexPath);
-		if (!(await indexFile.exists())) return [];
-
-		const index = await indexFile.json();
-		const sessions = index.entries
-			.filter((e: { isSidechain: boolean }) => !e.isSidechain)
-			.sort(
-				(a: { modified: string }, b: { modified: string }) =>
-					new Date(b.modified).getTime() - new Date(a.modified).getTime(),
-			);
-
-		if (sessions.length === 0) return [];
-
-		const latestSession = sessions[0];
-		const transcriptFile = Bun.file(latestSession.fullPath);
-		if (!(await transcriptFile.exists())) return [];
-
-		const content = await transcriptFile.text();
-		return parseTranscript(content);
-	} catch (err) {
-		console.error("Error reading session history:", err);
-		return [];
-	}
-}
-
 // Get session history by specific session ID and project path
 async function getSessionHistoryById(
 	sessionId: string,
@@ -330,11 +297,45 @@ export default {
 			}
 		}
 
-		// Get session history
-		if (path === "/history" && req.method === "GET") {
-			const messages = await getSessionHistory();
+		// Get session history by ID
+		const sessionHistoryMatch = path.match(/^\/session\/([^/]+)\/history$/);
+		if (sessionHistoryMatch && req.method === "GET") {
+			const sessionId = sessionHistoryMatch[1];
 			const cwd = getActiveSessionCwd();
-			return Response.json({ messages, cwd }, { headers: corsHeaders });
+			const messages = await getSessionHistoryById(sessionId);
+			setActiveSession(sessionId);
+			return Response.json({ messages, cwd, sessionId }, { headers: corsHeaders });
+		}
+
+		// Get cwd and optionally the latest session
+		if (path === "/cwd" && req.method === "GET") {
+			const cwd = getActiveSessionCwd();
+			const projectFolder = cwd.replace(/\//g, "-");
+			const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
+			const indexPath = join(claudeDir, "sessions-index.json");
+
+			try {
+				const indexFile = Bun.file(indexPath);
+				if (await indexFile.exists()) {
+					const index = await indexFile.json();
+					const sessions = index.entries
+						.filter((e: { isSidechain: boolean }) => !e.isSidechain)
+						.sort(
+							(a: { modified: string }, b: { modified: string }) =>
+								new Date(b.modified).getTime() - new Date(a.modified).getTime(),
+						);
+
+					if (sessions.length > 0) {
+						const latestSession = sessions[0];
+						// Return the latest session ID so client can load it
+						return Response.json({ cwd, latestSessionId: latestSession.sessionId }, { headers: corsHeaders });
+					}
+				}
+			} catch {
+				// Ignore errors, just return cwd
+			}
+
+			return Response.json({ cwd }, { headers: corsHeaders });
 		}
 
 		// Cancel current request

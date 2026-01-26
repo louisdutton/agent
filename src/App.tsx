@@ -176,13 +176,33 @@ export default function App() {
   let animationFrame: number | null = null;
 
   // Load chat history and cwd
-  const loadHistory = async () => {
+  const loadHistory = async (sessionId?: string | null) => {
     try {
-      const res = await fetch(`${API_URL}/api/history`);
-      const { messages, cwd } = await res.json();
-      setEvents(messages?.length ? messages : []);
-      setCwd(cwd || "");
-      idCounter = messages?.length || 0;
+      const storedSessionId = sessionId ?? localStorage.getItem("sessionId");
+      if (storedSessionId) {
+        const res = await fetch(`${API_URL}/api/session/${encodeURIComponent(storedSessionId)}/history`);
+        const data = await res.json();
+        setEvents(data.messages?.length ? data.messages : []);
+        setCwd(data.cwd || "");
+        idCounter = data.messages?.length || 0;
+      } else {
+        // No session stored - fetch cwd and check for latest session
+        const res = await fetch(`${API_URL}/api/cwd`);
+        const data = await res.json();
+        setCwd(data.cwd || "");
+
+        // If there's a latest session available, load it
+        if (data.latestSessionId) {
+          localStorage.setItem("sessionId", data.latestSessionId);
+          const historyRes = await fetch(`${API_URL}/api/session/${encodeURIComponent(data.latestSessionId)}/history`);
+          const historyData = await historyRes.json();
+          setEvents(historyData.messages?.length ? historyData.messages : []);
+          idCounter = historyData.messages?.length || 0;
+        } else {
+          setEvents([]);
+          idCounter = 0;
+        }
+      }
     } catch (err) {
       console.error("Failed to load history:", err);
       setEvents([]);
@@ -190,7 +210,7 @@ export default function App() {
     }
   };
 
-  onMount(loadHistory);
+  onMount(() => loadHistory());
 
   const handleCommit = () => {
     setShowDiffModal(false);
@@ -500,6 +520,11 @@ export default function App() {
               }
 
               if (parsed.type === "result") {
+                // Capture session_id from result to persist across refreshes
+                if (parsed.session_id) {
+                  localStorage.setItem("sessionId", parsed.session_id);
+                }
+
                 if (assistantContent) {
                   addEvent({
                     type: "assistant",
@@ -861,14 +886,19 @@ export default function App() {
       <SessionManagerModal
         show={showSessionModal()}
         onClose={() => setShowSessionModal(false)}
-        onSwitch={(messages) => {
+        onSwitch={(messages, sessionId) => {
+          localStorage.setItem("sessionId", sessionId);
           setEvents(messages);
           idCounter = messages.length;
           setShowSessionModal(false);
         }}
         onNewSession={async () => {
+          localStorage.removeItem("sessionId");
+          setEvents([]);
+          idCounter = 0;
           setShowSessionModal(false);
-          await loadHistory();
+          // Fetch cwd without loading a session
+          await loadHistory(null);
         }}
       />
     </div>
