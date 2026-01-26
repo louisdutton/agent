@@ -217,9 +217,35 @@ export function SessionManagerModal(props: {
 					}
 				}}
 			>
-				<div class="h-full flex flex-col justify-end">
-					{/* Content - pinned to bottom */}
-					<div class="flex-1 overflow-y-auto p-4 flex flex-col justify-end">
+				<div class="h-full flex flex-col">
+					{/* Top bar */}
+					<div class="flex items-center justify-between px-4 pt-4 pb-2 max-w-2xl mx-auto w-full">
+						<button
+							type="button"
+							onClick={() => {
+								if (showProjectPicker()) {
+									setShowProjectPicker(false);
+								} else {
+									props.onClose();
+								}
+							}}
+							class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+						>
+							{showProjectPicker() ? "Back" : "Close"}
+						</button>
+						<Show when={!showProjectPicker()}>
+							<button
+								type="button"
+								onClick={() => setShowProjectPicker(true)}
+								class="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+							>
+								New Session
+							</button>
+						</Show>
+					</div>
+
+					{/* Content - pinned to top */}
+					<div class="flex-1 overflow-y-auto p-4">
 						<Show when={loading()}>
 							<div class="flex items-center justify-center h-32">
 								<span class="text-muted-foreground">Loading...</span>
@@ -337,32 +363,6 @@ export function SessionManagerModal(props: {
 									</div>
 								</Show>
 							</Show>
-						</Show>
-					</div>
-
-					{/* Bottom bar */}
-					<div class="flex items-center justify-between px-4 pb-6 pt-2 max-w-2xl mx-auto w-full">
-						<button
-							type="button"
-							onClick={() => {
-								if (showProjectPicker()) {
-									setShowProjectPicker(false);
-								} else {
-									props.onClose();
-								}
-							}}
-							class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
-						>
-							{showProjectPicker() ? "Back" : "Close"}
-						</button>
-						<Show when={!showProjectPicker()}>
-							<button
-								type="button"
-								onClick={() => setShowProjectPicker(true)}
-								class="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-							>
-								New Session
-							</button>
 						</Show>
 					</div>
 				</div>

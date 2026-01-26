@@ -161,6 +161,7 @@ export default function App() {
   const [isCompacting, setIsCompacting] = createSignal(false);
   const [isCompacted, setIsCompacted] = createSignal(false);
   const [showTextInput, setShowTextInput] = createSignal(false);
+  const [sessionName, setSessionName] = createSignal("");
 
   // Git state
   const gitStatus = useGitStatus();
@@ -178,6 +179,16 @@ export default function App() {
   let analyser: AnalyserNode | null = null;
   let animationFrame: number | null = null;
 
+  // Extract first user message from events as session name
+  const getSessionNameFromEvents = (messages: EventItem[]) => {
+    const firstUser = messages.find((m) => m.type === "user");
+    if (firstUser && firstUser.type === "user") {
+      const content = firstUser.content;
+      return content.length > 50 ? content.slice(0, 50) + "..." : content;
+    }
+    return "";
+  };
+
   // Load chat history and cwd
   const loadHistory = async (sessionId?: string | null) => {
     try {
@@ -185,10 +196,12 @@ export default function App() {
       if (storedSessionId) {
         const res = await fetch(`${API_URL}/api/session/${encodeURIComponent(storedSessionId)}/history`);
         const data = await res.json();
-        setEvents(data.messages?.length ? data.messages : []);
+        const messages = data.messages?.length ? data.messages : [];
+        setEvents(messages);
         setCwd(data.cwd || "");
         setIsCompacted(data.isCompacted || false);
-        idCounter = data.messages?.length || 0;
+        setSessionName(getSessionNameFromEvents(messages));
+        idCounter = messages.length || 0;
       } else {
         // No session stored - fetch cwd and check for latest session
         const res = await fetch(`${API_URL}/api/cwd`);
@@ -200,12 +213,15 @@ export default function App() {
           localStorage.setItem("sessionId", data.latestSessionId);
           const historyRes = await fetch(`${API_URL}/api/session/${encodeURIComponent(data.latestSessionId)}/history`);
           const historyData = await historyRes.json();
-          setEvents(historyData.messages?.length ? historyData.messages : []);
+          const messages = historyData.messages?.length ? historyData.messages : [];
+          setEvents(messages);
           setIsCompacted(historyData.isCompacted || false);
-          idCounter = historyData.messages?.length || 0;
+          setSessionName(getSessionNameFromEvents(messages));
+          idCounter = messages.length || 0;
         } else {
           setEvents([]);
           setIsCompacted(false);
+          setSessionName("");
           idCounter = 0;
         }
       }
@@ -448,6 +464,11 @@ export default function App() {
     const text = directMessage ?? input().trim();
     if (!text || isLoading()) return;
 
+    // Set session name from first message if not set
+    if (!sessionName()) {
+      setSessionName(text.length > 50 ? text.slice(0, 50) + "..." : text);
+    }
+
     addEvent({ type: "user", id: String(++idCounter), content: text });
     if (!directMessage) setInput("");
     setIsLoading(true);
@@ -659,7 +680,16 @@ export default function App() {
       <Show when={cwd()}>
         <header class="flex-none px-4 py-2 border-b border-border">
           <div class="max-w-2xl mx-auto">
-            <span class="text-sm text-muted-foreground font-mono">{cwd()}</span>
+            <button
+              type="button"
+              onClick={() => setShowSessionModal(true)}
+              class="text-sm hover:text-foreground transition-colors text-left"
+            >
+              <Show when={sessionName()}>
+                <div class="text-foreground font-medium truncate">{sessionName()}</div>
+              </Show>
+              <div class="text-muted-foreground font-mono text-xs">{cwd()}</div>
+            </button>
           </div>
         </header>
       </Show>
@@ -832,16 +862,6 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowSessionModal(true);
-                    setShowMenu(false);
-                  }}
-                  class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm"
-                >
-                  Manage Sessions
-                </button>
-                <button
-                  type="button"
                   onClick={async () => {
                     setShowMenu(false);
                     const sessionId = localStorage.getItem("sessionId");
@@ -965,6 +985,7 @@ export default function App() {
           localStorage.setItem("sessionId", sessionId);
           setEvents(messages);
           setIsCompacted(compacted);
+          setSessionName(getSessionNameFromEvents(messages));
           idCounter = messages.length;
           setShowSessionModal(false);
         }}
@@ -972,6 +993,7 @@ export default function App() {
           localStorage.removeItem("sessionId");
           setEvents([]);
           setIsCompacted(false);
+          setSessionName("");
           idCounter = 0;
           setShowSessionModal(false);
           // Fetch cwd without loading a session
