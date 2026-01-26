@@ -200,7 +200,7 @@ export default function App() {
         setEvents(messages);
         setCwd(data.cwd || "");
         setIsCompacted(data.isCompacted || false);
-        setSessionName(getSessionNameFromEvents(messages));
+        setSessionName(data.firstPrompt || getSessionNameFromEvents(messages));
         idCounter = messages.length || 0;
       } else {
         // No session stored - fetch cwd and check for latest session
@@ -216,7 +216,7 @@ export default function App() {
           const messages = historyData.messages?.length ? historyData.messages : [];
           setEvents(messages);
           setIsCompacted(historyData.isCompacted || false);
-          setSessionName(getSessionNameFromEvents(messages));
+          setSessionName(historyData.firstPrompt || getSessionNameFromEvents(messages));
           idCounter = messages.length || 0;
         } else {
           setEvents([]);
@@ -981,11 +981,11 @@ export default function App() {
       <SessionManagerModal
         show={showSessionModal()}
         onClose={() => setShowSessionModal(false)}
-        onSwitch={(messages, sessionId, compacted) => {
+        onSwitch={(messages, sessionId, compacted, firstPrompt) => {
           localStorage.setItem("sessionId", sessionId);
           setEvents(messages);
           setIsCompacted(compacted);
-          setSessionName(getSessionNameFromEvents(messages));
+          setSessionName(firstPrompt || getSessionNameFromEvents(messages));
           idCounter = messages.length;
           setShowSessionModal(false);
         }}

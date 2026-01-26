@@ -233,7 +233,7 @@ function parseTranscript(content: string): { messages: Message[]; isCompacted: b
 async function getSessionHistoryById(
 	sessionId: string,
 	projectPath?: string,
-): Promise<{ messages: Message[]; isCompacted: boolean }> {
+): Promise<{ messages: Message[]; isCompacted: boolean; firstPrompt?: string }> {
 	const cwd = projectPath ?? getActiveSessionCwd();
 	const projectFolder = cwd.replace(/\//g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
@@ -254,7 +254,8 @@ async function getSessionHistoryById(
 		if (!(await transcriptFile.exists())) return { messages: [], isCompacted: false };
 
 		const content = await transcriptFile.text();
-		return parseTranscript(content);
+		const { messages, isCompacted } = parseTranscript(content);
+		return { messages, isCompacted, firstPrompt: session.firstPrompt };
 	} catch (err) {
 		console.error("Error reading session history by ID:", err);
 		return { messages: [], isCompacted: false };
@@ -316,9 +317,9 @@ export default {
 		if (sessionHistoryMatch && req.method === "GET") {
 			const sessionId = sessionHistoryMatch[1];
 			const cwd = getActiveSessionCwd();
-			const { messages, isCompacted } = await getSessionHistoryById(sessionId);
+			const { messages, isCompacted, firstPrompt } = await getSessionHistoryById(sessionId);
 			setActiveSession(sessionId);
-			return Response.json({ messages, cwd, sessionId, isCompacted }, { headers: corsHeaders });
+			return Response.json({ messages, cwd, sessionId, isCompacted, firstPrompt }, { headers: corsHeaders });
 		}
 
 		// Get cwd and optionally the latest session
@@ -487,8 +488,8 @@ export default {
 				setActiveSession(sessionId);
 
 				// Return the session's messages and cwd for UI update
-				const { messages, isCompacted } = await getSessionHistoryById(sessionId);
-				return Response.json({ ok: true, messages, cwd, isCompacted }, { headers: corsHeaders });
+				const { messages, isCompacted, firstPrompt } = await getSessionHistoryById(sessionId);
+				return Response.json({ ok: true, messages, cwd, isCompacted, firstPrompt }, { headers: corsHeaders });
 			} catch (err) {
 				console.error("Failed to switch session:", err);
 				return Response.json(
