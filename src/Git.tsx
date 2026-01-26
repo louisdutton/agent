@@ -338,25 +338,20 @@ export function GitStatusIndicator(props: {
 				type="button"
 				onClick={props.onClick}
 				disabled={!props.gitStatus?.hasChanges}
-				class={`absolute right-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-background border border-border transition-colors shadow-lg ${
+				class={`w-14 h-14 rounded-full flex flex-col items-center justify-center bg-background border border-border transition-colors shadow-lg ${
 					props.gitStatus?.hasChanges
 						? "hover:bg-muted"
 						: "opacity-50 cursor-default"
 				}`}
 				title={props.gitStatus?.hasChanges ? "View git changes" : "No changes"}
 			>
-				<span
-					class={`w-2 h-2 rounded-full ${
-						props.gitStatus?.hasChanges
-							? "bg-yellow-500"
-							: "bg-muted-foreground"
-					}`}
-				/>
-				<span class="text-sm text-muted-foreground font-mono">
-					<span class={props.gitStatus?.hasChanges ? "text-green-500" : ""}>
+				<span class="text-xs font-mono leading-none">
+					<span class={props.gitStatus?.hasChanges ? "text-green-500" : "text-muted-foreground"}>
 						+{props.gitStatus!.insertions}
-					</span>{" "}
-					<span class={props.gitStatus?.hasChanges ? "text-red-500" : ""}>
+					</span>
+				</span>
+				<span class="text-xs font-mono leading-none mt-0.5">
+					<span class={props.gitStatus?.hasChanges ? "text-red-500" : "text-muted-foreground"}>
 						-{props.gitStatus!.deletions}
 					</span>
 				</span>

@@ -791,92 +791,82 @@ export default function App() {
           </form>
         </div>
 
-        <div class="flex items-center justify-center gap-12 relative w-full">
-          {/* Left buttons */}
-          <div class="absolute left-4 flex items-center gap-2">
-            {/* Options menu */}
-            <div ref={menuRef} class="relative">
-              <button
-                type="button"
-                onClick={() => setShowMenu(!showMenu())}
-                class="p-2 rounded-lg bg-background border border-border hover:bg-muted transition-colors shadow-lg"
-                title="Options"
+        <div class="flex items-center justify-center gap-6">
+          {/* Options menu button */}
+          <div ref={menuRef} class="relative">
+            <button
+              type="button"
+              onClick={() => setShowMenu(!showMenu())}
+              class="w-14 h-14 rounded-full flex items-center justify-center bg-background border border-border hover:bg-muted transition-colors shadow-lg"
+              title="Options"
+            >
+              <svg
+                class="w-6 h-6 text-muted-foreground"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
               >
-                <svg
-                  class="w-5 h-5 text-muted-foreground"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
+                />
+              </svg>
+            </button>
+
+            <Show when={showMenu()}>
+              <div class="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 bg-background border border-border rounded-lg shadow-lg min-w-48">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSessionModal(true);
+                    setShowMenu(false);
+                  }}
+                  class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm rounded-t-lg"
                 >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-                  />
-                </svg>
-              </button>
-
-              <Show when={showMenu()}>
-                <div class="absolute left-0 bottom-full mb-2 bg-background border border-border rounded-lg shadow-lg min-w-48">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowSessionModal(true);
-                      setShowMenu(false);
-                    }}
-                    class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm rounded-t-lg"
-                  >
-                    Manage Sessions
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setShowMenu(false);
-                      const sessionId = localStorage.getItem("sessionId");
-                      if (!sessionId) {
-                        alert("No active session to compact");
-                        return;
+                  Manage Sessions
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setShowMenu(false);
+                    const sessionId = localStorage.getItem("sessionId");
+                    if (!sessionId) {
+                      alert("No active session to compact");
+                      return;
+                    }
+                    setIsCompacting(true);
+                    try {
+                      const res = await fetch(`${API_URL}/api/session/${encodeURIComponent(sessionId)}/compact`, {
+                        method: "POST",
+                      });
+                      const data = await res.json();
+                      if (data.ok) {
+                        // Clear the events and show compacted indicator
+                        setEvents([]);
+                        setIsCompacted(true);
+                        idCounter = 0;
+                      } else {
+                        alert(data.error || "Failed to compact session");
                       }
-                      setIsCompacting(true);
-                      try {
-                        const res = await fetch(`${API_URL}/api/session/${encodeURIComponent(sessionId)}/compact`, {
-                          method: "POST",
-                        });
-                        const data = await res.json();
-                        if (data.ok) {
-                          // Clear the events and show compacted indicator
-                          setEvents([]);
-                          setIsCompacted(true);
-                          idCounter = 0;
-                        } else {
-                          alert(data.error || "Failed to compact session");
-                        }
-                      } catch (err) {
-                        console.error("Compact failed:", err);
-                        alert("Failed to compact session");
-                      } finally {
-                        setIsCompacting(false);
-                      }
-                    }}
-                    disabled={isCompacting() || isLoading()}
-                    class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm rounded-b-lg disabled:opacity-50"
-                  >
-                    {isCompacting() ? "Compacting..." : "Compact Context"}
-                  </button>
-                </div>
-              </Show>
-            </div>
-
+                    } catch (err) {
+                      console.error("Compact failed:", err);
+                      alert("Failed to compact session");
+                    } finally {
+                      setIsCompacting(false);
+                    }
+                  }}
+                  disabled={isCompacting() || isLoading()}
+                  class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm rounded-b-lg disabled:opacity-50"
+                >
+                  {isCompacting() ? "Compacting..." : "Compact Context"}
+                </button>
+              </div>
+            </Show>
           </div>
 
-          {/* Git status indicator on the right */}
-          <GitStatusIndicator
-            gitStatus={gitStatus()}
-            onClick={() => setShowDiffModal(true)}
-          />
-
-          {/* Centered mic button */}
+          {/* Mic button */}
           <button
             type="button"
             onClick={handleMicClick}
@@ -937,6 +927,12 @@ export default function App() {
             </svg>
             )}
           </button>
+
+          {/* Git status button */}
+          <GitStatusIndicator
+            gitStatus={gitStatus()}
+            onClick={() => setShowDiffModal(true)}
+          />
         </div>
 
       </div>
