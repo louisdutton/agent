@@ -665,7 +665,7 @@ export default function App() {
       </Show>
 
       {/* Scrollable chat history */}
-      <main ref={mainRef} class="flex-1 overflow-y-auto p-4 mask-fade">
+      <main ref={mainRef} class="flex-1 overflow-y-auto p-4 border-b border-border">
         <div class="max-w-2xl mx-auto space-y-4 w-full pb-4">
           {/* Compacted context indicator */}
           <Show when={isCompacted()}>
