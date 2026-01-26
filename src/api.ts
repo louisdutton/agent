@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { sendMessage } from "./claude";
+import { compactSession, sendMessage } from "./claude";
 import {
 	cancelCurrentRequest,
 	clearSession,
@@ -108,15 +108,23 @@ type Message =
 	| { type: "tools"; id: string; tools: Tool[] };
 
 // Parse transcript content into messages
-function parseTranscript(content: string): Message[] {
+function parseTranscript(content: string): { messages: Message[]; isCompacted: boolean } {
 	const lines = content.trim().split("\n").filter(Boolean);
 	const messages: Message[] = [];
 	const toolResults = new Map<string, boolean>();
+	let isCompacted = false;
+	let compactBoundaryIndex = -1;
 
-	// First pass: collect all tool results
-	for (const line of lines) {
+	// First pass: find compact boundary and collect all tool results
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
 		try {
 			const entry = JSON.parse(line);
+			// Check for compact boundary marker
+			if (entry.type === "system" && entry.subtype === "compact_boundary") {
+				isCompacted = true;
+				compactBoundaryIndex = i;
+			}
 			if (entry.type === "user" && entry.message?.content) {
 				const entryContent = entry.message.content;
 				if (Array.isArray(entryContent)) {
@@ -132,8 +140,13 @@ function parseTranscript(content: string): Message[] {
 		}
 	}
 
-	// Second pass: build messages
-	for (const line of lines) {
+	// If compacted, only process lines after the compact boundary
+	// Skip the boundary itself and the summary message that follows
+	const startIndex = isCompacted ? compactBoundaryIndex + 2 : 0;
+
+	// Second pass: build messages (starting after compact boundary if present)
+	for (let i = startIndex; i < lines.length; i++) {
+		const line = lines[i];
 		try {
 			const entry = JSON.parse(line);
 			if (entry.type === "user" && entry.message?.content) {
@@ -213,14 +226,14 @@ function parseTranscript(content: string): Message[] {
 		}
 	}
 
-	return mergedMessages;
+	return { messages: mergedMessages, isCompacted };
 }
 
 // Get session history by specific session ID and project path
 async function getSessionHistoryById(
 	sessionId: string,
 	projectPath?: string,
-): Promise<Message[]> {
+): Promise<{ messages: Message[]; isCompacted: boolean }> {
 	const cwd = projectPath ?? getActiveSessionCwd();
 	const projectFolder = cwd.replace(/\//g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
@@ -228,23 +241,23 @@ async function getSessionHistoryById(
 
 	try {
 		const indexFile = Bun.file(indexPath);
-		if (!(await indexFile.exists())) return [];
+		if (!(await indexFile.exists())) return { messages: [], isCompacted: false };
 
 		const index = await indexFile.json();
 		const session = index.entries.find(
 			(e: { sessionId: string }) => e.sessionId === sessionId,
 		);
 
-		if (!session) return [];
+		if (!session) return { messages: [], isCompacted: false };
 
 		const transcriptFile = Bun.file(session.fullPath);
-		if (!(await transcriptFile.exists())) return [];
+		if (!(await transcriptFile.exists())) return { messages: [], isCompacted: false };
 
 		const content = await transcriptFile.text();
 		return parseTranscript(content);
 	} catch (err) {
 		console.error("Error reading session history by ID:", err);
-		return [];
+		return { messages: [], isCompacted: false };
 	}
 }
 
@@ -303,9 +316,9 @@ export default {
 		if (sessionHistoryMatch && req.method === "GET") {
 			const sessionId = sessionHistoryMatch[1];
 			const cwd = getActiveSessionCwd();
-			const messages = await getSessionHistoryById(sessionId);
+			const { messages, isCompacted } = await getSessionHistoryById(sessionId);
 			setActiveSession(sessionId);
-			return Response.json({ messages, cwd, sessionId }, { headers: corsHeaders });
+			return Response.json({ messages, cwd, sessionId, isCompacted }, { headers: corsHeaders });
 		}
 
 		// Get cwd and optionally the latest session
@@ -368,6 +381,22 @@ export default {
 					{ status: 500, headers: corsHeaders },
 				);
 			}
+		}
+
+		// Compact the current session's context
+		const sessionCompactMatch = path.match(/^\/session\/([^/]+)\/compact$/);
+		if (sessionCompactMatch && req.method === "POST") {
+			const sessionId = sessionCompactMatch[1];
+			// Ensure the session is active before compacting
+			setActiveSession(sessionId);
+			const result = await compactSession();
+			if (result.success) {
+				return Response.json({ ok: true }, { headers: corsHeaders });
+			}
+			return Response.json(
+				{ error: result.error || "Compaction failed" },
+				{ status: 500, headers: corsHeaders },
+			);
 		}
 
 		// List all sessions
@@ -458,8 +487,8 @@ export default {
 				setActiveSession(sessionId);
 
 				// Return the session's messages and cwd for UI update
-				const messages = await getSessionHistoryById(sessionId);
-				return Response.json({ ok: true, messages, cwd }, { headers: corsHeaders });
+				const { messages, isCompacted } = await getSessionHistoryById(sessionId);
+				return Response.json({ ok: true, messages, cwd, isCompacted }, { headers: corsHeaders });
 			} catch (err) {
 				console.error("Failed to switch session:", err);
 				return Response.json(

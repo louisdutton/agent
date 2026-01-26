@@ -32,7 +32,7 @@ type Message =
 export function SessionManagerModal(props: {
 	show: boolean;
 	onClose: () => void;
-	onSwitch: (messages: Message[], sessionId: string) => void;
+	onSwitch: (messages: Message[], sessionId: string, isCompacted: boolean) => void;
 	onNewSession: () => void;
 }) {
 	const [projects, setProjects] = createSignal<ProjectWithSessions[]>([]);
@@ -92,7 +92,7 @@ export function SessionManagerModal(props: {
 			const data = await res.json();
 			if (data.ok) {
 				setActiveSessionId(sessionId);
-				props.onSwitch(data.messages || [], sessionId);
+				props.onSwitch(data.messages || [], sessionId, data.isCompacted || false);
 			} else {
 				alert(data.error || "Failed to switch session");
 			}

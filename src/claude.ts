@@ -7,6 +7,49 @@ import {
 	setActiveSession,
 } from "./session";
 
+// Compact the current session's context
+export async function compactSession(): Promise<{ success: boolean; error?: string }> {
+	const sessionId = getActiveSession();
+	const cwd = getActiveSessionCwd();
+
+	if (!sessionId) {
+		return { success: false, error: "No active session to compact" };
+	}
+
+	console.log(`Compacting session: ${sessionId}`);
+
+	try {
+		const options: Parameters<typeof query>[0]["options"] = {
+			systemPrompt: {
+				type: "preset",
+				preset: "claude_code",
+			},
+			permissionMode: "bypassPermissions",
+			allowDangerouslySkipPermissions: true,
+			cwd,
+			resume: sessionId,
+			pathToClaudeCodeExecutable: process.env.CLAUDE_CODE_PATH,
+		};
+
+		// Send /compact command to trigger session compaction
+		for await (const event of query({
+			prompt: "/compact",
+			options,
+		})) {
+			// Wait for the result
+			if (event.type === "result") {
+				console.log("Compaction complete");
+				return { success: true };
+			}
+		}
+
+		return { success: true };
+	} catch (err) {
+		console.error("Compaction failed:", err);
+		return { success: false, error: String(err) };
+	}
+}
+
 export async function* sendMessage(message: string): AsyncGenerator<string> {
 	console.log(`Sending: ${message.slice(0, 50)}...`);
 
