@@ -229,8 +229,8 @@ export function SessionManagerModal(props: {
 						<Show when={!loading()}>
 							{/* Project picker overlay */}
 							<Show when={showProjectPicker()}>
-								<div class="space-y-2 max-w-2xl mx-auto w-full">
-									<div class="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+								<div class="space-y-2 max-w-2xl mx-auto w-full max-h-[70vh] overflow-y-auto">
+									<div class="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 sticky top-0 bg-background pb-2">
 										Select project
 									</div>
 									<For each={projects()}>
