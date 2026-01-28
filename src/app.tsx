@@ -5,9 +5,9 @@ import {
 	onMount,
 	Show,
 } from "solid-js";
-import Markdown from "./Markdown";
-import { FileBrowserModal, FileViewerModal, GitDiffModal, GitStatusIndicator, InlineDiffView, useGitStatus } from "./Git";
-import { SessionManagerModal } from "./SessionManager";
+import Markdown from "./markdown";
+import { FileBrowserModal, FileViewerModal, GitDiffModal, GitStatusIndicator, InlineDiffView, useGitStatus } from "./git";
+import { SessionManagerModal } from "./session-manager";
 
 const API_URL = "";
 
