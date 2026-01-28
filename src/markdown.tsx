@@ -1,5 +1,5 @@
 import { marked } from "marked";
-import hljs from "highlight.js";
+import hljs from "./hljs";
 import { createMemo } from "solid-js";
 
 // Create a custom renderer that handles code blocks

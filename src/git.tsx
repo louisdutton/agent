@@ -7,7 +7,7 @@ import {
 	onMount,
 	Show,
 } from "solid-js";
-import hljs from "highlight.js";
+import hljs from "./hljs";
 import { createLongPress } from "./gestures";
 
 const API_URL = "";
