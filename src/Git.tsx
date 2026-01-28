@@ -12,6 +12,7 @@ import {
 	type BundledLanguage,
 	type Highlighter,
 } from "shiki";
+import { createLongPressHandlers } from "./gestures";
 
 const API_URL = "";
 
@@ -117,22 +118,21 @@ function getLanguageFromPath(path: string): string {
 	return extMap[ext] || "text";
 }
 
-// Cache for highlighted hunks
-const hunkHighlightCache = new Map<
+// Cache for highlighted code
+const highlightCache = new Map<
 	string,
 	Array<Array<{ content: string; color?: string }>>
 >();
 
-// Highlight a hunk synchronously if highlighter is ready
-function highlightHunkSync(
-	lines: DiffLine[],
+// Highlight code synchronously if highlighter is ready
+function highlightCodeSync(
+	code: string,
 	lang: string
 ): Array<Array<{ content: string; color?: string }>> | null {
-	const code = lines.map((l) => l.content).join("\n");
 	const cacheKey = `${lang}:${code}`;
 
-	if (hunkHighlightCache.has(cacheKey)) {
-		return hunkHighlightCache.get(cacheKey)!;
+	if (highlightCache.has(cacheKey)) {
+		return highlightCache.get(cacheKey)!;
 	}
 
 	const highlighter = getHighlighter();
@@ -156,11 +156,20 @@ function highlightHunkSync(
 			}))
 		);
 
-		hunkHighlightCache.set(cacheKey, result);
+		highlightCache.set(cacheKey, result);
 		return result;
 	} catch {
-		return lines.map((l) => [{ content: l.content || " " }]);
+		return code.split("\n").map((line) => [{ content: line || " " }]);
 	}
+}
+
+// Highlight a hunk synchronously (wrapper for backwards compatibility)
+function highlightHunkSync(
+	lines: DiffLine[],
+	lang: string
+): Array<Array<{ content: string; color?: string }>> | null {
+	const code = lines.map((l) => l.content).join("\n");
+	return highlightCodeSync(code, lang);
 }
 
 function DiffHunkView(props: { hunk: DiffHunk; lang: string }) {
@@ -331,19 +340,35 @@ export function useGitStatus() {
 export function GitStatusIndicator(props: {
 	gitStatus: GitStatus | null;
 	onClick: () => void;
+	onLongPress?: () => void;
 }) {
+	const handlers = createLongPressHandlers({
+		onPress: () => {
+			if (props.gitStatus?.hasChanges) {
+				props.onClick();
+			}
+		},
+		onLongPress: () => {
+			props.onLongPress?.();
+		},
+	});
+
 	return (
 		<Show when={props.gitStatus}>
 			<button
 				type="button"
-				onClick={props.onClick}
-				disabled={!props.gitStatus?.hasChanges}
-				class={`w-14 h-14 rounded-full flex flex-col items-center justify-center bg-background border border-white/30 transition-colors shadow-lg ${
+				onMouseDown={handlers.onMouseDown}
+				onMouseUp={handlers.onMouseUp}
+				onMouseLeave={handlers.onMouseLeave}
+				onTouchStart={handlers.onTouchStart}
+				onTouchEnd={handlers.onTouchEnd}
+				onTouchCancel={handlers.onTouchCancel}
+				class={`w-14 h-14 rounded-full flex flex-col items-center justify-center bg-background border border-white/30 transition-colors shadow-lg select-none ${
 					props.gitStatus?.hasChanges
 						? "hover:bg-muted"
-						: "opacity-50 cursor-default"
+						: "hover:bg-muted"
 				}`}
-				title={props.gitStatus?.hasChanges ? "View git changes" : "No changes"}
+				title="Tap: git changes, Hold: browse files"
 			>
 				<span class="text-xs font-mono leading-none">
 					<span class={props.gitStatus?.hasChanges ? "text-green-500" : "text-muted-foreground"}>
@@ -431,6 +456,272 @@ export function GitDiffModal(props: {
 							class="btn px-4 py-2 text-sm"
 						>
 							Commit
+						</button>
+					</div>
+				</div>
+			</div>
+		</Show>
+	);
+}
+
+export function FileViewerModal(props: {
+	show: boolean;
+	filePath: string;
+	onClose: () => void;
+}) {
+	const [content, setContent] = createSignal<string | null>(null);
+	const [loading, setLoading] = createSignal(false);
+	const [error, setError] = createSignal<string | null>(null);
+
+	const lang = createMemo(() => getLanguageFromPath(props.filePath));
+	const fileName = createMemo(() => props.filePath.split("/").pop() || props.filePath);
+
+	const highlightedLines = createMemo(() => {
+		const code = content();
+		if (!code) return null;
+		return highlightCodeSync(code, lang());
+	});
+
+	createEffect(() => {
+		if (props.show && props.filePath) {
+			setLoading(true);
+			setError(null);
+			setContent(null);
+			fetch(`${API_URL}/api/file/${encodeURIComponent(props.filePath)}`)
+				.then((res) => {
+					if (!res.ok) {
+						throw new Error(res.status === 404 ? "File not found" : "Failed to load file");
+					}
+					return res.json();
+				})
+				.then((data) => {
+					setContent(data.content);
+				})
+				.catch((err) => {
+					console.error("File load error:", err);
+					setError(err.message || "Failed to load file");
+				})
+				.finally(() => setLoading(false));
+		}
+	});
+
+	const lines = createMemo(() => content()?.split("\n") || []);
+
+	return (
+		<Show when={props.show}>
+			<div
+				class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
+				onClick={(e) => {
+					if (e.target === e.currentTarget) props.onClose();
+				}}
+				onKeyDown={(e) => {
+					if (e.key === "Escape") props.onClose();
+				}}
+			>
+				<div class="h-full flex flex-col">
+					{/* Header */}
+					<div class="flex items-center gap-3 px-4 py-3 border-b border-border">
+						<span class="font-mono text-sm text-foreground truncate flex-1">
+							{props.filePath}
+						</span>
+						<span class="text-xs text-muted-foreground shrink-0">
+							{lines().length} lines
+						</span>
+					</div>
+
+					{/* Content */}
+					<div class="flex-1 overflow-y-auto">
+						<Show when={loading()}>
+							<div class="flex items-center justify-center h-32">
+								<span class="text-muted-foreground">Loading...</span>
+							</div>
+						</Show>
+
+						<Show when={error()}>
+							<div class="flex items-center justify-center h-32">
+								<span class="text-red-500">{error()}</span>
+							</div>
+						</Show>
+
+						<Show when={!loading() && !error() && content() !== null}>
+							<div class="overflow-x-auto">
+								<div class="min-w-max font-mono text-sm">
+									<For each={lines()}>
+										{(line, index) => (
+											<div class="flex hover:bg-muted/30">
+												<span class="w-14 shrink-0 text-right px-3 py-0 text-muted-foreground/50 select-none border-r border-border">
+													{index() + 1}
+												</span>
+												<pre class="px-4 whitespace-pre py-0">
+													<Show
+														when={highlightedLines()?.[index()]}
+														fallback={line || " "}
+													>
+														<For each={highlightedLines()![index()]}>
+															{(token) => (
+																<span style={{ color: token.color }}>
+																	{token.content}
+																</span>
+															)}
+														</For>
+													</Show>
+												</pre>
+											</div>
+										)}
+									</For>
+								</div>
+							</div>
+						</Show>
+					</div>
+
+					{/* Bottom bar */}
+					<div class="flex items-center justify-between px-4 pb-6 pt-2">
+						<button
+							type="button"
+							onClick={props.onClose}
+							class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+						>
+							Close
+						</button>
+						<span class="text-xs text-muted-foreground">{fileName()}</span>
+					</div>
+				</div>
+			</div>
+		</Show>
+	);
+}
+
+type FileEntry = {
+	name: string;
+	path: string;
+	isDirectory: boolean;
+};
+
+export function FileBrowserModal(props: {
+	show: boolean;
+	onClose: () => void;
+	onSelectFile: (path: string) => void;
+}) {
+	const [currentPath, setCurrentPath] = createSignal("");
+	const [files, setFiles] = createSignal<FileEntry[]>([]);
+	const [loading, setLoading] = createSignal(false);
+	const [error, setError] = createSignal<string | null>(null);
+
+	const loadDirectory = async (path: string) => {
+		setLoading(true);
+		setError(null);
+		try {
+			const res = await fetch(`${API_URL}/api/files?path=${encodeURIComponent(path)}`);
+			if (!res.ok) {
+				throw new Error("Failed to load directory");
+			}
+			const data = await res.json();
+			setFiles(data.files);
+			setCurrentPath(data.path);
+		} catch (err) {
+			console.error("Directory load error:", err);
+			setError(String(err));
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	createEffect(() => {
+		if (props.show) {
+			loadDirectory("");
+		}
+	});
+
+	const handleClick = (file: FileEntry) => {
+		if (file.isDirectory) {
+			loadDirectory(file.path);
+		} else {
+			props.onSelectFile(file.path);
+		}
+	};
+
+	const goUp = () => {
+		const parts = currentPath().split("/");
+		parts.pop();
+		loadDirectory(parts.join("/"));
+	};
+
+	return (
+		<Show when={props.show}>
+			<div
+				class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
+				onClick={(e) => {
+					if (e.target === e.currentTarget) props.onClose();
+				}}
+				onKeyDown={(e) => {
+					if (e.key === "Escape") props.onClose();
+				}}
+			>
+				<div class="h-full flex flex-col">
+					{/* Header */}
+					<div class="flex items-center gap-3 px-4 py-3 border-b border-border">
+						<button
+							type="button"
+							onClick={goUp}
+							disabled={!currentPath()}
+							class="p-1 hover:bg-muted rounded transition-colors disabled:opacity-30"
+							title="Go up"
+						>
+							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+							</svg>
+						</button>
+						<span class="font-mono text-sm text-foreground truncate flex-1">
+							{currentPath() || "/"}
+						</span>
+					</div>
+
+					{/* Content */}
+					<div class="flex-1 overflow-y-auto p-2">
+						<Show when={loading()}>
+							<div class="flex items-center justify-center h-32">
+								<span class="text-muted-foreground">Loading...</span>
+							</div>
+						</Show>
+
+						<Show when={error()}>
+							<div class="flex items-center justify-center h-32">
+								<span class="text-red-500">{error()}</span>
+							</div>
+						</Show>
+
+						<Show when={!loading() && !error()}>
+							<div class="space-y-0.5">
+								<For each={files()}>
+									{(file) => (
+										<button
+											type="button"
+											onClick={() => handleClick(file)}
+											class="w-full flex items-center gap-3 px-3 py-2 hover:bg-muted rounded-lg transition-colors text-left"
+										>
+											<svg class="w-5 h-5 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												{file.isDirectory ? (
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+												) : (
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+												)}
+											</svg>
+											<span class="font-mono text-sm truncate">{file.name}</span>
+										</button>
+									)}
+								</For>
+							</div>
+						</Show>
+					</div>
+
+					{/* Bottom bar */}
+					<div class="flex items-center px-4 pb-6 pt-2">
+						<button
+							type="button"
+							onClick={props.onClose}
+							class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+						>
+							Close
 						</button>
 					</div>
 				</div>

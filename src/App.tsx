@@ -7,7 +7,7 @@ import {
 	Show,
 } from "solid-js";
 import Markdown from "./Markdown";
-import { GitDiffModal, GitStatusIndicator, useGitStatus } from "./Git";
+import { FileBrowserModal, FileViewerModal, GitDiffModal, GitStatusIndicator, useGitStatus } from "./Git";
 import { SessionManagerModal } from "./SessionManager";
 
 const API_URL = "";
@@ -66,7 +66,7 @@ function getToolSummary(name: string, input: Record<string, unknown>): string {
   }
 }
 
-function ToolGroup(props: { tools: Tool[]; defaultExpanded?: boolean }) {
+function ToolGroup(props: { tools: Tool[]; defaultExpanded?: boolean; onOpenFile?: (path: string) => void }) {
   const [expanded, setExpanded] = createSignal(props.defaultExpanded ?? false);
 
   const allComplete = createMemo(() =>
@@ -78,6 +78,14 @@ function ToolGroup(props: { tools: Tool[]; defaultExpanded?: boolean }) {
   const runningCount = createMemo(
     () => props.tools.filter((t) => t.status === "running").length,
   );
+
+  // Check if tool has a file path that can be opened
+  const getFilePath = (tool: Tool): string | null => {
+    if (["Read", "Edit", "Write"].includes(tool.name) && tool.input.file_path) {
+      return String(tool.input.file_path);
+    }
+    return null;
+  };
 
   return (
     <div class="text-sm">
@@ -117,26 +125,42 @@ function ToolGroup(props: { tools: Tool[]; defaultExpanded?: boolean }) {
       <Show when={expanded()}>
         <div class="ml-4 mt-1 space-y-1 border-l border-border pl-3">
           <For each={props.tools}>
-            {(tool) => (
-              <div class="flex items-start gap-2">
-                <span
-                  class={`inline-block w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${tool.status === "running"
-                      ? "bg-yellow-500"
-                      : tool.status === "error"
-                        ? "bg-red-500"
-                        : "bg-green-500"
-                    }`}
-                />
-                <div class="min-w-0 flex-1">
-                  <span class="font-mono text-muted-foreground">
-                    {tool.name}
-                  </span>
-                  <span class="text-muted-foreground opacity-60 ml-2 break-all">
-                    {getToolSummary(tool.name, tool.input)}
-                  </span>
+            {(tool) => {
+              const filePath = getFilePath(tool);
+              return (
+                <div class="flex items-start gap-2">
+                  <span
+                    class={`inline-block w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${tool.status === "running"
+                        ? "bg-yellow-500"
+                        : tool.status === "error"
+                          ? "bg-red-500"
+                          : "bg-green-500"
+                      }`}
+                  />
+                  <div class="min-w-0 flex-1">
+                    <span class="font-mono text-muted-foreground">
+                      {tool.name}
+                    </span>
+                    {filePath && props.onOpenFile ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          props.onOpenFile!(filePath);
+                        }}
+                        class="text-muted-foreground opacity-60 ml-2 break-all hover:text-foreground hover:opacity-100 transition-colors text-left"
+                      >
+                        {getToolSummary(tool.name, tool.input)}
+                      </button>
+                    ) : (
+                      <span class="text-muted-foreground opacity-60 ml-2 break-all">
+                        {getToolSummary(tool.name, tool.input)}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            }}
           </For>
         </div>
       </Show>
@@ -167,6 +191,11 @@ export default function App() {
   const gitStatus = useGitStatus();
   const [showDiffModal, setShowDiffModal] = createSignal(false);
   const [audioLevels, setAudioLevels] = createSignal<number[]>([0, 0, 0, 0]);
+
+  // File viewer state
+  const [showFileBrowser, setShowFileBrowser] = createSignal(false);
+  const [showFileViewer, setShowFileViewer] = createSignal(false);
+  const [fileViewerPath, setFileViewerPath] = createSignal("");
 
   let mainRef: HTMLElement | undefined;
   let menuRef: HTMLDivElement | undefined;
@@ -759,6 +788,10 @@ export default function App() {
                     defaultExpanded={event.tools.some(
                       (t) => t.status === "running",
                     )}
+                    onOpenFile={(path) => {
+                      setFileViewerPath(path);
+                      setShowFileViewer(true);
+                    }}
                   />
                 )}
 
@@ -961,10 +994,11 @@ export default function App() {
             )}
           </button>
 
-          {/* Git status button */}
+          {/* Git status button - tap for diff, hold for file browser */}
           <GitStatusIndicator
             gitStatus={gitStatus()}
             onClick={() => setShowDiffModal(true)}
+            onLongPress={() => setShowFileBrowser(true)}
           />
         </div>
 
@@ -999,6 +1033,24 @@ export default function App() {
           // Fetch cwd without loading a session
           await loadHistory(null);
         }}
+      />
+
+      {/* File Browser Modal */}
+      <FileBrowserModal
+        show={showFileBrowser()}
+        onClose={() => setShowFileBrowser(false)}
+        onSelectFile={(path) => {
+          setShowFileBrowser(false);
+          setFileViewerPath(path);
+          setShowFileViewer(true);
+        }}
+      />
+
+      {/* File Viewer Modal */}
+      <FileViewerModal
+        show={showFileViewer()}
+        filePath={fileViewerPath()}
+        onClose={() => setShowFileViewer(false)}
       />
     </div>
   );

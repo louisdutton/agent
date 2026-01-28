@@ -886,6 +886,89 @@ export default {
 			}
 		}
 
+		// List files in directory
+		if (path === "/files" && req.method === "GET") {
+			try {
+				const url = new URL(req.url);
+				const relativePath = url.searchParams.get("path") || "";
+				const cwd = getActiveSessionCwd();
+				const fullPath = relativePath ? join(cwd, relativePath) : cwd;
+
+				// Read directory
+				const { readdir } = await import("node:fs/promises");
+				const entries = await readdir(fullPath, { withFileTypes: true });
+
+				// Filter and sort entries
+				const files = entries
+					.filter((e) => !e.name.startsWith(".")) // Hide hidden files
+					.map((e) => ({
+						name: e.name,
+						path: relativePath ? `${relativePath}/${e.name}` : e.name,
+						isDirectory: e.isDirectory(),
+					}))
+					.sort((a, b) => {
+						// Directories first, then alphabetical
+						if (a.isDirectory !== b.isDirectory) {
+							return a.isDirectory ? -1 : 1;
+						}
+						return a.name.localeCompare(b.name);
+					});
+
+				return Response.json(
+					{ files, path: relativePath },
+					{ headers: corsHeaders },
+				);
+			} catch (err) {
+				console.error("List files error:", err);
+				return Response.json(
+					{ error: String(err) },
+					{ status: 500, headers: corsHeaders },
+				);
+			}
+		}
+
+		// Read file content
+		if (path.startsWith("/file/") && req.method === "GET") {
+			try {
+				const encodedPath = path.slice("/file/".length);
+				const filePath = decodeURIComponent(encodedPath);
+				const cwd = getActiveSessionCwd();
+
+				// Security: ensure the file is within the project directory
+				const fullPath = filePath.startsWith("/") ? filePath : join(cwd, filePath);
+				const resolvedPath = await Bun.file(fullPath).exists() ? fullPath : null;
+
+				if (!resolvedPath) {
+					return Response.json(
+						{ error: "File not found" },
+						{ status: 404, headers: corsHeaders },
+					);
+				}
+
+				// Check if file is within allowed paths (cwd or absolute path that exists)
+				if (!fullPath.startsWith(cwd) && !filePath.startsWith("/")) {
+					return Response.json(
+						{ error: "Access denied" },
+						{ status: 403, headers: corsHeaders },
+					);
+				}
+
+				const file = Bun.file(fullPath);
+				const content = await file.text();
+
+				return Response.json(
+					{ content, path: fullPath },
+					{ headers: corsHeaders },
+				);
+			} catch (err) {
+				console.error("File read error:", err);
+				return Response.json(
+					{ error: String(err) },
+					{ status: 500, headers: corsHeaders },
+				);
+			}
+		}
+
 		// List available projects from ~/projects/ with their sessions
 		if (path === "/projects" && req.method === "GET") {
 			try {
