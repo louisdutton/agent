@@ -597,6 +597,113 @@ type FileEntry = {
 	isDirectory: boolean;
 };
 
+// Inline diff view for Edit/Write tool calls
+export function InlineDiffView(props: {
+	filePath: string;
+	oldContent?: string;
+	newContent: string;
+	isNewFile?: boolean;
+}) {
+	const lang = createMemo(() => getLanguageFromPath(props.filePath));
+
+	// Generate diff lines from old/new content
+	const diffLines = createMemo(() => {
+		const lines: DiffLine[] = [];
+
+		if (props.isNewFile || !props.oldContent) {
+			// New file - all lines are additions
+			const newLines = props.newContent.split("\n");
+			newLines.forEach((line, i) => {
+				lines.push({
+					type: "addition",
+					content: line,
+					newLineNum: i + 1,
+				});
+			});
+		} else {
+			// Edit - show old content as deletions, new content as additions
+			const oldLines = props.oldContent.split("\n");
+			const newLines = props.newContent.split("\n");
+
+			oldLines.forEach((line, i) => {
+				lines.push({
+					type: "deletion",
+					content: line,
+					oldLineNum: i + 1,
+				});
+			});
+
+			newLines.forEach((line, i) => {
+				lines.push({
+					type: "addition",
+					content: line,
+					newLineNum: i + 1,
+				});
+			});
+		}
+
+		return lines;
+	});
+
+	// Highlight all lines together
+	const highlightedLines = createMemo(() => {
+		const code = diffLines()
+			.map((l) => l.content)
+			.join("\n");
+		return highlightCodeSync(code, lang());
+	});
+
+	return (
+		<div class="border border-border rounded-lg overflow-hidden mt-2 overflow-x-auto max-h-64 overflow-y-auto">
+			<div class="min-w-max font-mono text-xs">
+				<For each={diffLines()}>
+					{(line, index) => (
+						<div
+							class={`flex ${
+								line.type === "addition"
+									? "bg-green-500/15"
+									: line.type === "deletion"
+										? "bg-red-500/15"
+										: ""
+							}`}
+						>
+							<span
+								class={`w-5 shrink-0 text-center select-none ${
+									line.type === "addition"
+										? "text-green-500"
+										: line.type === "deletion"
+											? "text-red-500"
+											: "text-muted-foreground"
+								}`}
+							>
+								{line.type === "addition"
+									? "+"
+									: line.type === "deletion"
+										? "-"
+										: " "}
+							</span>
+							<pre class="px-2 whitespace-pre">
+								<Show
+									when={highlightedLines()?.[index()]}
+									fallback={line.content || " "}
+								>
+									<For each={highlightedLines()![index()]}>
+										{(token) => (
+											<span style={{ color: token.color }}>
+												{token.content}
+											</span>
+										)}
+									</For>
+								</Show>
+							</pre>
+						</div>
+					)}
+				</For>
+			</div>
+		</div>
+	);
+}
+
 export function FileBrowserModal(props: {
 	show: boolean;
 	onClose: () => void;

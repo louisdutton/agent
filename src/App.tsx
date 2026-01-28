@@ -1,13 +1,12 @@
 import {
 	createEffect,
-	createMemo,
 	createSignal,
 	For,
 	onMount,
 	Show,
 } from "solid-js";
 import Markdown from "./Markdown";
-import { FileBrowserModal, FileViewerModal, GitDiffModal, GitStatusIndicator, useGitStatus } from "./Git";
+import { FileBrowserModal, FileViewerModal, GitDiffModal, GitStatusIndicator, InlineDiffView, useGitStatus } from "./Git";
 import { SessionManagerModal } from "./SessionManager";
 
 const API_URL = "";
@@ -67,18 +66,6 @@ function getToolSummary(name: string, input: Record<string, unknown>): string {
 }
 
 function ToolGroup(props: { tools: Tool[]; defaultExpanded?: boolean; onOpenFile?: (path: string) => void }) {
-  const [expanded, setExpanded] = createSignal(props.defaultExpanded ?? false);
-
-  const allComplete = createMemo(() =>
-    props.tools.every((t) => t.status === "complete"),
-  );
-  const hasError = createMemo(() =>
-    props.tools.some((t) => t.status === "error"),
-  );
-  const runningCount = createMemo(
-    () => props.tools.filter((t) => t.status === "running").length,
-  );
-
   // Check if tool has a file path that can be opened
   const getFilePath = (tool: Tool): string | null => {
     if (["Read", "Edit", "Write"].includes(tool.name) && tool.input.file_path) {
@@ -87,83 +74,78 @@ function ToolGroup(props: { tools: Tool[]; defaultExpanded?: boolean; onOpenFile
     return null;
   };
 
-  return (
-    <div class="text-sm">
-      <button
-        type="button"
-        class="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-        onClick={() => setExpanded(!expanded())}
-      >
-        <span
-          class={`inline-block w-2 h-2 rounded-full shrink-0 ${hasError()
-              ? "bg-red-500"
-              : allComplete()
-                ? "bg-green-500"
-                : "bg-yellow-500"
-            }`}
-        />
-        <span>
-          {runningCount() > 0
-            ? `Running ${runningCount()} action${runningCount() > 1 ? "s" : ""}...`
-            : `${props.tools.length} action${props.tools.length > 1 ? "s" : ""}`}
-        </span>
-        <svg
-          class={`w-3 h-3 transition-transform ${expanded() ? "rotate-180" : ""}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M19 9l-7 7-7-7"
-          />
-        </svg>
-      </button>
+  // Check if tool has diff content to show
+  const getToolDiff = (tool: Tool): { filePath: string; oldContent?: string; newContent: string; isNewFile: boolean } | null => {
+    if (tool.name === "Edit" && tool.input.file_path && tool.input.new_string) {
+      return {
+        filePath: String(tool.input.file_path),
+        oldContent: tool.input.old_string ? String(tool.input.old_string) : undefined,
+        newContent: String(tool.input.new_string),
+        isNewFile: false,
+      };
+    }
+    if (tool.name === "Write" && tool.input.file_path && tool.input.content) {
+      return {
+        filePath: String(tool.input.file_path),
+        newContent: String(tool.input.content),
+        isNewFile: true,
+      };
+    }
+    return null;
+  };
 
-      <Show when={expanded()}>
-        <div class="ml-4 mt-1 space-y-1 border-l border-border pl-3">
-          <For each={props.tools}>
-            {(tool) => {
-              const filePath = getFilePath(tool);
-              return (
-                <div class="flex items-start gap-2">
-                  <span
-                    class={`inline-block w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${tool.status === "running"
-                        ? "bg-yellow-500"
-                        : tool.status === "error"
-                          ? "bg-red-500"
-                          : "bg-green-500"
-                      }`}
-                  />
-                  <div class="min-w-0 flex-1">
-                    <span class="font-mono text-muted-foreground">
-                      {tool.name}
+  return (
+    <div class="text-sm space-y-2">
+      <For each={props.tools}>
+        {(tool) => {
+          const filePath = getFilePath(tool);
+          const diffData = getToolDiff(tool);
+          return (
+            <div>
+              <div class="flex items-start gap-2">
+                <span
+                  class={`inline-block w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${tool.status === "running"
+                      ? "bg-yellow-500"
+                      : tool.status === "error"
+                        ? "bg-red-500"
+                        : "bg-green-500"
+                    }`}
+                />
+                <div class="min-w-0 flex-1">
+                  <span class="font-mono text-muted-foreground">
+                    {tool.name}
+                  </span>
+                  {filePath && props.onOpenFile ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        props.onOpenFile!(filePath);
+                      }}
+                      class="text-muted-foreground opacity-60 ml-2 break-all hover:text-foreground hover:opacity-100 transition-colors text-left"
+                    >
+                      {getToolSummary(tool.name, tool.input)}
+                    </button>
+                  ) : (
+                    <span class="text-muted-foreground opacity-60 ml-2 break-all">
+                      {getToolSummary(tool.name, tool.input)}
                     </span>
-                    {filePath && props.onOpenFile ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          props.onOpenFile!(filePath);
-                        }}
-                        class="text-muted-foreground opacity-60 ml-2 break-all hover:text-foreground hover:opacity-100 transition-colors text-left"
-                      >
-                        {getToolSummary(tool.name, tool.input)}
-                      </button>
-                    ) : (
-                      <span class="text-muted-foreground opacity-60 ml-2 break-all">
-                        {getToolSummary(tool.name, tool.input)}
-                      </span>
-                    )}
-                  </div>
+                  )}
                 </div>
-              );
-            }}
-          </For>
-        </div>
-      </Show>
+              </div>
+              {/* Inline diff for Edit/Write tools */}
+              <Show when={diffData}>
+                <InlineDiffView
+                  filePath={diffData!.filePath}
+                  oldContent={diffData!.oldContent}
+                  newContent={diffData!.newContent}
+                  isNewFile={diffData!.isNewFile}
+                />
+              </Show>
+            </div>
+          );
+        }}
+      </For>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-// Mobile gesture utilities
+// Mobile gesture utilities for touch interactions
 
 import { createSignal, type Accessor } from "solid-js";
 
