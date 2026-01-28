@@ -12,7 +12,7 @@ import {
 	type BundledLanguage,
 	type Highlighter,
 } from "shiki";
-import { createLongPressHandlers } from "./gestures";
+import { createLongPress } from "./gestures";
 
 const API_URL = "";
 
@@ -342,7 +342,7 @@ export function GitStatusIndicator(props: {
 	onClick: () => void;
 	onLongPress?: () => void;
 }) {
-	const handlers = createLongPressHandlers({
+	const { handlers, isPressing } = createLongPress({
 		onPress: () => {
 			if (props.gitStatus?.hasChanges) {
 				props.onClick();
@@ -363,11 +363,11 @@ export function GitStatusIndicator(props: {
 				onTouchStart={handlers.onTouchStart}
 				onTouchEnd={handlers.onTouchEnd}
 				onTouchCancel={handlers.onTouchCancel}
-				class={`w-14 h-14 rounded-full flex flex-col items-center justify-center bg-background border border-white/30 transition-colors shadow-lg select-none ${
-					props.gitStatus?.hasChanges
-						? "hover:bg-muted"
-						: "hover:bg-muted"
-				}`}
+				class="w-14 h-14 rounded-full flex flex-col items-center justify-center bg-background border border-white/30 shadow-lg select-none hover:bg-muted"
+				classList={{
+					"scale-110 bg-white/20 transition-transform duration-500": isPressing(),
+					"transition-all duration-150": !isPressing(),
+				}}
 				title="Tap: git changes, Hold: browse files"
 			>
 				<span class="text-xs font-mono leading-none">
