@@ -363,19 +363,19 @@ export function GitStatusIndicator(props: {
 				onTouchStart={handlers.onTouchStart}
 				onTouchEnd={handlers.onTouchEnd}
 				onTouchCancel={handlers.onTouchCancel}
-				class="w-14 h-14 rounded-full flex flex-col items-center justify-center bg-background border border-white/30 shadow-lg select-none hover:bg-muted"
+				class="w-20 h-20 rounded-full flex flex-col items-center justify-center bg-background border border-white/30 shadow-lg select-none hover:bg-muted"
 				classList={{
 					"scale-110 bg-white/20 transition-transform duration-500": isPressing(),
 					"transition-all duration-150": !isPressing(),
 				}}
 				title="Tap: git changes, Hold: browse files"
 			>
-				<span class="text-xs font-mono leading-none">
+				<span class="text-sm font-mono leading-none">
 					<span class={props.gitStatus?.hasChanges ? "text-green-500" : "text-muted-foreground"}>
 						+{props.gitStatus!.insertions}
 					</span>
 				</span>
-				<span class="text-xs font-mono leading-none mt-0.5">
+				<span class="text-sm font-mono leading-none mt-0.5">
 					<span class={props.gitStatus?.hasChanges ? "text-red-500" : "text-muted-foreground"}>
 						-{props.gitStatus!.deletions}
 					</span>

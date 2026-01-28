@@ -863,11 +863,11 @@ export default function App() {
             <button
               type="button"
               onClick={() => setShowMenu(!showMenu())}
-              class="w-14 h-14 rounded-full flex items-center justify-center bg-background border border-white/30 hover:bg-muted transition-colors shadow-lg"
+              class="w-20 h-20 rounded-full flex items-center justify-center bg-background border border-white/30 hover:bg-muted transition-colors shadow-lg"
               title="Options"
             >
               <svg
-                class="w-6 h-6 text-muted-foreground"
+                class="w-8 h-8 text-muted-foreground"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
