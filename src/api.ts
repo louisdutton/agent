@@ -738,18 +738,22 @@ export default {
 					.filter(Boolean);
 				filesChanged += untrackedFiles.length;
 
-				// Count lines in untracked files
-				for (const filePath of untrackedFiles) {
-					try {
-						const file = Bun.file(join(getActiveSessionCwd(), filePath));
-						if (await file.exists()) {
-							const content = await file.text();
-							insertions += content.split("\n").length;
+				// Count lines in untracked files (in parallel)
+				const lineCounts = await Promise.all(
+					untrackedFiles.map(async (filePath) => {
+						try {
+							const file = Bun.file(join(getActiveSessionCwd(), filePath));
+							if (await file.exists()) {
+								const content = await file.text();
+								return content.split("\n").length;
+							}
+						} catch {
+							// Skip files we can't read
 						}
-					} catch {
-						// Skip files we can't read
-					}
-				}
+						return 0;
+					})
+				);
+				insertions += lineCounts.reduce((a, b) => a + b, 0);
 
 				return Response.json(
 					{ hasChanges: filesChanged > 0, insertions, deletions, filesChanged },
@@ -795,33 +799,36 @@ export default {
 					.split("\n")
 					.filter(Boolean);
 
-				// Generate diff-like output for untracked files
-				for (const filePath of untrackedFiles) {
-					try {
-						const file = Bun.file(join(getActiveSessionCwd(), filePath));
-						if (await file.exists()) {
-							const content = await file.text();
-							const lines = content.split("\n");
-							const hunks: DiffHunk[] = [
-								{
-									header: `@@ -0,0 +1,${lines.length} @@`,
-									lines: lines.map((line, i) => ({
-										type: "addition" as const,
-										content: line,
-										newLineNum: i + 1,
-									})),
-								},
-							];
-							files.push({
-								path: filePath,
-								status: "added",
-								hunks,
-							});
+				// Generate diff-like output for untracked files (in parallel)
+				const untrackedDiffs = await Promise.all(
+					untrackedFiles.map(async (filePath) => {
+						try {
+							const file = Bun.file(join(getActiveSessionCwd(), filePath));
+							if (await file.exists()) {
+								const content = await file.text();
+								const lines = content.split("\n");
+								return {
+									path: filePath,
+									status: "added" as const,
+									hunks: [
+										{
+											header: `@@ -0,0 +1,${lines.length} @@`,
+											lines: lines.map((line, i) => ({
+												type: "addition" as const,
+												content: line,
+												newLineNum: i + 1,
+											})),
+										},
+									],
+								};
+							}
+						} catch {
+							// Skip files we can't read
 						}
-					} catch {
-						// Skip files we can't read
-					}
-				}
+						return null;
+					})
+				);
+				files.push(...untrackedDiffs.filter((d): d is DiffFile => d !== null));
 
 				return Response.json({ files }, { headers: corsHeaders });
 			} catch (err) {
