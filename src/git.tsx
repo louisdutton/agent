@@ -76,13 +76,31 @@ function getLanguageFromPath(path: string): string {
 	return extMap[ext] || "";
 }
 
+// Remove common leading whitespace from all lines
+function dedent(code: string): string {
+	const lines = code.split("\n");
+	// Find minimum indentation (ignoring empty lines)
+	let minIndent = Infinity;
+	for (const line of lines) {
+		if (!line.trim()) continue;
+		const match = line.match(/^(\s*)/);
+		if (match) {
+			minIndent = Math.min(minIndent, match[1].length);
+		}
+	}
+	if (minIndent === Infinity || minIndent === 0) return code;
+	// Remove the common indentation from all lines
+	return lines.map((line) => line.slice(minIndent)).join("\n");
+}
+
 // Highlight code synchronously with highlight.js
 function highlightCodeSync(
 	code: string,
 	lang: string
 ): string[] {
 	try {
-		const lines = code.split("\n");
+		const dedented = dedent(code);
+		const lines = dedented.split("\n");
 		return lines.map((line) => {
 			if (!line) return " ";
 			let result: hljs.HighlightResult;
@@ -94,7 +112,7 @@ function highlightCodeSync(
 			return result.value || " ";
 		});
 	} catch {
-		return code.split("\n").map((line) => line || " ");
+		return dedent(code).split("\n").map((line) => line || " ");
 	}
 }
 
@@ -117,7 +135,7 @@ function DiffHunkView(props: { hunk: DiffHunk; lang: string }) {
 			<div class="px-4 py-1 bg-blue-500/10 text-blue-400 font-mono text-xs">
 				{props.hunk.header}
 			</div>
-			<div class="font-mono text-sm">
+			<div class="font-mono text-xs">
 				<For each={props.hunk.lines}>
 					{(line, index) => (
 						<div
