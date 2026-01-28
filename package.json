@@ -10,8 +10,8 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.12",
     "@tailwindcss/typography": "^0.5.16",
+    "highlight.js": "^11.11.1",
     "marked": "^17.0.1",
-    "shiki": "^3.21.0",
     "solid-js": "^1.9.9",
     "tailwindcss": "^4.1.18"
   },

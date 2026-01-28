@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "highlight.js/styles/github-dark.css";
 @plugin "@tailwindcss/typography";
 @source ".";
 
@@ -29,9 +30,14 @@
 		font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
 	}
 
-	/* Shiki code blocks */
+	/* Code blocks */
 	pre.shiki {
 		@apply p-4 rounded-lg overflow-x-auto text-sm;
+	}
+
+	/* Diff view highlighting - transparent background to show diff colors */
+	.hljs {
+		background: transparent !important;
 	}
 
 	/* Inline code */

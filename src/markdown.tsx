@@ -1,58 +1,31 @@
 import { marked } from "marked";
-import { bundledLanguages, codeToHtml } from "shiki";
+import hljs from "highlight.js";
 import { createMemo } from "solid-js";
 
 // Create a custom renderer that handles code blocks
 const renderer = new marked.Renderer();
 
-// Store for highlighted code blocks
-const codeBlockCache = new Map<string, string>();
-
-// Async function to highlight code
-async function highlightCode(code: string, lang: string): Promise<string> {
-	const cacheKey = `${lang}:${code}`;
-	if (codeBlockCache.has(cacheKey)) {
-		return codeBlockCache.get(cacheKey)!;
-	}
-
-	const validLang = lang && lang in bundledLanguages ? lang : "text";
-
+// Synchronous highlighting with highlight.js
+function highlightCode(code: string, lang: string): string {
 	try {
-		const html = await codeToHtml(code, {
-			lang: validLang,
-			theme: "vitesse-black",
-		});
-		codeBlockCache.set(cacheKey, html);
-		return html;
+		if (lang && hljs.getLanguage(lang)) {
+			return hljs.highlight(code, { language: lang }).value;
+		}
+		return hljs.highlightAuto(code).value;
 	} catch {
-		// Fallback to plain code block
 		const escaped = code
 			.replace(/&/g, "&amp;")
 			.replace(/</g, "&lt;")
 			.replace(/>/g, "&gt;");
-		return `<pre><code>${escaped}</code></pre>`;
+		return escaped;
 	}
 }
 
-// Override code block rendering with a placeholder
+// Override code block rendering - now synchronous
 renderer.code = ({ text, lang }) => {
-	const id = `code-${Math.random().toString(36).slice(2, 9)}`;
-	const langStr = lang || "text";
-
-	// Queue the highlight and store placeholder
-	highlightCode(text, langStr).then((html) => {
-		const el = document.getElementById(id);
-		if (el) {
-			el.outerHTML = html;
-		}
-	});
-
-	// Return placeholder with escaped code as fallback
-	const escaped = text
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;");
-	return `<pre id="${id}"><code class="language-${langStr}">${escaped}</code></pre>`;
+	const langStr = lang || "";
+	const highlighted = highlightCode(text, langStr);
+	return `<pre><code class="hljs${langStr ? ` language-${langStr}` : ""}">${highlighted}</code></pre>`;
 };
 
 // Override inline code rendering

@@ -7,52 +7,10 @@ import {
 	onMount,
 	Show,
 } from "solid-js";
-import {
-	createHighlighter,
-	type BundledLanguage,
-	type Highlighter,
-} from "shiki";
+import hljs from "highlight.js";
 import { createLongPress } from "./gestures";
 
 const API_URL = "";
-
-// Pre-initialize highlighter with common languages
-let highlighterPromise: Promise<Highlighter> | null = null;
-let highlighterInstance: Highlighter | null = null;
-
-function getHighlighter(): Highlighter | null {
-	if (highlighterInstance) return highlighterInstance;
-
-	if (!highlighterPromise) {
-		highlighterPromise = createHighlighter({
-			themes: ["vitesse-black"],
-			langs: [
-				"typescript",
-				"tsx",
-				"javascript",
-				"jsx",
-				"python",
-				"go",
-				"rust",
-				"json",
-				"yaml",
-				"html",
-				"css",
-				"bash",
-				"markdown",
-				"sql",
-			],
-		}).then((h) => {
-			highlighterInstance = h;
-			return h;
-		});
-	}
-
-	return null;
-}
-
-// Start loading immediately
-getHighlighter();
 
 // Git diff types
 export type GitStatus = {
@@ -76,14 +34,14 @@ type DiffFile = {
 	hunks: DiffHunk[];
 };
 
-// Map file extensions to Shiki language identifiers
+// Map file extensions to highlight.js language identifiers
 function getLanguageFromPath(path: string): string {
 	const ext = path.split(".").pop()?.toLowerCase() || "";
 	const extMap: Record<string, string> = {
 		ts: "typescript",
-		tsx: "tsx",
+		tsx: "typescript",
 		js: "javascript",
-		jsx: "jsx",
+		jsx: "javascript",
 		py: "python",
 		rb: "ruby",
 		go: "go",
@@ -103,9 +61,9 @@ function getLanguageFromPath(path: string): string {
 		json: "json",
 		yaml: "yaml",
 		yml: "yaml",
-		toml: "toml",
+		toml: "ini",
 		xml: "xml",
-		html: "html",
+		html: "xml",
 		css: "css",
 		scss: "scss",
 		less: "less",
@@ -115,65 +73,41 @@ function getLanguageFromPath(path: string): string {
 		dockerfile: "dockerfile",
 		makefile: "makefile",
 	};
-	return extMap[ext] || "text";
+	return extMap[ext] || "";
 }
 
-// Cache for highlighted code
-const highlightCache = new Map<
-	string,
-	Array<Array<{ content: string; color?: string }>>
->();
-
-// Highlight code synchronously if highlighter is ready
+// Highlight code synchronously with highlight.js
 function highlightCodeSync(
 	code: string,
 	lang: string
-): Array<Array<{ content: string; color?: string }>> | null {
-	const cacheKey = `${lang}:${code}`;
-
-	if (highlightCache.has(cacheKey)) {
-		return highlightCache.get(cacheKey)!;
-	}
-
-	const highlighter = getHighlighter();
-	if (!highlighter) return null;
-
-	const loadedLangs = highlighter.getLoadedLanguages();
-	const validLang = (
-		loadedLangs.includes(lang) ? lang : "text"
-	) as BundledLanguage;
-
+): string[] {
 	try {
-		const { tokens } = highlighter.codeToTokens(code, {
-			lang: validLang,
-			theme: "vitesse-black",
+		const lines = code.split("\n");
+		return lines.map((line) => {
+			if (!line) return " ";
+			let result: hljs.HighlightResult;
+			if (lang && hljs.getLanguage(lang)) {
+				result = hljs.highlight(line, { language: lang, ignoreIllegals: true });
+			} else {
+				result = hljs.highlightAuto(line);
+			}
+			return result.value || " ";
 		});
-
-		const result = tokens.map((lineTokens) =>
-			lineTokens.map((token) => ({
-				content: token.content,
-				color: token.color,
-			}))
-		);
-
-		highlightCache.set(cacheKey, result);
-		return result;
 	} catch {
-		return code.split("\n").map((line) => [{ content: line || " " }]);
+		return code.split("\n").map((line) => line || " ");
 	}
 }
 
-// Highlight a hunk synchronously (wrapper for backwards compatibility)
+// Highlight a hunk synchronously
 function highlightHunkSync(
 	lines: DiffLine[],
 	lang: string
-): Array<Array<{ content: string; color?: string }>> | null {
+): string[] {
 	const code = lines.map((l) => l.content).join("\n");
 	return highlightCodeSync(code, lang);
 }
 
 function DiffHunkView(props: { hunk: DiffHunk; lang: string }) {
-	// Try to highlight synchronously - will return null if highlighter not ready
 	const highlightedLines = createMemo(() =>
 		highlightHunkSync(props.hunk.lines, props.lang)
 	);
@@ -216,20 +150,10 @@ function DiffHunkView(props: { hunk: DiffHunk; lang: string }) {
 										? "-"
 										: " "}
 							</span>
-							<pre class="px-2 whitespace-pre">
-								<Show
-									when={highlightedLines()?.[index()]}
-									fallback={line.content || " "}
-								>
-									<For each={highlightedLines()![index()]}>
-										{(token) => (
-											<span style={{ color: token.color }}>
-												{token.content}
-											</span>
-										)}
-									</For>
-								</Show>
-							</pre>
+							<pre
+								class="px-2 whitespace-pre hljs"
+								innerHTML={highlightedLines()?.[index()] || line.content || " "}
+							/>
 						</div>
 					)}
 				</For>
@@ -552,20 +476,10 @@ export function FileViewerModal(props: {
 												<span class="w-14 shrink-0 text-right px-3 py-0 text-muted-foreground/50 select-none border-r border-border">
 													{index() + 1}
 												</span>
-												<pre class="px-4 whitespace-pre py-0">
-													<Show
-														when={highlightedLines()?.[index()]}
-														fallback={line || " "}
-													>
-														<For each={highlightedLines()![index()]}>
-															{(token) => (
-																<span style={{ color: token.color }}>
-																	{token.content}
-																</span>
-															)}
-														</For>
-													</Show>
-												</pre>
+												<pre
+													class="px-4 whitespace-pre py-0 hljs"
+													innerHTML={highlightedLines()?.[index()] || line || " "}
+												/>
 											</div>
 										)}
 									</For>
@@ -682,20 +596,10 @@ export function InlineDiffView(props: {
 										? "-"
 										: " "}
 							</span>
-							<pre class="px-2 whitespace-pre">
-								<Show
-									when={highlightedLines()?.[index()]}
-									fallback={line.content || " "}
-								>
-									<For each={highlightedLines()![index()]}>
-										{(token) => (
-											<span style={{ color: token.color }}>
-												{token.content}
-											</span>
-										)}
-									</For>
-								</Show>
-							</pre>
+							<pre
+								class="px-2 whitespace-pre hljs"
+								innerHTML={highlightedLines()?.[index()] || line.content || " "}
+							/>
 						</div>
 					)}
 				</For>
