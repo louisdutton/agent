@@ -500,7 +500,7 @@ export function FileViewerModal(props: {
 
 						<Show when={!loading() && !error() && content() !== null}>
 							<div class="overflow-x-auto">
-								<div class="min-w-max font-mono text-sm">
+								<div class="min-w-max font-mono text-xs">
 									<For each={lines()}>
 										{(line, index) => (
 											<div class="flex hover:bg-muted/30">
@@ -777,7 +777,7 @@ export function FileBrowserModal(props: {
 													/>
 												)}
 											</svg>
-											<span class="font-mono text-sm truncate">
+											<span class="font-mono text-xs truncate">
 												{file.name}
 											</span>
 										</button>
