@@ -88,7 +88,7 @@ export function cancelCurrentRequest(): boolean {
 		if (currentSession.abortController) {
 			currentSession.abortController.abort();
 			currentSession.abortController = null;
-			console.log("Request cancelled");
+			console.debug("Request cancelled");
 			return true;
 		}
 	}
@@ -113,7 +113,7 @@ export async function clearSession(): Promise<void> {
 
 		const indexFile = Bun.file(indexPath);
 		if (!(await indexFile.exists())) {
-			console.log("No session index found");
+			console.debug("No session index found");
 			return;
 		}
 
@@ -126,7 +126,7 @@ export async function clearSession(): Promise<void> {
 			);
 
 		if (sessionList.length === 0) {
-			console.log("No sessions to clear");
+			console.debug("No sessions to clear");
 			return;
 		}
 
@@ -137,7 +137,7 @@ export async function clearSession(): Promise<void> {
 		const transcriptFile = Bun.file(transcriptPath);
 		if (await transcriptFile.exists()) {
 			await Bun.file(transcriptPath).delete();
-			console.log(`Deleted transcript: ${transcriptPath}`);
+			console.debug(`Deleted transcript: ${transcriptPath}`);
 		}
 
 		// Remove the session from the index
@@ -149,7 +149,7 @@ export async function clearSession(): Promise<void> {
 		};
 
 		await Bun.write(indexPath, JSON.stringify(updatedIndex, null, 2));
-		console.log("Session removed from index");
+		console.debug("Session removed from index");
 
 		// Clear the active session if it was the one we deleted
 		if (activeSessionId === latestSession.sessionId) {

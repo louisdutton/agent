@@ -7,7 +7,13 @@ import {
 	onMount,
 	Show,
 } from "solid-js";
-import { computeDiff, type DiffFile, type DiffHunk, type DiffLine, type DiffLineType } from "./diff";
+import {
+	computeDiff,
+	type DiffFile,
+	type DiffHunk,
+	type DiffLine,
+	type DiffLineType,
+} from "./diff";
 import { createLongPress } from "./gestures";
 import hljs from "./hljs";
 

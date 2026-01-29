@@ -22,7 +22,10 @@ const KOKORO_URL = process.env.KOKORO_URL || "http://localhost:9372";
 
 // Helper to create JSON response with CORS headers
 const json = (data: unknown, init?: ResponseInit) =>
-	Response.json(data, { ...init, headers: { ...corsHeaders, ...init?.headers } });
+	Response.json(data, {
+		...init,
+		headers: { ...corsHeaders, ...init?.headers },
+	});
 
 const error = (message: string, status = 500) =>
 	json({ error: message }, { status });
@@ -313,7 +316,7 @@ export const routes = {
 	"/api/messages": {
 		POST: async (req: Request) => {
 			const body = (await req.json()) as { message: string };
-			console.log(`POST /api/messages:`, body.message?.slice(0, 50));
+			console.debug(`POST /api/messages:`, body.message?.slice(0, 50));
 
 			try {
 				const encoder = new TextEncoder();
@@ -593,7 +596,7 @@ export const routes = {
 					return json({ error: "No audio file" }, { status: 400 });
 				}
 
-				console.log(`POST /api/transcribe: ${audioFile.size} bytes`);
+				console.debug(`POST /api/transcribe: ${audioFile.size} bytes`);
 
 				// Convert WebM to WAV using FFmpeg (whisper.cpp requires WAV)
 				const inputBuffer = await audioFile.arrayBuffer();
@@ -645,7 +648,7 @@ export const routes = {
 				const result = await whisperRes.json();
 				const text = result.text || "";
 
-				console.log(`Transcribed: "${text.slice(0, 50)}..."`);
+				console.debug(`Transcribed: "${text.slice(0, 50)}..."`);
 				return json({ text });
 			} catch (err) {
 				console.error("Transcribe error:", err);
@@ -664,7 +667,7 @@ export const routes = {
 					return json({ error: "No text provided" }, { status: 400 });
 				}
 
-				console.log(`POST /api/tts: "${text.slice(0, 50)}..."`);
+				console.debug(`POST /api/tts: "${text.slice(0, 50)}..."`);
 
 				const ttsRes = await fetch(KOKORO_URL, {
 					method: "POST",
@@ -679,7 +682,7 @@ export const routes = {
 				}
 
 				const audioBuffer = await ttsRes.arrayBuffer();
-				console.log(`TTS response: ${audioBuffer.byteLength} bytes`);
+				console.debug(`TTS response: ${audioBuffer.byteLength} bytes`);
 				return new Response(audioBuffer, {
 					headers: {
 						...corsHeaders,
@@ -864,7 +867,7 @@ export const routes = {
 					return error(stderr || "Commit failed");
 				}
 
-				console.log("Git commit:", stdout);
+				console.debug("Git commit:", stdout);
 				return json({ ok: true, output: stdout });
 			} catch (err) {
 				console.error("Git commit error:", err);
@@ -906,7 +909,9 @@ export const routes = {
 					);
 					checkIgnoreProc.stdin.write(pathsToCheck.join("\n"));
 					checkIgnoreProc.stdin.end();
-					const ignoredOutput = await new Response(checkIgnoreProc.stdout).text();
+					const ignoredOutput = await new Response(
+						checkIgnoreProc.stdout,
+					).text();
 					await checkIgnoreProc.exited;
 
 					for (const line of ignoredOutput.trim().split("\n")) {
@@ -1118,5 +1123,4 @@ export const routes = {
 };
 
 // Fallback for unmatched API routes
-export const apiFallback = () =>
-	json({ error: "Not found" }, { status: 404 });
+export const apiFallback = () => json({ error: "Not found" }, { status: 404 });

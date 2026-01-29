@@ -1,25 +1,25 @@
 {
-  "name": "agent",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "bun index.html --console",
-    "serve": "bun --hot server.ts"
-  },
-  "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.12",
-    "@tailwindcss/typography": "^0.5.16",
-    "highlight.js": "^11.11.1",
-    "marked": "^17.0.1",
-    "solid-js": "^1.9.9",
-    "tailwindcss": "^4.1.18"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "2.3.11",
-    "@dschz/bun-plugin-solid": "^1.0.4",
-    "@types/bun": "latest",
-    "bun-plugin-tailwind": "^0.1.2",
-    "typescript": "^5.7.2"
-  }
+	"name": "agent",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun index.html --console",
+		"serve": "bun --hot server.ts"
+	},
+	"dependencies": {
+		"@anthropic-ai/claude-agent-sdk": "^0.2.12",
+		"@tailwindcss/typography": "^0.5.16",
+		"highlight.js": "^11.11.1",
+		"marked": "^17.0.1",
+		"solid-js": "^1.9.9",
+		"tailwindcss": "^4.1.18"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.3.11",
+		"@dschz/bun-plugin-solid": "^1.0.4",
+		"@types/bun": "latest",
+		"bun-plugin-tailwind": "^0.1.2",
+		"typescript": "^5.7.2"
+	}
 }

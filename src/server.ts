@@ -1,25 +1,25 @@
-import { apiFallback, routes } from "./server/api";
 import app from "./index.html";
+import { apiFallback, routes } from "./server/api";
 
 const server = Bun.serve({
-  port: Number(Bun.env.PORT) || 3000,
-  idleTimeout: 120,
+	port: Number(Bun.env.PORT) || 3000,
+	idleTimeout: 120,
 
-  routes: {
-    "/": app,
-    ...routes,
-    "/public/*": (req) => {
-      const url = new URL(req.url);
-      try {
-        const file = Bun.file(`.${url.pathname}`);
-        return new Response(file);
-      } catch {
-        return new Response(null, { status: 404 });
-      }
-    },
-  },
+	routes: {
+		"/": app,
+		...routes,
+		"/public/*": (req) => {
+			const url = new URL(req.url);
+			try {
+				const file = Bun.file(`.${url.pathname}`);
+				return new Response(file);
+			} catch {
+				return new Response(null, { status: 404 });
+			}
+		},
+	},
 
-  fetch: apiFallback,
+	fetch: apiFallback,
 });
 
-console.log(`Server running at ${server.url}`);
+console.info(`Server running at ${server.url}`);

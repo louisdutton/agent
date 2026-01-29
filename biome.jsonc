@@ -56,11 +56,7 @@
 	},
 	"overrides": [
 		{
-			"includes": [
-				"**/*.config.ts",
-				"**/*.d.ts",
-				"**/bun-plugin-*.ts"
-			],
+			"includes": ["**/*.config.ts", "**/*.d.ts", "**/bun-plugin-*.ts"],
 			"linter": {
 				"rules": {
 					"style": {

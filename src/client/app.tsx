@@ -979,7 +979,11 @@ export default function App() {
 											alert("No active session to clear");
 											return;
 										}
-										if (!confirm("Clear the session context? This will reset Claude's memory of this conversation.")) {
+										if (
+											!confirm(
+												"Clear the session context? This will reset Claude's memory of this conversation.",
+											)
+										) {
 											return;
 										}
 										setIsClearing(true);

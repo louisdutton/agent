@@ -16,7 +16,10 @@ export type DiffFile = {
 };
 
 // Simple LCS-based diff algorithm
-export function computeDiff(oldLines: string[], newLines: string[]): DiffLine[] {
+export function computeDiff(
+	oldLines: string[],
+	newLines: string[],
+): DiffLine[] {
 	const result: DiffLine[] = [];
 
 	// Build LCS table
@@ -39,11 +42,21 @@ export function computeDiff(oldLines: string[], newLines: string[]): DiffLine[] 
 	// Backtrack to find diff
 	let i = m;
 	let j = n;
-	const ops: { type: DiffLineType; content: string; oldIdx?: number; newIdx?: number }[] = [];
+	const ops: {
+		type: DiffLineType;
+		content: string;
+		oldIdx?: number;
+		newIdx?: number;
+	}[] = [];
 
 	while (i > 0 || j > 0) {
 		if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
-			ops.unshift({ type: "context", content: oldLines[i - 1], oldIdx: i, newIdx: j });
+			ops.unshift({
+				type: "context",
+				content: oldLines[i - 1],
+				oldIdx: i,
+				newIdx: j,
+			});
 			i--;
 			j--;
 		} else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {

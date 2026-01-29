@@ -18,7 +18,7 @@ async function sendSlashCommand(
 		return { success: false, error: `No active session for ${command}` };
 	}
 
-	console.log(`Sending ${command} to session: ${sessionId}`);
+	console.debug(`Sending ${command} to session: ${sessionId}`);
 
 	try {
 		const options: Parameters<typeof query>[0]["options"] = {
@@ -38,7 +38,7 @@ async function sendSlashCommand(
 			options,
 		})) {
 			if (event.type === "result") {
-				console.log(`${command} complete`);
+				console.debug(`${command} complete`);
 				return { success: true };
 			}
 		}
@@ -67,7 +67,7 @@ export async function clearContext(): Promise<{
 }
 
 export async function* sendMessage(message: string): AsyncGenerator<string> {
-	console.log(`Sending: ${message.slice(0, 50)}...`);
+	console.debug(`Sending: ${message.slice(0, 50)}...`);
 
 	const sessionId = getActiveSession();
 	const cwd = getActiveSessionCwd();
