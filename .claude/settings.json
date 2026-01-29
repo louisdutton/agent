@@ -1,0 +1,25 @@
+{
+	"hooks": {
+		"PostToolUse": [
+			{
+				"matcher": "Edit|Write|NotebookEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "biome check --write $CLAUDE_FILE_PATHS"
+					}
+				]
+			},
+			{
+				"matcher": "Edit|Write",
+				"pathPattern": "(\\.tsx?|tsconfig\\.json)$",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "tsgo --noEmit"
+					}
+				]
+			}
+		]
+	}
+}
