@@ -317,21 +317,37 @@ export const routes = {
 
 			try {
 				const encoder = new TextEncoder();
+				let controllerClosed = false;
 				const stream = new ReadableStream({
 					async start(controller) {
 						try {
 							for await (const line of sendMessage(body.message)) {
+								if (controllerClosed) break;
 								controller.enqueue(encoder.encode(`data: ${line}\n\n`));
 							}
-							controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+							if (!controllerClosed) {
+								controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+							}
 						} catch (err) {
 							console.error("Stream error:", err);
-							controller.enqueue(
-								encoder.encode(`data: {"error": "${String(err)}"}\n\n`),
-							);
+							if (!controllerClosed) {
+								try {
+									controller.enqueue(
+										encoder.encode(`data: {"error": "${String(err)}"}\n\n`),
+									);
+								} catch {
+									// Controller already closed
+								}
+							}
 						} finally {
-							controller.close();
+							if (!controllerClosed) {
+								controllerClosed = true;
+								controller.close();
+							}
 						}
+					},
+					cancel() {
+						controllerClosed = true;
 					},
 				});
 
