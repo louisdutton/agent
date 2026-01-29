@@ -179,6 +179,7 @@ export default function App() {
 	const [showSessionModal, setShowSessionModal] = createSignal(false);
 	const [cwd, setCwd] = createSignal("");
 	const [isCompacting, setIsCompacting] = createSignal(false);
+	const [isClearing, setIsClearing] = createSignal(false);
 	const [isCompacted, setIsCompacted] = createSignal(false);
 	const [showTextInput, setShowTextInput] = createSignal(false);
 	const [sessionName, setSessionName] = createSignal("");
@@ -964,10 +965,51 @@ export default function App() {
 											setIsCompacting(false);
 										}
 									}}
-									disabled={isCompacting() || isLoading()}
-									class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm rounded-b-lg disabled:opacity-50"
+									disabled={isCompacting() || isClearing() || isLoading()}
+									class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm disabled:opacity-50"
 								>
 									{isCompacting() ? "Compacting..." : "Compact Context"}
+								</button>
+								<button
+									type="button"
+									onClick={async () => {
+										setShowMenu(false);
+										const sessionId = localStorage.getItem("sessionId");
+										if (!sessionId) {
+											alert("No active session to clear");
+											return;
+										}
+										if (!confirm("Clear the session context? This will reset Claude's memory of this conversation.")) {
+											return;
+										}
+										setIsClearing(true);
+										try {
+											const res = await fetch(
+												`${API_URL}/api/session/${encodeURIComponent(sessionId)}/clear`,
+												{
+													method: "POST",
+												},
+											);
+											const data = await res.json();
+											if (data.ok) {
+												// Clear the events display
+												setEvents([]);
+												setIsCompacted(false);
+												idCounter = 0;
+											} else {
+												alert(data.error || "Failed to clear session");
+											}
+										} catch (err) {
+											console.error("Clear failed:", err);
+											alert("Failed to clear session");
+										} finally {
+											setIsClearing(false);
+										}
+									}}
+									disabled={isCompacting() || isClearing() || isLoading()}
+									class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm rounded-b-lg disabled:opacity-50"
+								>
+									{isClearing() ? "Clearing..." : "Clear Context"}
 								</button>
 							</div>
 						</Show>

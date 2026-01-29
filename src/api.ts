@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { compactSession, sendMessage } from "./claude";
+import { clearContext, compactSession, sendMessage } from "./claude";
 import {
 	cancelCurrentRequest,
 	clearSession,
@@ -404,7 +404,6 @@ export default {
 		const sessionCompactMatch = path.match(/^\/session\/([^/]+)\/compact$/);
 		if (sessionCompactMatch && req.method === "POST") {
 			const sessionId = sessionCompactMatch[1];
-			// Ensure the session is active before compacting
 			setActiveSession(sessionId);
 			const result = await compactSession();
 			if (result.success) {
@@ -412,6 +411,21 @@ export default {
 			}
 			return Response.json(
 				{ error: result.error || "Compaction failed" },
+				{ status: 500, headers: corsHeaders },
+			);
+		}
+
+		// Clear the current session's context
+		const sessionClearMatch = path.match(/^\/session\/([^/]+)\/clear$/);
+		if (sessionClearMatch && req.method === "POST") {
+			const sessionId = sessionClearMatch[1];
+			setActiveSession(sessionId);
+			const result = await clearContext();
+			if (result.success) {
+				return Response.json({ ok: true }, { headers: corsHeaders });
+			}
+			return Response.json(
+				{ error: result.error || "Clear failed" },
 				{ status: 500, headers: corsHeaders },
 			);
 		}

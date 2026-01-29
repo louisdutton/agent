@@ -7,19 +7,18 @@ import {
 	setActiveSession,
 } from "./session";
 
-// Compact the current session's context
-export async function compactSession(): Promise<{
-	success: boolean;
-	error?: string;
-}> {
+// Send a slash command to the current session
+async function sendSlashCommand(
+	command: string,
+): Promise<{ success: boolean; error?: string }> {
 	const sessionId = getActiveSession();
 	const cwd = getActiveSessionCwd();
 
 	if (!sessionId) {
-		return { success: false, error: "No active session to compact" };
+		return { success: false, error: `No active session for ${command}` };
 	}
 
-	console.log(`Compacting session: ${sessionId}`);
+	console.log(`Sending ${command} to session: ${sessionId}`);
 
 	try {
 		const options: Parameters<typeof query>[0]["options"] = {
@@ -34,23 +33,37 @@ export async function compactSession(): Promise<{
 			pathToClaudeCodeExecutable: process.env.CLAUDE_CODE_PATH,
 		};
 
-		// Send /compact command to trigger session compaction
 		for await (const event of query({
-			prompt: "/compact",
+			prompt: command,
 			options,
 		})) {
-			// Wait for the result
 			if (event.type === "result") {
-				console.log("Compaction complete");
+				console.log(`${command} complete`);
 				return { success: true };
 			}
 		}
 
 		return { success: true };
 	} catch (err) {
-		console.error("Compaction failed:", err);
+		console.error(`${command} failed:`, err);
 		return { success: false, error: String(err) };
 	}
+}
+
+// Compact the current session's context
+export async function compactSession(): Promise<{
+	success: boolean;
+	error?: string;
+}> {
+	return sendSlashCommand("/compact");
+}
+
+// Clear the current session's context
+export async function clearContext(): Promise<{
+	success: boolean;
+	error?: string;
+}> {
+	return sendSlashCommand("/clear");
 }
 
 export async function* sendMessage(message: string): AsyncGenerator<string> {
