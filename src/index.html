@@ -13,16 +13,16 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
     <!-- PWA Manifest -->
-    <link rel="manifest" href="./public/manifest.json" />
+    <link rel="manifest" href="../public/manifest.json" />
 
-    <link rel="icon" href="./public/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="../public/favicon.svg" type="image/svg+xml" />
     <title>Agent</title>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="./src/client.tsx"></script>
+    <script type="module" src="./client/client.tsx"></script>
     <script>
-      navigator.serviceWorker?.register("./public/sw.js");
+      navigator.serviceWorker?.register("../public/sw.js");
     </script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-import { apiFallback, routes } from "./src/api";
+import { apiFallback, routes } from "./server/api";
 import app from "./index.html";
 
 const server = Bun.serve({
