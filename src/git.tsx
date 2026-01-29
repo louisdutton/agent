@@ -504,7 +504,7 @@ export function FileViewerModal(props: {
 									<For each={lines()}>
 										{(line, index) => (
 											<div class="flex hover:bg-muted/30">
-												<span class="w-14 shrink-0 text-right px-3 py-0 text-muted-foreground/50 select-none border-r border-border">
+												<span class="shrink-0 text-right pl-2 pr-2 py-0 text-muted-foreground/50 select-none border-r border-border tabular-nums">
 													{index() + 1}
 												</span>
 												<pre
