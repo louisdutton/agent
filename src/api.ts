@@ -868,8 +868,43 @@ export const routes = {
 
 				const entries = await readdir(fullPath, { withFileTypes: true });
 
-				const files = entries
-					.filter((e) => !e.name.startsWith("."))
+				// Filter out dotfiles first
+				const visibleEntries = entries.filter((e) => !e.name.startsWith("."));
+
+				// Get paths for git check-ignore
+				const pathsToCheck = visibleEntries.map((e) =>
+					relativePath ? `${relativePath}/${e.name}` : e.name,
+				);
+
+				// Use git check-ignore to find which files are ignored
+				const ignoredSet = new Set<string>();
+				if (pathsToCheck.length > 0) {
+					const checkIgnoreProc = Bun.spawn(
+						["git", "check-ignore", "--stdin"],
+						{
+							cwd,
+							stdin: "pipe",
+							stdout: "pipe",
+							stderr: "pipe",
+						},
+					);
+					checkIgnoreProc.stdin.write(pathsToCheck.join("\n"));
+					checkIgnoreProc.stdin.end();
+					const ignoredOutput = await new Response(checkIgnoreProc.stdout).text();
+					await checkIgnoreProc.exited;
+
+					for (const line of ignoredOutput.trim().split("\n")) {
+						if (line) ignoredSet.add(line);
+					}
+				}
+
+				const files = visibleEntries
+					.filter((e) => {
+						const entryPath = relativePath
+							? `${relativePath}/${e.name}`
+							: e.name;
+						return !ignoredSet.has(entryPath);
+					})
 					.map((e) => ({
 						name: e.name,
 						path: relativePath ? `${relativePath}/${e.name}` : e.name,
