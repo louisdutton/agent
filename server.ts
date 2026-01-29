@@ -1,4 +1,4 @@
-import api from "./src/api";
+import { apiFallback, routes } from "./src/api";
 import app from "./index.html";
 
 const server = Bun.serve({
@@ -7,9 +7,9 @@ const server = Bun.serve({
 
   routes: {
     "/": app,
-    "/api/*": api.fetch,
+    ...routes,
     "/public/*": (req) => {
-      const url = new URL(req.url)
+      const url = new URL(req.url);
       try {
         const file = Bun.file(`.${url.pathname}`);
         return new Response(file);
@@ -17,7 +17,9 @@ const server = Bun.serve({
         return new Response(null, { status: 404 });
       }
     },
-  }
+  },
+
+  fetch: apiFallback,
 });
 
 console.log(`Server running at ${server.url}`);

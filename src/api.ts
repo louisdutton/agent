@@ -1,3 +1,4 @@
+import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { clearContext, compactSession, sendMessage } from "./claude";
@@ -18,6 +19,13 @@ const corsHeaders = {
 
 const WHISPER_URL = process.env.WHISPER_URL || "http://localhost:9371";
 const KOKORO_URL = process.env.KOKORO_URL || "http://localhost:9372";
+
+// Helper to create JSON response with CORS headers
+const json = (data: unknown, init?: ResponseInit) =>
+	Response.json(data, { ...init, headers: { ...corsHeaders, ...init?.headers } });
+
+const error = (message: string, status = 500) =>
+	json({ error: message }, { status });
 
 // Git diff types
 type DiffLineType = "context" | "addition" | "deletion";
@@ -271,17 +279,39 @@ async function getSessionHistoryById(
 	}
 }
 
-export default {
-	async fetch(req: Request): Promise<Response> {
-		const url = new URL(req.url);
-		const path = url.pathname.replace(/^\/api/, "");
+// Session index types
+type SessionIndexEntry = {
+	sessionId: string;
+	firstPrompt?: string;
+	messageCount?: number;
+	created?: string;
+	modified: string;
+	gitBranch?: string;
+	isSidechain?: boolean;
+	fullPath: string;
+};
 
-		if (req.method === "OPTIONS") {
-			return new Response(null, { headers: corsHeaders });
-		}
+type SessionIndex = {
+	entries: SessionIndexEntry[];
+};
 
-		// Send message
-		if (path === "/messages" && req.method === "POST") {
+// Helper to get session index
+async function getSessionIndex(): Promise<SessionIndex | null> {
+	const cwd = getActiveSessionCwd();
+	const projectFolder = cwd.replace(/\//g, "-");
+	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
+	const indexPath = join(claudeDir, "sessions-index.json");
+
+	const indexFile = Bun.file(indexPath);
+	if (!(await indexFile.exists())) return null;
+	return indexFile.json();
+}
+
+// Declarative API routes
+export const routes = {
+	// Send message (streaming)
+	"/api/messages": {
+		POST: async (req: Request) => {
 			const body = (await req.json()) as { message: string };
 			console.log(`POST /api/messages:`, body.message?.slice(0, 50));
 
@@ -314,232 +344,186 @@ export default {
 				});
 			} catch (err) {
 				console.error("Error running claude:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// Get session history by ID
-		const sessionHistoryMatch = path.match(/^\/session\/([^/]+)\/history$/);
-		if (sessionHistoryMatch && req.method === "GET") {
-			const sessionId = sessionHistoryMatch[1];
+	// Get cwd and optionally the latest session
+	"/api/cwd": {
+		GET: async () => {
 			const cwd = getActiveSessionCwd();
-			const { messages, isCompacted, firstPrompt } =
-				await getSessionHistoryById(sessionId);
-			setActiveSession(sessionId);
-			return Response.json(
-				{ messages, cwd, sessionId, isCompacted, firstPrompt },
-				{ headers: corsHeaders },
-			);
-		}
-
-		// Get cwd and optionally the latest session
-		if (path === "/cwd" && req.method === "GET") {
-			const cwd = getActiveSessionCwd();
-			const projectFolder = cwd.replace(/\//g, "-");
-			const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
-			const indexPath = join(claudeDir, "sessions-index.json");
-
 			try {
-				const indexFile = Bun.file(indexPath);
-				if (await indexFile.exists()) {
-					const index = await indexFile.json();
+				const index = await getSessionIndex();
+				if (index) {
 					const sessions = index.entries
-						.filter((e: { isSidechain: boolean }) => !e.isSidechain)
+						.filter((e) => !e.isSidechain)
 						.sort(
-							(a: { modified: string }, b: { modified: string }) =>
+							(a, b) =>
 								new Date(b.modified).getTime() - new Date(a.modified).getTime(),
 						);
 
 					if (sessions.length > 0) {
-						const latestSession = sessions[0];
-						// Return the latest session ID so client can load it
-						return Response.json(
-							{ cwd, latestSessionId: latestSession.sessionId },
-							{ headers: corsHeaders },
-						);
+						return json({ cwd, latestSessionId: sessions[0].sessionId });
 					}
 				}
 			} catch {
 				// Ignore errors, just return cwd
 			}
+			return json({ cwd });
+		},
+	},
 
-			return Response.json({ cwd }, { headers: corsHeaders });
-		}
-
-		// Check if a request is in progress for a session
-		const sessionStatusMatch = path.match(/^\/session\/([^/]+)\/status$/);
-		if (sessionStatusMatch && req.method === "GET") {
-			const sessionId = sessionStatusMatch[1];
-			const busy = isRequestInProgress(sessionId);
-			return Response.json({ busy }, { headers: corsHeaders });
-		}
-
-		// Cancel current request
-		if (path === "/cancel" && req.method === "POST") {
+	// Cancel current request
+	"/api/cancel": {
+		POST: () => {
 			const cancelled = cancelCurrentRequest();
-			return Response.json({ cancelled }, { headers: corsHeaders });
-		}
+			return json({ cancelled });
+		},
+	},
 
-		// Clear session
-		if (
-			(path === "/session" && req.method === "DELETE") ||
-			(path === "/clear" && req.method === "POST")
-		) {
+	// Clear session (legacy endpoints)
+	"/api/session": {
+		DELETE: async () => {
 			try {
 				await clearSession();
-				return Response.json({ ok: true }, { headers: corsHeaders });
+				return json({ ok: true });
 			} catch (err) {
 				console.error("Failed to clear session:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// Compact the current session's context
-		const sessionCompactMatch = path.match(/^\/session\/([^/]+)\/compact$/);
-		if (sessionCompactMatch && req.method === "POST") {
-			const sessionId = sessionCompactMatch[1];
+	"/api/clear": {
+		POST: async () => {
+			try {
+				await clearSession();
+				return json({ ok: true });
+			} catch (err) {
+				console.error("Failed to clear session:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Session history by ID
+	"/api/session/:sessionId/history": {
+		GET: async (req: Request & { params: { sessionId: string } }) => {
+			const { sessionId } = req.params;
+			const cwd = getActiveSessionCwd();
+			const { messages, isCompacted, firstPrompt } =
+				await getSessionHistoryById(sessionId);
 			setActiveSession(sessionId);
+			return json({ messages, cwd, sessionId, isCompacted, firstPrompt });
+		},
+	},
+
+	// Session status (busy check)
+	"/api/session/:sessionId/status": {
+		GET: (req: Request & { params: { sessionId: string } }) => {
+			const busy = isRequestInProgress(req.params.sessionId);
+			return json({ busy });
+		},
+	},
+
+	// Compact session context
+	"/api/session/:sessionId/compact": {
+		POST: async (req: Request & { params: { sessionId: string } }) => {
+			setActiveSession(req.params.sessionId);
 			const result = await compactSession();
 			if (result.success) {
-				return Response.json({ ok: true }, { headers: corsHeaders });
+				return json({ ok: true });
 			}
-			return Response.json(
-				{ error: result.error || "Compaction failed" },
-				{ status: 500, headers: corsHeaders },
-			);
-		}
+			return error(result.error || "Compaction failed");
+		},
+	},
 
-		// Clear the current session's context
-		const sessionClearMatch = path.match(/^\/session\/([^/]+)\/clear$/);
-		if (sessionClearMatch && req.method === "POST") {
-			const sessionId = sessionClearMatch[1];
-			setActiveSession(sessionId);
+	// Clear session context
+	"/api/session/:sessionId/clear": {
+		POST: async (req: Request & { params: { sessionId: string } }) => {
+			setActiveSession(req.params.sessionId);
 			const result = await clearContext();
 			if (result.success) {
-				return Response.json({ ok: true }, { headers: corsHeaders });
+				return json({ ok: true });
 			}
-			return Response.json(
-				{ error: result.error || "Clear failed" },
-				{ status: 500, headers: corsHeaders },
-			);
-		}
+			return error(result.error || "Clear failed");
+		},
+	},
 
-		// List all sessions
-		if (path === "/sessions" && req.method === "GET") {
+	// List all sessions
+	"/api/sessions": {
+		GET: async () => {
 			try {
-				const cwd = getActiveSessionCwd();
-				const projectFolder = cwd.replace(/\//g, "-");
-				const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
-				const indexPath = join(claudeDir, "sessions-index.json");
-
-				const indexFile = Bun.file(indexPath);
-				if (!(await indexFile.exists())) {
-					return Response.json({ sessions: [] }, { headers: corsHeaders });
+				const index = await getSessionIndex();
+				if (!index) {
+					return json({ sessions: [] });
 				}
 
-				const index = await indexFile.json();
 				const sessions = index.entries
-					.filter((e: { isSidechain: boolean }) => !e.isSidechain)
+					.filter((e) => !e.isSidechain)
 					.sort(
-						(a: { modified: string }, b: { modified: string }) =>
+						(a, b) =>
 							new Date(b.modified).getTime() - new Date(a.modified).getTime(),
 					)
-					.map(
-						(e: {
-							sessionId: string;
-							firstPrompt?: string;
-							messageCount?: number;
-							created?: string;
-							modified: string;
-							gitBranch?: string;
-						}) => ({
-							sessionId: e.sessionId,
-							firstPrompt: e.firstPrompt || "Untitled session",
-							messageCount: e.messageCount || 0,
-							created: e.created || e.modified,
-							modified: e.modified,
-							gitBranch: e.gitBranch,
-						}),
-					);
+					.map((e) => ({
+						sessionId: e.sessionId,
+						firstPrompt: e.firstPrompt || "Untitled session",
+						messageCount: e.messageCount || 0,
+						created: e.created || e.modified,
+						modified: e.modified,
+						gitBranch: e.gitBranch,
+					}));
 
-				return Response.json({ sessions }, { headers: corsHeaders });
+				return json({ sessions });
 			} catch (err) {
 				console.error("Failed to list sessions:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// Switch to a specific session
-		if (path === "/sessions/switch" && req.method === "POST") {
+	// Switch to a specific session
+	"/api/sessions/switch": {
+		POST: async (req: Request) => {
 			try {
 				const { sessionId } = (await req.json()) as { sessionId: string };
 
 				if (!sessionId) {
-					return Response.json(
-						{ error: "sessionId required" },
-						{ status: 400, headers: corsHeaders },
-					);
+					return json({ error: "sessionId required" }, { status: 400 });
 				}
 
-				// Validate session exists (project should already be switched by frontend)
-				const cwd = getActiveSessionCwd();
-				const projectFolder = cwd.replace(/\//g, "-");
-				const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
-				const indexPath = join(claudeDir, "sessions-index.json");
+				const index = await getSessionIndex();
+				if (!index) {
+					return json({ error: "No sessions found" }, { status: 404 });
+				}
 
-				const indexFile = Bun.file(indexPath);
-				if (await indexFile.exists()) {
-					const index = await indexFile.json();
-					const session = index.entries.find(
-						(e: { sessionId: string }) => e.sessionId === sessionId,
-					);
-					if (!session) {
-						return Response.json(
-							{ error: "Session not found" },
-							{ status: 404, headers: corsHeaders },
-						);
-					}
-				} else {
-					return Response.json(
-						{ error: "No sessions found" },
-						{ status: 404, headers: corsHeaders },
-					);
+				const session = index.entries.find((e) => e.sessionId === sessionId);
+				if (!session) {
+					return json({ error: "Session not found" }, { status: 404 });
 				}
 
 				setActiveSession(sessionId);
 
-				// Return the session's messages and cwd for UI update
+				const cwd = getActiveSessionCwd();
 				const { messages, isCompacted, firstPrompt } =
 					await getSessionHistoryById(sessionId);
-				return Response.json(
-					{ ok: true, messages, cwd, isCompacted, firstPrompt },
-					{ headers: corsHeaders },
-				);
+				return json({ ok: true, messages, cwd, isCompacted, firstPrompt });
 			} catch (err) {
 				console.error("Failed to switch session:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// Delete a specific session
-		if (path.startsWith("/sessions/") && req.method === "DELETE") {
+	// Delete a specific session
+	"/api/sessions/:sessionId": {
+		DELETE: async (req: Request & { params: { sessionId: string } }) => {
 			try {
-				const sessionId = path.replace("/sessions/", "");
+				const { sessionId } = req.params;
+				const url = new URL(req.url);
 				const projectPath = url.searchParams.get("project");
 
-				// Use provided project path or fall back to active session's cwd
 				const cwd = projectPath ?? getActiveSessionCwd();
 				const projectFolder = cwd.replace(/\//g, "-");
 				const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
@@ -547,70 +531,50 @@ export default {
 
 				const indexFile = Bun.file(indexPath);
 				if (!(await indexFile.exists())) {
-					return Response.json(
-						{ error: "No sessions found" },
-						{ status: 404, headers: corsHeaders },
-					);
+					return json({ error: "No sessions found" }, { status: 404 });
 				}
 
-				const index = await indexFile.json();
-				const session = index.entries.find(
-					(e: { sessionId: string }) => e.sessionId === sessionId,
-				);
+				const index: SessionIndex = await indexFile.json();
+				const session = index.entries.find((e) => e.sessionId === sessionId);
 
 				if (!session) {
-					return Response.json(
-						{ error: "Session not found" },
-						{ status: 404, headers: corsHeaders },
-					);
+					return json({ error: "Session not found" }, { status: 404 });
 				}
 
-				// Check if this is the currently active session
 				const wasActiveSession = getActiveSession() === sessionId;
 				if (wasActiveSession) {
 					setActiveSession(null);
 				}
 
-				// Delete the transcript file
 				const transcriptFile = Bun.file(session.fullPath);
 				if (await transcriptFile.exists()) {
 					await Bun.file(session.fullPath).delete();
 				}
 
-				// Update the index
 				const updatedIndex = {
 					...index,
-					entries: index.entries.filter(
-						(e: { sessionId: string }) => e.sessionId !== sessionId,
-					),
+					entries: index.entries.filter((e) => e.sessionId !== sessionId),
 				};
 
 				await Bun.write(indexPath, JSON.stringify(updatedIndex, null, 2));
 
-				return Response.json(
-					{ ok: true, wasActiveSession },
-					{ headers: corsHeaders },
-				);
+				return json({ ok: true, wasActiveSession });
 			} catch (err) {
 				console.error("Failed to delete session:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// Transcribe audio via Whisper
-		if (path === "/transcribe" && req.method === "POST") {
+	// Transcribe audio via Whisper
+	"/api/transcribe": {
+		POST: async (req: Request) => {
 			try {
 				const formData = await req.formData();
 				const audioFile = formData.get("audio") as File;
 
 				if (!audioFile) {
-					return Response.json(
-						{ error: "No audio file" },
-						{ status: 400, headers: corsHeaders },
-					);
+					return json({ error: "No audio file" }, { status: 400 });
 				}
 
 				console.log(`POST /api/transcribe: ${audioFile.size} bytes`);
@@ -639,10 +603,7 @@ export default {
 				if (exitCode !== 0) {
 					const stderr = await new Response(ffmpeg.stderr).text();
 					console.error("FFmpeg error:", stderr);
-					return Response.json(
-						{ error: "Audio conversion failed" },
-						{ status: 500, headers: corsHeaders },
-					);
+					return error("Audio conversion failed");
 				}
 
 				// Forward to Whisper server (whisper.cpp format)
@@ -662,41 +623,33 @@ export default {
 				if (!whisperRes.ok) {
 					const errText = await whisperRes.text();
 					console.error("Whisper error:", errText);
-					return Response.json(
-						{ error: "Transcription failed" },
-						{ status: 500, headers: corsHeaders },
-					);
+					return error("Transcription failed");
 				}
 
 				const result = await whisperRes.json();
 				const text = result.text || "";
 
 				console.log(`Transcribed: "${text.slice(0, 50)}..."`);
-				return Response.json({ text }, { headers: corsHeaders });
+				return json({ text });
 			} catch (err) {
 				console.error("Transcribe error:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// Text-to-speech via Kokoro
-		if (path === "/tts" && req.method === "POST") {
+	// Text-to-speech via Kokoro
+	"/api/tts": {
+		POST: async (req: Request) => {
 			try {
 				const { text } = (await req.json()) as { text: string };
 
 				if (!text) {
-					return Response.json(
-						{ error: "No text provided" },
-						{ status: 400, headers: corsHeaders },
-					);
+					return json({ error: "No text provided" }, { status: 400 });
 				}
 
 				console.log(`POST /api/tts: "${text.slice(0, 50)}..."`);
 
-				// Forward to TTS server (Piper)
 				const ttsRes = await fetch(KOKORO_URL, {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
@@ -706,10 +659,7 @@ export default {
 				if (!ttsRes.ok) {
 					const errText = await ttsRes.text();
 					console.error("TTS error:", errText);
-					return Response.json(
-						{ error: "TTS failed" },
-						{ status: 500, headers: corsHeaders },
-					);
+					return error("TTS failed");
 				}
 
 				const audioBuffer = await ttsRes.arrayBuffer();
@@ -722,17 +672,15 @@ export default {
 				});
 			} catch (err) {
 				console.error("TTS error:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// Git status (for indicator)
-		if (path === "/git/status" && req.method === "GET") {
+	// Git status (for indicator)
+	"/api/git/status": {
+		GET: async () => {
 			try {
-				// Get stats for tracked file changes
 				const diffProc = Bun.spawn(["git", "diff", "--numstat"], {
 					cwd: getActiveSessionCwd(),
 					stdout: "pipe",
@@ -754,7 +702,6 @@ export default {
 					filesChanged++;
 				}
 
-				// Get untracked files and count their lines
 				const untrackedProc = Bun.spawn(
 					["git", "ls-files", "--others", "--exclude-standard"],
 					{
@@ -772,7 +719,6 @@ export default {
 					.filter(Boolean);
 				filesChanged += untrackedFiles.length;
 
-				// Count lines in untracked files (in parallel)
 				const lineCounts = await Promise.all(
 					untrackedFiles.map(async (filePath) => {
 						try {
@@ -789,23 +735,23 @@ export default {
 				);
 				insertions += lineCounts.reduce((a, b) => a + b, 0);
 
-				return Response.json(
-					{ hasChanges: filesChanged > 0, insertions, deletions, filesChanged },
-					{ headers: corsHeaders },
-				);
+				return json({
+					hasChanges: filesChanged > 0,
+					insertions,
+					deletions,
+					filesChanged,
+				});
 			} catch (err) {
 				console.error("Git status error:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// Git diff (for modal)
-		if (path === "/git/diff" && req.method === "GET") {
+	// Git diff (for modal)
+	"/api/git/diff": {
+		GET: async () => {
 			try {
-				// Get diff for tracked files
 				const diffProc = Bun.spawn(["git", "diff"], {
 					cwd: getActiveSessionCwd(),
 					stdout: "pipe",
@@ -816,7 +762,6 @@ export default {
 
 				const files = parseDiff(diffOutput);
 
-				// Get untracked files
 				const untrackedProc = Bun.spawn(
 					["git", "ls-files", "--others", "--exclude-standard"],
 					{
@@ -833,7 +778,6 @@ export default {
 					.split("\n")
 					.filter(Boolean);
 
-				// Generate diff-like output for untracked files (in parallel)
 				const untrackedDiffs = await Promise.all(
 					untrackedFiles.map(async (filePath) => {
 						try {
@@ -864,29 +808,24 @@ export default {
 				);
 				files.push(...untrackedDiffs.filter((d): d is DiffFile => d !== null));
 
-				return Response.json({ files }, { headers: corsHeaders });
+				return json({ files });
 			} catch (err) {
 				console.error("Git diff error:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// Git commit
-		if (path === "/git/commit" && req.method === "POST") {
+	// Git commit
+	"/api/git/commit": {
+		POST: async (req: Request) => {
 			try {
 				const { message } = (await req.json()) as { message: string };
 
 				if (!message?.trim()) {
-					return Response.json(
-						{ error: "Commit message required" },
-						{ status: 400, headers: corsHeaders },
-					);
+					return json({ error: "Commit message required" }, { status: 400 });
 				}
 
-				// Stage all changes
 				const addProc = Bun.spawn(["git", "add", "-A"], {
 					cwd: getActiveSessionCwd(),
 					stdout: "pipe",
@@ -894,7 +833,6 @@ export default {
 				});
 				await addProc.exited;
 
-				// Commit
 				const commitProc = Bun.spawn(["git", "commit", "-m", message.trim()], {
 					cwd: getActiveSessionCwd(),
 					stdout: "pipe",
@@ -907,75 +845,60 @@ export default {
 
 				if (exitCode !== 0) {
 					console.error("Git commit error:", stderr);
-					return Response.json(
-						{ error: stderr || "Commit failed" },
-						{ status: 500, headers: corsHeaders },
-					);
+					return error(stderr || "Commit failed");
 				}
 
 				console.log("Git commit:", stdout);
-				return Response.json(
-					{ ok: true, output: stdout },
-					{ headers: corsHeaders },
-				);
+				return json({ ok: true, output: stdout });
 			} catch (err) {
 				console.error("Git commit error:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// List files in directory
-		if (path === "/files" && req.method === "GET") {
+	// List files in directory
+	"/api/files": {
+		GET: async (req: Request) => {
 			try {
 				const url = new URL(req.url);
 				const relativePath = url.searchParams.get("path") || "";
 				const cwd = getActiveSessionCwd();
 				const fullPath = relativePath ? join(cwd, relativePath) : cwd;
 
-				// Read directory
-				const { readdir } = await import("node:fs/promises");
 				const entries = await readdir(fullPath, { withFileTypes: true });
 
-				// Filter and sort entries
 				const files = entries
-					.filter((e) => !e.name.startsWith(".")) // Hide hidden files
+					.filter((e) => !e.name.startsWith("."))
 					.map((e) => ({
 						name: e.name,
 						path: relativePath ? `${relativePath}/${e.name}` : e.name,
 						isDirectory: e.isDirectory(),
 					}))
 					.sort((a, b) => {
-						// Directories first, then alphabetical
 						if (a.isDirectory !== b.isDirectory) {
 							return a.isDirectory ? -1 : 1;
 						}
 						return a.name.localeCompare(b.name);
 					});
 
-				return Response.json(
-					{ files, path: relativePath },
-					{ headers: corsHeaders },
-				);
+				return json({ files, path: relativePath });
 			} catch (err) {
 				console.error("List files error:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// Read file content
-		if (path.startsWith("/file/") && req.method === "GET") {
+	// Read file content
+	"/api/file/*": {
+		GET: async (req: Request) => {
 			try {
-				const encodedPath = path.slice("/file/".length);
+				const url = new URL(req.url);
+				const encodedPath = url.pathname.slice("/api/file/".length);
 				const filePath = decodeURIComponent(encodedPath);
 				const cwd = getActiveSessionCwd();
 
-				// Security: ensure the file is within the project directory
 				const fullPath = filePath.startsWith("/")
 					? filePath
 					: join(cwd, filePath);
@@ -984,42 +907,30 @@ export default {
 					: null;
 
 				if (!resolvedPath) {
-					return Response.json(
-						{ error: "File not found" },
-						{ status: 404, headers: corsHeaders },
-					);
+					return json({ error: "File not found" }, { status: 404 });
 				}
 
-				// Check if file is within allowed paths (cwd or absolute path that exists)
 				if (!fullPath.startsWith(cwd) && !filePath.startsWith("/")) {
-					return Response.json(
-						{ error: "Access denied" },
-						{ status: 403, headers: corsHeaders },
-					);
+					return json({ error: "Access denied" }, { status: 403 });
 				}
 
 				const file = Bun.file(fullPath);
 				const content = await file.text();
 
-				return Response.json(
-					{ content, path: fullPath },
-					{ headers: corsHeaders },
-				);
+				return json({ content, path: fullPath });
 			} catch (err) {
 				console.error("File read error:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// List available projects from ~/projects/ with their sessions
-		if (path === "/projects" && req.method === "GET") {
+	// List available projects from ~/projects/ with their sessions
+	"/api/projects": {
+		GET: async () => {
 			try {
 				const projectsDir = join(homedir(), "projects");
 
-				// Use fd to recursively find all git repositories
 				const fdProc = Bun.spawn(
 					[
 						"fd",
@@ -1035,19 +946,16 @@ export default {
 				const fdOutput = await new Response(fdProc.stdout).text();
 				await fdProc.exited;
 
-				// Extract project paths (parent of .git directories)
 				const projectPaths = fdOutput
 					.trim()
 					.split("\n")
 					.filter(Boolean)
 					.map((gitDir) => gitDir.replace(/\/.git\/?$/, ""));
 
-				// Convert to project names (relative to projectsDir)
 				const projectNames = projectPaths
 					.map((p) => p.replace(`${projectsDir}/`, ""))
 					.sort((a, b) => a.localeCompare(b));
 
-				// Load sessions for each project
 				type SessionInfo = {
 					sessionId: string;
 					firstPrompt: string;
@@ -1084,31 +992,22 @@ export default {
 					try {
 						const indexFile = Bun.file(indexPath);
 						if (await indexFile.exists()) {
-							const index = await indexFile.json();
+							const index: SessionIndex = await indexFile.json();
 							projectData.sessions = index.entries
-								.filter((e: { isSidechain: boolean }) => !e.isSidechain)
+								.filter((e) => !e.isSidechain)
 								.sort(
-									(a: { modified: string }, b: { modified: string }) =>
+									(a, b) =>
 										new Date(b.modified).getTime() -
 										new Date(a.modified).getTime(),
 								)
-								.map(
-									(e: {
-										sessionId: string;
-										firstPrompt?: string;
-										messageCount?: number;
-										created?: string;
-										modified: string;
-										gitBranch?: string;
-									}) => ({
-										sessionId: e.sessionId,
-										firstPrompt: e.firstPrompt || "Untitled session",
-										messageCount: e.messageCount || 0,
-										created: e.created || e.modified,
-										modified: e.modified,
-										gitBranch: e.gitBranch,
-									}),
-								);
+								.map((e) => ({
+									sessionId: e.sessionId,
+									firstPrompt: e.firstPrompt || "Untitled session",
+									messageCount: e.messageCount || 0,
+									created: e.created || e.modified,
+									modified: e.modified,
+									gitBranch: e.gitBranch,
+								}));
 						}
 					} catch {
 						// No sessions for this project
@@ -1117,71 +1016,56 @@ export default {
 					projects.push(projectData);
 				}
 
-				// Compute relative path for current project
 				const currentCwd = getActiveSessionCwd();
 				const currentProject = currentCwd.startsWith(projectsDir)
 					? currentCwd.replace(`${projectsDir}/`, "")
 					: currentCwd.split("/").pop();
 
-				return Response.json(
-					{
-						projects,
-						currentProject,
-						activeSessionId: getActiveSession(),
-					},
-					{ headers: corsHeaders },
-				);
+				return json({
+					projects,
+					currentProject,
+					activeSessionId: getActiveSession(),
+				});
 			} catch (err) {
 				console.error("Failed to list projects:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		// Switch to a different project
-		if (path === "/projects/switch" && req.method === "POST") {
+	// Switch to a different project
+	"/api/projects/switch": {
+		POST: async (req: Request) => {
 			try {
 				const { project } = (await req.json()) as { project: string };
 
 				if (!project) {
-					return Response.json(
-						{ error: "project name required" },
-						{ status: 400, headers: corsHeaders },
-					);
+					return json({ error: "project name required" }, { status: 400 });
 				}
 
 				const projectPath = join(homedir(), "projects", project);
 
-				// Validate it's a directory
 				const proc = Bun.spawn(["test", "-d", projectPath]);
 				if ((await proc.exited) !== 0) {
-					return Response.json(
-						{ error: "Project not found" },
-						{ status: 404, headers: corsHeaders },
-					);
+					return json({ error: "Project not found" }, { status: 404 });
 				}
 
-				// Clear current session and set new cwd
 				setActiveSession(null, projectPath);
 
-				return Response.json(
-					{ ok: true, cwd: projectPath },
-					{ headers: corsHeaders },
-				);
+				return json({ ok: true, cwd: projectPath });
 			} catch (err) {
 				console.error("Failed to switch project:", err);
-				return Response.json(
-					{ error: String(err) },
-					{ status: 500, headers: corsHeaders },
-				);
+				return error(String(err));
 			}
-		}
+		},
+	},
 
-		return Response.json(
-			{ error: "Not found" },
-			{ status: 404, headers: corsHeaders },
-		);
+	// CORS preflight handler
+	"/api/*": {
+		OPTIONS: () => new Response(null, { headers: corsHeaders }),
 	},
 };
+
+// Fallback for unmatched API routes
+export const apiFallback = () =>
+	json({ error: "Not found" }, { status: 404 });
