@@ -2,24 +2,6 @@
 
 A simple SolidJS frontend for managing Agent sessions via mobile web interface.
 
-## Project Structure
-
-```
-/
-├── src/
-│   ├── App.tsx       # Main application component
-│   ├── Markdown.tsx  # Markdown rendering with syntax highlighting
-│   ├── client.tsx    # Frontend entry point
-│   ├── styles.css    # Tailwind styles
-│   ├── api.ts        # Backend API routes
-│   └── claude.ts     # Claude agent SDK integration
-├── public/           # Static assets (icons, manifest)
-├── index.html        # HTML entry point
-├── server.ts         # Unified server (frontend + backend + TLS)
-├── package.json
-└── biome.json
-```
-
 ## Development
 
 ```bash

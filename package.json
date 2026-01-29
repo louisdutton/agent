@@ -16,7 +16,6 @@
 		"tailwindcss": "^4.1.18"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.3.11",
 		"@dschz/bun-plugin-solid": "^1.0.4",
 		"@types/bun": "latest",
 		"bun-plugin-tailwind": "^0.1.2",

@@ -194,7 +194,7 @@ export function SessionManagerModal(props: {
 
 	const truncatePrompt = (prompt: string, maxLen = 50) => {
 		if (prompt.length <= maxLen) return prompt;
-		return prompt.slice(0, maxLen) + "...";
+		return `${prompt.slice(0, maxLen)}...`;
 	};
 
 	const [activeSessionId, setActiveSessionId] = createSignal<string | null>(
