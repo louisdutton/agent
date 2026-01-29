@@ -1,6 +1,6 @@
 import { marked } from "marked";
-import hljs from "./hljs";
 import { createMemo } from "solid-js";
+import hljs from "./hljs";
 
 // Create a custom renderer that handles code blocks
 const renderer = new marked.Renderer();

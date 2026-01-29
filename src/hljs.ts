@@ -1,12 +1,11 @@
 import hljs from "highlight.js/lib/core";
-
-// Import only the languages we actually need
-import typescript from "highlight.js/lib/languages/typescript";
+import css from "highlight.js/lib/languages/css";
+import ini from "highlight.js/lib/languages/ini";
 import javascript from "highlight.js/lib/languages/javascript";
 import json from "highlight.js/lib/languages/json";
-import ini from "highlight.js/lib/languages/ini";
+// Import only the languages we actually need
+import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
-import css from "highlight.js/lib/languages/css";
 
 // Register languages
 hljs.registerLanguage("typescript", typescript);

@@ -108,7 +108,10 @@ type Message =
 	| { type: "tools"; id: string; tools: Tool[] };
 
 // Parse transcript content into messages
-function parseTranscript(content: string): { messages: Message[]; isCompacted: boolean } {
+function parseTranscript(content: string): {
+	messages: Message[];
+	isCompacted: boolean;
+} {
 	const lines = content.trim().split("\n").filter(Boolean);
 	const messages: Message[] = [];
 	const toolResults = new Map<string, boolean>();
@@ -153,15 +156,17 @@ function parseTranscript(content: string): { messages: Message[]; isCompacted: b
 				const entryContent = entry.message.content;
 				if (typeof entryContent === "string") {
 					if (!entry.isMeta && !entryContent.startsWith("<")) {
-						messages.push({ type: "user", id: entry.uuid, content: entryContent });
+						messages.push({
+							type: "user",
+							id: entry.uuid,
+							content: entryContent,
+						});
 					}
 				} else if (Array.isArray(entryContent)) {
 					const textBlocks = entryContent.filter(
 						(b: { type: string }) => b.type === "text",
 					);
-					const text = textBlocks
-						.map((b: { text: string }) => b.text)
-						.join("");
+					const text = textBlocks.map((b: { text: string }) => b.text).join("");
 					if (text) {
 						messages.push({ type: "user", id: entry.uuid, content: text });
 					}
@@ -173,9 +178,7 @@ function parseTranscript(content: string): { messages: Message[]; isCompacted: b
 				const textBlocks = entryContent.filter(
 					(b: { type: string }) => b.type === "text",
 				);
-				const text = textBlocks
-					.map((b: { text: string }) => b.text)
-					.join("");
+				const text = textBlocks.map((b: { text: string }) => b.text).join("");
 				if (text) {
 					messages.push({ type: "assistant", id: entry.uuid, content: text });
 				}
@@ -233,7 +236,11 @@ function parseTranscript(content: string): { messages: Message[]; isCompacted: b
 async function getSessionHistoryById(
 	sessionId: string,
 	projectPath?: string,
-): Promise<{ messages: Message[]; isCompacted: boolean; firstPrompt?: string }> {
+): Promise<{
+	messages: Message[];
+	isCompacted: boolean;
+	firstPrompt?: string;
+}> {
 	const cwd = projectPath ?? getActiveSessionCwd();
 	const projectFolder = cwd.replace(/\//g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
@@ -241,7 +248,8 @@ async function getSessionHistoryById(
 
 	try {
 		const indexFile = Bun.file(indexPath);
-		if (!(await indexFile.exists())) return { messages: [], isCompacted: false };
+		if (!(await indexFile.exists()))
+			return { messages: [], isCompacted: false };
 
 		const index = await indexFile.json();
 		const session = index.entries.find(
@@ -251,7 +259,8 @@ async function getSessionHistoryById(
 		if (!session) return { messages: [], isCompacted: false };
 
 		const transcriptFile = Bun.file(session.fullPath);
-		if (!(await transcriptFile.exists())) return { messages: [], isCompacted: false };
+		if (!(await transcriptFile.exists()))
+			return { messages: [], isCompacted: false };
 
 		const content = await transcriptFile.text();
 		const { messages, isCompacted } = parseTranscript(content);
@@ -317,9 +326,13 @@ export default {
 		if (sessionHistoryMatch && req.method === "GET") {
 			const sessionId = sessionHistoryMatch[1];
 			const cwd = getActiveSessionCwd();
-			const { messages, isCompacted, firstPrompt } = await getSessionHistoryById(sessionId);
+			const { messages, isCompacted, firstPrompt } =
+				await getSessionHistoryById(sessionId);
 			setActiveSession(sessionId);
-			return Response.json({ messages, cwd, sessionId, isCompacted, firstPrompt }, { headers: corsHeaders });
+			return Response.json(
+				{ messages, cwd, sessionId, isCompacted, firstPrompt },
+				{ headers: corsHeaders },
+			);
 		}
 
 		// Get cwd and optionally the latest session
@@ -343,7 +356,10 @@ export default {
 					if (sessions.length > 0) {
 						const latestSession = sessions[0];
 						// Return the latest session ID so client can load it
-						return Response.json({ cwd, latestSessionId: latestSession.sessionId }, { headers: corsHeaders });
+						return Response.json(
+							{ cwd, latestSessionId: latestSession.sessionId },
+							{ headers: corsHeaders },
+						);
 					}
 				}
 			} catch {
@@ -488,8 +504,12 @@ export default {
 				setActiveSession(sessionId);
 
 				// Return the session's messages and cwd for UI update
-				const { messages, isCompacted, firstPrompt } = await getSessionHistoryById(sessionId);
-				return Response.json({ ok: true, messages, cwd, isCompacted, firstPrompt }, { headers: corsHeaders });
+				const { messages, isCompacted, firstPrompt } =
+					await getSessionHistoryById(sessionId);
+				return Response.json(
+					{ ok: true, messages, cwd, isCompacted, firstPrompt },
+					{ headers: corsHeaders },
+				);
 			} catch (err) {
 				console.error("Failed to switch session:", err);
 				return Response.json(
@@ -751,7 +771,7 @@ export default {
 							// Skip files we can't read
 						}
 						return 0;
-					})
+					}),
 				);
 				insertions += lineCounts.reduce((a, b) => a + b, 0);
 
@@ -826,7 +846,7 @@ export default {
 							// Skip files we can't read
 						}
 						return null;
-					})
+					}),
 				);
 				files.push(...untrackedDiffs.filter((d): d is DiffFile => d !== null));
 
@@ -942,8 +962,12 @@ export default {
 				const cwd = getActiveSessionCwd();
 
 				// Security: ensure the file is within the project directory
-				const fullPath = filePath.startsWith("/") ? filePath : join(cwd, filePath);
-				const resolvedPath = await Bun.file(fullPath).exists() ? fullPath : null;
+				const fullPath = filePath.startsWith("/")
+					? filePath
+					: join(cwd, filePath);
+				const resolvedPath = (await Bun.file(fullPath).exists())
+					? fullPath
+					: null;
 
 				if (!resolvedPath) {
 					return Response.json(
@@ -983,7 +1007,15 @@ export default {
 
 				// Use fd to recursively find all git repositories
 				const fdProc = Bun.spawn(
-					["fd", "--type", "d", "--hidden", "--no-ignore", "^.git$", projectsDir],
+					[
+						"fd",
+						"--type",
+						"d",
+						"--hidden",
+						"--no-ignore",
+						"^.git$",
+						projectsDir,
+					],
 					{ stdout: "pipe", stderr: "pipe" },
 				);
 				const fdOutput = await new Response(fdProc.stdout).text();

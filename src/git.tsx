@@ -7,8 +7,8 @@ import {
 	onMount,
 	Show,
 } from "solid-js";
-import hljs from "./hljs";
 import { createLongPress } from "./gestures";
+import hljs from "./hljs";
 
 const API_URL = "";
 
@@ -94,10 +94,7 @@ function dedent(code: string): string {
 }
 
 // Highlight code synchronously with highlight.js
-function highlightCodeSync(
-	code: string,
-	lang: string
-): string[] {
+function highlightCodeSync(code: string, lang: string): string[] {
 	try {
 		const dedented = dedent(code);
 		const lines = dedented.split("\n");
@@ -112,22 +109,21 @@ function highlightCodeSync(
 			return result.value || " ";
 		});
 	} catch {
-		return dedent(code).split("\n").map((line) => line || " ");
+		return dedent(code)
+			.split("\n")
+			.map((line) => line || " ");
 	}
 }
 
 // Highlight a hunk synchronously
-function highlightHunkSync(
-	lines: DiffLine[],
-	lang: string
-): string[] {
+function highlightHunkSync(lines: DiffLine[], lang: string): string[] {
 	const code = lines.map((l) => l.content).join("\n");
 	return highlightCodeSync(code, lang);
 }
 
 function DiffHunkView(props: { hunk: DiffHunk; lang: string }) {
 	const highlightedLines = createMemo(() =>
-		highlightHunkSync(props.hunk.lines, props.lang)
+		highlightHunkSync(props.hunk.lines, props.lang),
 	);
 
 	return (
@@ -307,18 +303,31 @@ export function GitStatusIndicator(props: {
 				onTouchCancel={handlers.onTouchCancel}
 				class="w-20 h-20 rounded-full flex flex-col items-center justify-center bg-background border border-white/30 shadow-lg select-none hover:bg-muted"
 				classList={{
-					"scale-110 bg-white/20 transition-transform duration-500": isPressing(),
+					"scale-110 bg-white/20 transition-transform duration-500":
+						isPressing(),
 					"transition-all duration-150": !isPressing(),
 				}}
 				title="Tap: git changes, Hold: browse files"
 			>
 				<span class="text-sm font-mono leading-none">
-					<span class={props.gitStatus?.hasChanges ? "text-green-500" : "text-muted-foreground"}>
+					<span
+						class={
+							props.gitStatus?.hasChanges
+								? "text-green-500"
+								: "text-muted-foreground"
+						}
+					>
 						+{props.gitStatus!.insertions}
 					</span>
 				</span>
 				<span class="text-sm font-mono leading-none mt-0.5">
-					<span class={props.gitStatus?.hasChanges ? "text-red-500" : "text-muted-foreground"}>
+					<span
+						class={
+							props.gitStatus?.hasChanges
+								? "text-red-500"
+								: "text-muted-foreground"
+						}
+					>
 						-{props.gitStatus!.deletions}
 					</span>
 				</span>
@@ -416,7 +425,9 @@ export function FileViewerModal(props: {
 	const [error, setError] = createSignal<string | null>(null);
 
 	const lang = createMemo(() => getLanguageFromPath(props.filePath));
-	const fileName = createMemo(() => props.filePath.split("/").pop() || props.filePath);
+	const fileName = createMemo(
+		() => props.filePath.split("/").pop() || props.filePath,
+	);
 
 	const highlightedLines = createMemo(() => {
 		const code = content();
@@ -432,7 +443,9 @@ export function FileViewerModal(props: {
 			fetch(`${API_URL}/api/file/${encodeURIComponent(props.filePath)}`)
 				.then((res) => {
 					if (!res.ok) {
-						throw new Error(res.status === 404 ? "File not found" : "Failed to load file");
+						throw new Error(
+							res.status === 404 ? "File not found" : "Failed to load file",
+						);
 					}
 					return res.json();
 				})
@@ -496,7 +509,9 @@ export function FileViewerModal(props: {
 												</span>
 												<pre
 													class="px-4 whitespace-pre py-0 hljs"
-													innerHTML={highlightedLines()?.[index()] || line || " "}
+													innerHTML={
+														highlightedLines()?.[index()] || line || " "
+													}
 												/>
 											</div>
 										)}
@@ -640,7 +655,9 @@ export function FileBrowserModal(props: {
 		setLoading(true);
 		setError(null);
 		try {
-			const res = await fetch(`${API_URL}/api/files?path=${encodeURIComponent(path)}`);
+			const res = await fetch(
+				`${API_URL}/api/files?path=${encodeURIComponent(path)}`,
+			);
 			if (!res.ok) {
 				throw new Error("Failed to load directory");
 			}
@@ -696,8 +713,18 @@ export function FileBrowserModal(props: {
 							class="p-1 hover:bg-muted rounded transition-colors disabled:opacity-30"
 							title="Go up"
 						>
-							<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+							<svg
+								class="w-5 h-5"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M15 19l-7-7 7-7"
+								/>
 							</svg>
 						</button>
 						<span class="font-mono text-sm text-foreground truncate flex-1">
@@ -728,14 +755,31 @@ export function FileBrowserModal(props: {
 											onClick={() => handleClick(file)}
 											class="w-full flex items-center gap-3 px-3 py-2 hover:bg-muted rounded-lg transition-colors text-left"
 										>
-											<svg class="w-5 h-5 shrink-0 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<svg
+												class="w-5 h-5 shrink-0 text-muted-foreground"
+												fill="none"
+												stroke="currentColor"
+												viewBox="0 0 24 24"
+											>
 												{file.isDirectory ? (
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="2"
+														d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+													/>
 												) : (
-													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="2"
+														d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+													/>
 												)}
 											</svg>
-											<span class="font-mono text-sm truncate">{file.name}</span>
+											<span class="font-mono text-sm truncate">
+												{file.name}
+											</span>
 										</button>
 									)}
 								</For>

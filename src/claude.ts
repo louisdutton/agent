@@ -8,7 +8,10 @@ import {
 } from "./session";
 
 // Compact the current session's context
-export async function compactSession(): Promise<{ success: boolean; error?: string }> {
+export async function compactSession(): Promise<{
+	success: boolean;
+	error?: string;
+}> {
 	const sessionId = getActiveSession();
 	const cwd = getActiveSessionCwd();
 

@@ -1,6 +1,6 @@
 // Mobile gesture utilities for touch interactions
 
-import { createSignal, type Accessor } from "solid-js";
+import { type Accessor, createSignal } from "solid-js";
 
 export type LongPressHandlers = {
 	onMouseDown: (e: MouseEvent) => void;
@@ -76,6 +76,8 @@ export function createLongPress(options: LongPressOptions): LongPressResult {
 }
 
 // Legacy wrapper for backwards compatibility
-export function createLongPressHandlers(options: LongPressOptions): LongPressHandlers {
+export function createLongPressHandlers(
+	options: LongPressOptions,
+): LongPressHandlers {
 	return createLongPress(options).handlers;
 }
