@@ -19,7 +19,21 @@
       };
     }
     // flake-utils.lib.eachDefaultSystem (system: let
-      pkgs = import nixpkgs {inherit system;};
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [
+          (final: prev: {
+            bun = prev.bun.overrideAttrs rec {
+              __intentionallyOverridingVersion = true;
+              version = "1.3.8";
+              passthru.sources.aarch64-linux = prev.fetchurl {
+                url = "https://github.com/oven-sh/bun/releases/download/bun-v${version}/bun-linux-aarch64.zip";
+                hash = "sha256-Tp3raBSn7H9ocl3dl9DXtAZbzamoUPadSXVn6ZWn+jM=";
+              };
+            };
+          })
+        ];
+      };
       models = import ./nix/models.nix {inherit pkgs;};
       inherit (models) whisperModel piperModel piperHttpServer;
     in {
