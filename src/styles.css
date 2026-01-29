@@ -20,7 +20,7 @@
 
 	html,
 	body {
-		@apply m-0 p-0 bg-background text-foreground;
+		@apply m-0 p-0 bg-background text-foreground h-dvh overflow-hidden;
 		font-family: system-ui, -apple-system, sans-serif;
 		font-size: 16px;
 	}
