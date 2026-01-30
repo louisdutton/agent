@@ -5,6 +5,7 @@ import { clearContext, compactSession, sendMessage } from "./claude";
 import {
 	cancelCurrentRequest,
 	clearSessionById,
+	getActiveSessionId,
 	getCwd,
 	isRequestInProgress,
 	setCwd,
@@ -502,6 +503,15 @@ export const routes = {
 		},
 	},
 
+	// Get active session info (for detecting running state on reconnect)
+	"/api/active-session": {
+		GET: () => {
+			const sessionId = getActiveSessionId();
+			const busy = isRequestInProgress();
+			return json({ sessionId, busy });
+		},
+	},
+
 	// Session history by ID (stateless - just reads from filesystem)
 	"/api/session/:sessionId/history": {
 		GET: async (req: Request & { params: { sessionId: string } }) => {
@@ -513,10 +523,12 @@ export const routes = {
 		},
 	},
 
-	// Session status (just checks if any request is in progress)
+	// Session status
 	"/api/session/:sessionId/status": {
-		GET: () => {
-			const busy = isRequestInProgress();
+		GET: (req: Request & { params: { sessionId: string } }) => {
+			const { sessionId } = req.params;
+			const activeSession = getActiveSessionId();
+			const busy = isRequestInProgress() && activeSession === sessionId;
 			return json({ busy });
 		},
 	},

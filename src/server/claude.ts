@@ -1,5 +1,9 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { getCwd, setAbortController } from "./session";
+import {
+	getCwd,
+	setAbortController,
+	setActiveSessionId,
+} from "./session";
 
 // Send a slash command to a session
 async function sendSlashCommand(
@@ -65,6 +69,9 @@ export async function* sendMessage(
 	const abortController = new AbortController();
 	setAbortController(abortController);
 
+	// Track active session so UI can detect running state after refresh
+	setActiveSessionId(sessionId);
+
 	try {
 		const options: Parameters<typeof query>[0]["options"] = {
 			systemPrompt: {
@@ -87,13 +94,20 @@ export async function* sendMessage(
 		}
 		// When sessionId is null, we start a fresh session by not setting resume
 
+		let actualSessionId = sessionId;
 		for await (const event of query({
 			prompt: message,
 			options,
 		})) {
+			// Update session tracking with actual sessionId once we get it
+			if (!actualSessionId && "session_id" in event && event.session_id) {
+				actualSessionId = event.session_id;
+				setActiveSessionId(actualSessionId);
+			}
 			yield JSON.stringify(event);
 		}
 	} finally {
 		setAbortController(null);
+		setActiveSessionId(null);
 	}
 }

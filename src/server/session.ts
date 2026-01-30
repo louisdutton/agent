@@ -6,6 +6,9 @@ import { join } from "node:path";
 let cwd: string = process.cwd();
 let abortController: AbortController | null = null;
 
+// Track which session is currently active (for UI state after refresh)
+let activeSessionId: string | null = null;
+
 export function getCwd(): string {
 	return cwd;
 }
@@ -34,6 +37,14 @@ export function cancelCurrentRequest(): boolean {
 
 export function isRequestInProgress(): boolean {
 	return abortController !== null;
+}
+
+export function getActiveSessionId(): string | null {
+	return activeSessionId;
+}
+
+export function setActiveSessionId(sessionId: string | null): void {
+	activeSessionId = sessionId;
 }
 
 // Clear session by deleting its transcript file directly
