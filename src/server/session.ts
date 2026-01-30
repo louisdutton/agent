@@ -36,7 +36,7 @@ export function isRequestInProgress(): boolean {
 	return abortController !== null;
 }
 
-// Clear session by deleting its transcript file and removing from index
+// Clear session by deleting its transcript file directly
 export async function clearSessionById(
 	sessionId: string,
 	projectPath?: string,
@@ -45,41 +45,15 @@ export async function clearSessionById(
 		const targetCwd = projectPath ?? cwd;
 		const projectFolder = targetCwd.replace(/\//g, "-");
 		const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
-		const indexPath = join(claudeDir, "sessions-index.json");
+		const transcriptPath = join(claudeDir, `${sessionId}.jsonl`);
 
-		const indexFile = Bun.file(indexPath);
-		if (!(await indexFile.exists())) {
-			console.debug("No session index found");
-			return;
-		}
-
-		const index = await indexFile.json();
-		const session = index.entries.find(
-			(e: { sessionId: string }) => e.sessionId === sessionId,
-		);
-
-		if (!session) {
-			console.debug("Session not found in index");
-			return;
-		}
-
-		// Delete the transcript file
-		const transcriptFile = Bun.file(session.fullPath);
+		const transcriptFile = Bun.file(transcriptPath);
 		if (await transcriptFile.exists()) {
-			await Bun.file(session.fullPath).delete();
-			console.debug(`Deleted transcript: ${session.fullPath}`);
+			await transcriptFile.delete();
+			console.debug(`Deleted transcript: ${transcriptPath}`);
+		} else {
+			console.debug(`Transcript not found: ${transcriptPath}`);
 		}
-
-		// Remove the session from the index
-		const updatedIndex = {
-			...index,
-			entries: index.entries.filter(
-				(e: { sessionId: string }) => e.sessionId !== sessionId,
-			),
-		};
-
-		await Bun.write(indexPath, JSON.stringify(updatedIndex, null, 2));
-		console.debug("Session removed from index");
 	} catch (err) {
 		console.error("Failed to clear session:", err);
 		throw err;
