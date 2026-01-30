@@ -4,11 +4,10 @@ import { join } from "node:path";
 import { clearContext, compactSession, sendMessage } from "./claude";
 import {
 	cancelCurrentRequest,
-	clearSession,
-	getActiveSession,
-	getActiveSessionCwd,
+	clearSessionById,
+	getCwd,
 	isRequestInProgress,
-	setActiveSession,
+	setCwd,
 } from "./session";
 
 const corsHeaders = {
@@ -252,62 +251,159 @@ async function getSessionHistoryById(
 	isCompacted: boolean;
 	firstPrompt?: string;
 }> {
-	const cwd = projectPath ?? getActiveSessionCwd();
-	const projectFolder = cwd.replace(/\//g, "-");
+	const targetCwd = projectPath ?? getCwd();
+	const projectFolder = targetCwd.replace(/\//g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
-	const indexPath = join(claudeDir, "sessions-index.json");
+
+	// Look for transcript file directly by sessionId
+	const transcriptPath = join(claudeDir, `${sessionId}.jsonl`);
 
 	try {
-		const indexFile = Bun.file(indexPath);
-		if (!(await indexFile.exists()))
-			return { messages: [], isCompacted: false };
-
-		const index = await indexFile.json();
-		const session = index.entries.find(
-			(e: { sessionId: string }) => e.sessionId === sessionId,
-		);
-
-		if (!session) return { messages: [], isCompacted: false };
-
-		const transcriptFile = Bun.file(session.fullPath);
+		const transcriptFile = Bun.file(transcriptPath);
 		if (!(await transcriptFile.exists()))
 			return { messages: [], isCompacted: false };
 
 		const content = await transcriptFile.text();
 		const { messages, isCompacted } = parseTranscript(content);
-		return { messages, isCompacted, firstPrompt: session.firstPrompt };
+
+		// Extract firstPrompt from first user message
+		let firstPrompt: string | undefined;
+		for (const msg of messages) {
+			if (msg.type === "user") {
+				firstPrompt =
+					msg.content.length > 100
+						? `${msg.content.slice(0, 100)}...`
+						: msg.content;
+				break;
+			}
+		}
+
+		return { messages, isCompacted, firstPrompt };
 	} catch (err) {
 		console.error("Error reading session history by ID:", err);
 		return { messages: [], isCompacted: false };
 	}
 }
 
-// Session index types
-type SessionIndexEntry = {
+// Session entry type (derived from scanning transcript files)
+type SessionEntry = {
 	sessionId: string;
 	firstPrompt?: string;
-	messageCount?: number;
-	created?: string;
+	created: string;
 	modified: string;
 	gitBranch?: string;
 	isSidechain?: boolean;
 	fullPath: string;
 };
 
-type SessionIndex = {
-	entries: SessionIndexEntry[];
-};
+// Extract session metadata from a transcript file
+// Returns null for empty sessions (no user messages)
+async function extractSessionMetadata(
+	filePath: string,
+): Promise<SessionEntry | null> {
+	try {
+		const file = Bun.file(filePath);
+		if (!(await file.exists())) return null;
 
-// Helper to get session index
-async function getSessionIndex(): Promise<SessionIndex | null> {
-	const cwd = getActiveSessionCwd();
-	const projectFolder = cwd.replace(/\//g, "-");
+		const stat = await file.stat();
+		const text = await file.text();
+		const lines = text.split("\n").filter(Boolean);
+
+		let sessionId: string | null = null;
+		let firstPrompt: string | undefined;
+		let created: string | undefined;
+		let gitBranch: string | undefined;
+		let isSidechain = false;
+		let hasUserMessage = false;
+
+		for (const line of lines) {
+			try {
+				const entry = JSON.parse(line);
+
+				// Get sessionId from any entry
+				if (!sessionId && entry.sessionId) {
+					sessionId = entry.sessionId;
+				}
+
+				// Get created timestamp from first entry
+				if (!created && entry.timestamp) {
+					created = entry.timestamp;
+				}
+
+				// Get metadata from first user message
+				if (entry.type === "user" && entry.message?.content) {
+					hasUserMessage = true;
+					if (entry.gitBranch) gitBranch = entry.gitBranch;
+					if (entry.isSidechain) isSidechain = entry.isSidechain;
+
+					// Extract first prompt text (skip tool results and meta messages)
+					if (!firstPrompt && !entry.isMeta) {
+						const content = entry.message.content;
+						if (typeof content === "string" && !content.startsWith("<")) {
+							firstPrompt = content;
+						} else if (Array.isArray(content)) {
+							const textBlock = content.find(
+								(b: { type: string }) => b.type === "text",
+							);
+							if (textBlock?.text) {
+								firstPrompt = textBlock.text;
+							}
+						}
+					}
+
+					// Once we have firstPrompt, we can stop scanning
+					if (firstPrompt) break;
+				}
+			} catch {
+				// Skip invalid JSON lines
+			}
+		}
+
+		// Skip sessions with no user messages (empty or metadata-only files)
+		if (!sessionId || !hasUserMessage) return null;
+
+		return {
+			sessionId,
+			firstPrompt: firstPrompt
+				? firstPrompt.length > 100
+					? `${firstPrompt.slice(0, 100)}...`
+					: firstPrompt
+				: undefined,
+			created: created || new Date(stat.mtime).toISOString(),
+			modified: new Date(stat.mtime).toISOString(),
+			gitBranch,
+			isSidechain,
+			fullPath: filePath,
+		};
+	} catch (err) {
+		console.error(`Error reading transcript ${filePath}:`, err);
+		return null;
+	}
+}
+
+// Scan project directory for session transcript files
+async function getSessionsFromTranscripts(
+	projectPath?: string,
+): Promise<SessionEntry[]> {
+	const targetCwd = projectPath ?? getCwd();
+	const projectFolder = targetCwd.replace(/\//g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
-	const indexPath = join(claudeDir, "sessions-index.json");
 
-	const indexFile = Bun.file(indexPath);
-	if (!(await indexFile.exists())) return null;
-	return indexFile.json();
+	try {
+		const entries = await readdir(claudeDir, { withFileTypes: true });
+		const jsonlFiles = entries
+			.filter((e) => e.isFile() && e.name.endsWith(".jsonl"))
+			.map((e) => join(claudeDir, e.name));
+
+		const sessions = await Promise.all(
+			jsonlFiles.map((f) => extractSessionMetadata(f)),
+		);
+
+		return sessions.filter((s): s is SessionEntry => s !== null);
+	} catch {
+		// Directory doesn't exist or can't be read
+		return [];
+	}
 }
 
 // Declarative API routes
@@ -321,18 +417,17 @@ export const routes = {
 			};
 			console.debug(`POST /api/messages:`, body.message?.slice(0, 50));
 
-			// If client provides a sessionId, ensure it's set as active before sending
-			if (body.sessionId) {
-				setActiveSession(body.sessionId);
-			}
-
 			try {
 				const encoder = new TextEncoder();
 				let controllerClosed = false;
 				const stream = new ReadableStream({
 					async start(controller) {
 						try {
-							for await (const line of sendMessage(body.message)) {
+							// Pass sessionId directly to sendMessage
+							for await (const line of sendMessage(
+								body.message,
+								body.sessionId ?? null,
+							)) {
 								if (controllerClosed) break;
 								controller.enqueue(encoder.encode(`data: ${line}\n\n`));
 							}
@@ -379,20 +474,18 @@ export const routes = {
 	// Get cwd and optionally the latest session
 	"/api/cwd": {
 		GET: async () => {
-			const cwd = getActiveSessionCwd();
+			const cwd = getCwd();
 			try {
-				const index = await getSessionIndex();
-				if (index) {
-					const sessions = index.entries
-						.filter((e) => !e.isSidechain)
-						.sort(
-							(a, b) =>
-								new Date(b.modified).getTime() - new Date(a.modified).getTime(),
-						);
+				const sessions = await getSessionsFromTranscripts();
+				const sorted = sessions
+					.filter((e) => !e.isSidechain)
+					.sort(
+						(a, b) =>
+							new Date(b.modified).getTime() - new Date(a.modified).getTime(),
+					);
 
-					if (sessions.length > 0) {
-						return json({ cwd, latestSessionId: sessions[0].sessionId });
-					}
+				if (sorted.length > 0) {
+					return json({ cwd, latestSessionId: sorted[0].sessionId });
 				}
 			} catch {
 				// Ignore errors, just return cwd
@@ -409,47 +502,21 @@ export const routes = {
 		},
 	},
 
-	// Clear session (legacy endpoints)
-	"/api/session": {
-		DELETE: async () => {
-			try {
-				await clearSession();
-				return json({ ok: true });
-			} catch (err) {
-				console.error("Failed to clear session:", err);
-				return error(String(err));
-			}
-		},
-	},
-
-	"/api/clear": {
-		POST: async () => {
-			try {
-				await clearSession();
-				return json({ ok: true });
-			} catch (err) {
-				console.error("Failed to clear session:", err);
-				return error(String(err));
-			}
-		},
-	},
-
-	// Session history by ID
+	// Session history by ID (stateless - just reads from filesystem)
 	"/api/session/:sessionId/history": {
 		GET: async (req: Request & { params: { sessionId: string } }) => {
 			const { sessionId } = req.params;
-			const cwd = getActiveSessionCwd();
+			const cwd = getCwd();
 			const { messages, isCompacted, firstPrompt } =
 				await getSessionHistoryById(sessionId);
-			setActiveSession(sessionId);
 			return json({ messages, cwd, sessionId, isCompacted, firstPrompt });
 		},
 	},
 
-	// Session status (busy check)
+	// Session status (just checks if any request is in progress)
 	"/api/session/:sessionId/status": {
-		GET: (req: Request & { params: { sessionId: string } }) => {
-			const busy = isRequestInProgress(req.params.sessionId);
+		GET: () => {
+			const busy = isRequestInProgress();
 			return json({ busy });
 		},
 	},
@@ -457,8 +524,8 @@ export const routes = {
 	// Compact session context
 	"/api/session/:sessionId/compact": {
 		POST: async (req: Request & { params: { sessionId: string } }) => {
-			setActiveSession(req.params.sessionId);
-			const result = await compactSession();
+			const { sessionId } = req.params;
+			const result = await compactSession(sessionId);
 			if (result.success) {
 				return json({ ok: true });
 			}
@@ -469,8 +536,8 @@ export const routes = {
 	// Clear session context
 	"/api/session/:sessionId/clear": {
 		POST: async (req: Request & { params: { sessionId: string } }) => {
-			setActiveSession(req.params.sessionId);
-			const result = await clearContext();
+			const { sessionId } = req.params;
+			const result = await clearContext(sessionId);
 			if (result.success) {
 				return json({ ok: true });
 			}
@@ -478,16 +545,12 @@ export const routes = {
 		},
 	},
 
-	// List all sessions
+	// List all sessions for current project
 	"/api/sessions": {
 		GET: async () => {
 			try {
-				const index = await getSessionIndex();
-				if (!index) {
-					return json({ sessions: [] });
-				}
-
-				const sessions = index.entries
+				const allSessions = await getSessionsFromTranscripts();
+				const sessions = allSessions
 					.filter((e) => !e.isSidechain)
 					.sort(
 						(a, b) =>
@@ -496,8 +559,7 @@ export const routes = {
 					.map((e) => ({
 						sessionId: e.sessionId,
 						firstPrompt: e.firstPrompt || "Untitled session",
-						messageCount: e.messageCount || 0,
-						created: e.created || e.modified,
+						created: e.created,
 						modified: e.modified,
 						gitBranch: e.gitBranch,
 					}));
@@ -510,82 +572,17 @@ export const routes = {
 		},
 	},
 
-	// Switch to a specific session
-	"/api/sessions/switch": {
-		POST: async (req: Request) => {
-			try {
-				const { sessionId } = (await req.json()) as { sessionId: string };
-
-				if (!sessionId) {
-					return json({ error: "sessionId required" }, { status: 400 });
-				}
-
-				const index = await getSessionIndex();
-				if (!index) {
-					return json({ error: "No sessions found" }, { status: 404 });
-				}
-
-				const session = index.entries.find((e) => e.sessionId === sessionId);
-				if (!session) {
-					return json({ error: "Session not found" }, { status: 404 });
-				}
-
-				setActiveSession(sessionId);
-
-				const cwd = getActiveSessionCwd();
-				const { messages, isCompacted, firstPrompt } =
-					await getSessionHistoryById(sessionId);
-				return json({ ok: true, messages, cwd, isCompacted, firstPrompt });
-			} catch (err) {
-				console.error("Failed to switch session:", err);
-				return error(String(err));
-			}
-		},
-	},
-
 	// Delete a specific session
 	"/api/sessions/:sessionId": {
 		DELETE: async (req: Request & { params: { sessionId: string } }) => {
 			try {
 				const { sessionId } = req.params;
 				const url = new URL(req.url);
-				const projectPath = url.searchParams.get("project");
+				const projectPath = url.searchParams.get("project") ?? getCwd();
 
-				const cwd = projectPath ?? getActiveSessionCwd();
-				const projectFolder = cwd.replace(/\//g, "-");
-				const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
-				const indexPath = join(claudeDir, "sessions-index.json");
+				await clearSessionById(sessionId, projectPath);
 
-				const indexFile = Bun.file(indexPath);
-				if (!(await indexFile.exists())) {
-					return json({ error: "No sessions found" }, { status: 404 });
-				}
-
-				const index: SessionIndex = await indexFile.json();
-				const session = index.entries.find((e) => e.sessionId === sessionId);
-
-				if (!session) {
-					return json({ error: "Session not found" }, { status: 404 });
-				}
-
-				const wasActiveSession = getActiveSession() === sessionId;
-				if (wasActiveSession) {
-					setActiveSession(null);
-				}
-
-				const transcriptFile = Bun.file(session.fullPath);
-				if (await transcriptFile.exists()) {
-					await Bun.file(session.fullPath).delete();
-				}
-
-				const updatedIndex = {
-					...index,
-					entries: index.entries.filter((e) => e.sessionId !== sessionId),
-				};
-
-				await Bun.write(indexPath, JSON.stringify(updatedIndex, null, 2));
-
-				return json({ ok: true, wasActiveSession });
+				return json({ ok: true });
 			} catch (err) {
 				console.error("Failed to delete session:", err);
 				return error(String(err));
@@ -708,8 +705,9 @@ export const routes = {
 	"/api/git/status": {
 		GET: async () => {
 			try {
+				const cwd = getCwd();
 				const diffProc = Bun.spawn(["git", "diff", "--numstat"], {
-					cwd: getActiveSessionCwd(),
+					cwd,
 					stdout: "pipe",
 					stderr: "pipe",
 				});
@@ -732,7 +730,7 @@ export const routes = {
 				const untrackedProc = Bun.spawn(
 					["git", "ls-files", "--others", "--exclude-standard"],
 					{
-						cwd: getActiveSessionCwd(),
+						cwd,
 						stdout: "pipe",
 						stderr: "pipe",
 					},
@@ -749,7 +747,7 @@ export const routes = {
 				const lineCounts = await Promise.all(
 					untrackedFiles.map(async (filePath) => {
 						try {
-							const file = Bun.file(join(getActiveSessionCwd(), filePath));
+							const file = Bun.file(join(cwd, filePath));
 							if (await file.exists()) {
 								const content = await file.text();
 								return content.split("\n").length;
@@ -779,8 +777,9 @@ export const routes = {
 	"/api/git/diff": {
 		GET: async () => {
 			try {
+				const cwd = getCwd();
 				const diffProc = Bun.spawn(["git", "diff"], {
-					cwd: getActiveSessionCwd(),
+					cwd,
 					stdout: "pipe",
 					stderr: "pipe",
 				});
@@ -792,7 +791,7 @@ export const routes = {
 				const untrackedProc = Bun.spawn(
 					["git", "ls-files", "--others", "--exclude-standard"],
 					{
-						cwd: getActiveSessionCwd(),
+						cwd,
 						stdout: "pipe",
 						stderr: "pipe",
 					},
@@ -808,7 +807,7 @@ export const routes = {
 				const untrackedDiffs = await Promise.all(
 					untrackedFiles.map(async (filePath) => {
 						try {
-							const file = Bun.file(join(getActiveSessionCwd(), filePath));
+							const file = Bun.file(join(cwd, filePath));
 							if (await file.exists()) {
 								const content = await file.text();
 								const lines = content.split("\n");
@@ -853,15 +852,16 @@ export const routes = {
 					return json({ error: "Commit message required" }, { status: 400 });
 				}
 
+				const cwd = getCwd();
 				const addProc = Bun.spawn(["git", "add", "-A"], {
-					cwd: getActiveSessionCwd(),
+					cwd,
 					stdout: "pipe",
 					stderr: "pipe",
 				});
 				await addProc.exited;
 
 				const commitProc = Bun.spawn(["git", "commit", "-m", message.trim()], {
-					cwd: getActiveSessionCwd(),
+					cwd,
 					stdout: "pipe",
 					stderr: "pipe",
 				});
@@ -890,7 +890,7 @@ export const routes = {
 			try {
 				const url = new URL(req.url);
 				const relativePath = url.searchParams.get("path") || "";
-				const cwd = getActiveSessionCwd();
+				const cwd = getCwd();
 				const fullPath = relativePath ? join(cwd, relativePath) : cwd;
 
 				const entries = await readdir(fullPath, { withFileTypes: true });
@@ -961,7 +961,7 @@ export const routes = {
 				const url = new URL(req.url);
 				const encodedPath = url.pathname.slice("/api/file/".length);
 				const filePath = decodeURIComponent(encodedPath);
-				const cwd = getActiveSessionCwd();
+				const cwd = getCwd();
 
 				const fullPath = filePath.startsWith("/")
 					? filePath
@@ -1023,7 +1023,6 @@ export const routes = {
 				type SessionInfo = {
 					sessionId: string;
 					firstPrompt: string;
-					messageCount: number;
 					created: string;
 					modified: string;
 					gitBranch?: string;
@@ -1038,14 +1037,6 @@ export const routes = {
 
 				for (const name of projectNames) {
 					const projectPath = join(projectsDir, name);
-					const projectFolder = projectPath.replace(/\//g, "-");
-					const claudeDir = join(
-						homedir(),
-						".claude",
-						"projects",
-						projectFolder,
-					);
-					const indexPath = join(claudeDir, "sessions-index.json");
 
 					const projectData: ProjectWithSessions = {
 						name,
@@ -1054,25 +1045,21 @@ export const routes = {
 					};
 
 					try {
-						const indexFile = Bun.file(indexPath);
-						if (await indexFile.exists()) {
-							const index: SessionIndex = await indexFile.json();
-							projectData.sessions = index.entries
-								.filter((e) => !e.isSidechain)
-								.sort(
-									(a, b) =>
-										new Date(b.modified).getTime() -
-										new Date(a.modified).getTime(),
-								)
-								.map((e) => ({
-									sessionId: e.sessionId,
-									firstPrompt: e.firstPrompt || "Untitled session",
-									messageCount: e.messageCount || 0,
-									created: e.created || e.modified,
-									modified: e.modified,
-									gitBranch: e.gitBranch,
-								}));
-						}
+						const allSessions = await getSessionsFromTranscripts(projectPath);
+						projectData.sessions = allSessions
+							.filter((e) => !e.isSidechain)
+							.sort(
+								(a, b) =>
+									new Date(b.modified).getTime() -
+									new Date(a.modified).getTime(),
+							)
+							.map((e) => ({
+								sessionId: e.sessionId,
+								firstPrompt: e.firstPrompt || "Untitled session",
+								created: e.created,
+								modified: e.modified,
+								gitBranch: e.gitBranch,
+							}));
 					} catch {
 						// No sessions for this project
 					}
@@ -1080,7 +1067,7 @@ export const routes = {
 					projects.push(projectData);
 				}
 
-				const currentCwd = getActiveSessionCwd();
+				const currentCwd = getCwd();
 				const currentProject = currentCwd.startsWith(projectsDir)
 					? currentCwd.replace(`${projectsDir}/`, "")
 					: currentCwd.split("/").pop();
@@ -1088,7 +1075,6 @@ export const routes = {
 				return json({
 					projects,
 					currentProject,
-					activeSessionId: getActiveSession(),
 				});
 			} catch (err) {
 				console.error("Failed to list projects:", err);
@@ -1097,7 +1083,7 @@ export const routes = {
 		},
 	},
 
-	// Switch to a different project
+	// Switch to a different project (just updates cwd)
 	"/api/projects/switch": {
 		POST: async (req: Request) => {
 			try {
@@ -1114,7 +1100,7 @@ export const routes = {
 					return json({ error: "Project not found" }, { status: 404 });
 				}
 
-				setActiveSession(null, projectPath);
+				setCwd(projectPath);
 
 				return json({ ok: true, cwd: projectPath });
 			} catch (err) {

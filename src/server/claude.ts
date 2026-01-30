@@ -1,22 +1,12 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import {
-	getActiveSession,
-	getActiveSessionCwd,
-	getOrCreateSession,
-	setAbortController,
-	setActiveSession,
-} from "./session";
+import { getCwd, setAbortController } from "./session";
 
-// Send a slash command to the current session
+// Send a slash command to a session
 async function sendSlashCommand(
 	command: string,
+	sessionId: string,
 ): Promise<{ success: boolean; error?: string }> {
-	const sessionId = getActiveSession();
-	const cwd = getActiveSessionCwd();
-
-	if (!sessionId) {
-		return { success: false, error: `No active session for ${command}` };
-	}
+	const cwd = getCwd();
 
 	console.debug(`Sending ${command} to session: ${sessionId}`);
 
@@ -50,34 +40,30 @@ async function sendSlashCommand(
 	}
 }
 
-// Compact the current session's context
-export async function compactSession(): Promise<{
-	success: boolean;
-	error?: string;
-}> {
-	return sendSlashCommand("/compact");
+// Compact a session's context
+export async function compactSession(
+	sessionId: string,
+): Promise<{ success: boolean; error?: string }> {
+	return sendSlashCommand("/compact", sessionId);
 }
 
-// Clear the current session's context
-export async function clearContext(): Promise<{
-	success: boolean;
-	error?: string;
-}> {
-	return sendSlashCommand("/clear");
+// Clear a session's context
+export async function clearContext(
+	sessionId: string,
+): Promise<{ success: boolean; error?: string }> {
+	return sendSlashCommand("/clear", sessionId);
 }
 
-export async function* sendMessage(message: string): AsyncGenerator<string> {
+// Generator that yields session_id when available
+export async function* sendMessage(
+	message: string,
+	sessionId: string | null,
+): AsyncGenerator<string> {
 	console.debug(`Sending: ${message.slice(0, 50)}...`);
 
-	const sessionId = getActiveSession();
-	const cwd = getActiveSessionCwd();
-
+	const cwd = getCwd();
 	const abortController = new AbortController();
-
-	if (sessionId) {
-		getOrCreateSession(sessionId, cwd);
-		setAbortController(sessionId, abortController);
-	}
+	setAbortController(abortController);
 
 	try {
 		const options: Parameters<typeof query>[0]["options"] = {
@@ -95,29 +81,19 @@ export async function* sendMessage(message: string): AsyncGenerator<string> {
 			pathToClaudeCodeExecutable: process.env.CLAUDE_CODE_PATH,
 		};
 
+		// Resume existing session if sessionId provided
 		if (sessionId) {
 			options.resume = sessionId;
 		}
-		// When sessionId is null, we start a fresh session by not setting resume or continue
+		// When sessionId is null, we start a fresh session by not setting resume
 
 		for await (const event of query({
 			prompt: message,
 			options,
 		})) {
-			// Capture session_id from result events to persist the session
-			if (
-				event.type === "result" &&
-				"session_id" in event &&
-				typeof event.session_id === "string"
-			) {
-				setActiveSession(event.session_id, cwd);
-			}
-
 			yield JSON.stringify(event);
 		}
 	} finally {
-		if (sessionId) {
-			setAbortController(sessionId, null);
-		}
+		setAbortController(null);
 	}
 }

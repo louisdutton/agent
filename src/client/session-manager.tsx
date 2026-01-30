@@ -3,7 +3,6 @@ import { createSignal, For, onMount, Show } from "solid-js";
 type SessionInfo = {
 	sessionId: string;
 	firstPrompt: string;
-	messageCount: number;
 	created: string;
 	modified: string;
 	gitBranch?: string;
@@ -34,6 +33,7 @@ export function SessionManagerModal(props: {
 		sessionId: string,
 		isCompacted: boolean,
 		firstPrompt?: string,
+		cwd?: string,
 	) => void;
 	onNewSession: () => void;
 }) {
@@ -84,23 +84,19 @@ export function SessionManagerModal(props: {
 				setCurrentProject(projectName);
 			}
 
-			const res = await fetch("/api/sessions/switch", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ sessionId }),
-			});
+			// Fetch session history directly (stateless)
+			const res = await fetch(
+				`/api/session/${encodeURIComponent(sessionId)}/history`,
+			);
 			const data = await res.json();
-			if (data.ok) {
-				setActiveSessionId(sessionId);
-				props.onSwitch(
-					data.messages || [],
-					sessionId,
-					data.isCompacted || false,
-					data.firstPrompt,
-				);
-			} else {
-				alert(data.error || "Failed to switch session");
-			}
+			setActiveSessionId(sessionId);
+			props.onSwitch(
+				data.messages || [],
+				sessionId,
+				data.isCompacted || false,
+				data.firstPrompt,
+				data.cwd,
+			);
 		} catch (err) {
 			console.error("Failed to switch session:", err);
 			alert("Failed to switch session");
@@ -350,10 +346,6 @@ export function SessionManagerModal(props: {
 																		<div class="flex items-center gap-2 text-xs text-muted-foreground mt-1">
 																			<span>
 																				{formatDate(session.modified)}
-																			</span>
-																			<span>·</span>
-																			<span>
-																				{session.messageCount} messages
 																			</span>
 																			<Show when={session.gitBranch}>
 																				<span>·</span>

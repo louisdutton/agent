@@ -744,11 +744,12 @@ export function App() {
 			<Show when={showSessionModal()}>
 				<SessionManagerModal
 					onClose={() => setShowSessionModal(false)}
-					onSwitch={(messages, sessionId, compacted, firstPrompt) => {
+					onSwitch={(messages, sessionId, compacted, firstPrompt, newCwd) => {
 						localStorage.setItem("sessionId", sessionId);
 						setEvents(messages);
 						setIsCompacted(compacted);
 						setSessionName(firstPrompt || getSessionNameFromEvents(messages));
+						if (newCwd) setCwd(newCwd);
 						idCounter = messages.length;
 						setShowSessionModal(false);
 					}}
