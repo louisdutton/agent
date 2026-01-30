@@ -1,11 +1,11 @@
 import { createEffect, createSignal, For, onMount, Show } from "solid-js";
 import {
+	type AudioRefs,
 	createAudioRefs,
 	playTTS,
 	startRecording,
 	stopPlayback,
 	stopRecording,
-	type AudioRefs,
 } from "./audio";
 import {
 	FileBrowserModal,
@@ -14,7 +14,7 @@ import {
 	GitStatusIndicator,
 	useGitStatus,
 } from "./git";
-import Markdown from "./markdown";
+import { Markdown } from "./markdown";
 import {
 	MicButton,
 	OptionsMenu,
@@ -25,9 +25,7 @@ import { SessionManagerModal } from "./session-manager";
 import { ToolGroup } from "./tools";
 import type { EventItem, Tool, ToolStatus } from "./types";
 
-const API_URL = "";
-
-export default function App() {
+export function App() {
 	const [events, setEvents] = createSignal<EventItem[]>([]);
 	const [input, setInput] = createSignal("");
 	const [isLoading, setIsLoading] = createSignal(false);
@@ -86,7 +84,7 @@ export default function App() {
 		const firstUser = messages.find((m) => m.type === "user");
 		if (firstUser && firstUser.type === "user") {
 			const content = firstUser.content;
-			return content.length > 50 ? content.slice(0, 50) + "..." : content;
+			return content.length > 50 ? `${content.slice(0, 50)}...` : content;
 		}
 		return "";
 	};
@@ -97,7 +95,7 @@ export default function App() {
 			const storedSessionId = sessionId ?? localStorage.getItem("sessionId");
 			if (storedSessionId) {
 				const res = await fetch(
-					`${API_URL}/api/session/${encodeURIComponent(storedSessionId)}/history`,
+					`/api/session/${encodeURIComponent(storedSessionId)}/history`,
 				);
 				const data = await res.json();
 				const messages = data.messages?.length ? data.messages : [];
@@ -108,7 +106,7 @@ export default function App() {
 				idCounter = messages.length || 0;
 			} else {
 				// No session stored - fetch cwd and check for latest session
-				const res = await fetch(`${API_URL}/api/cwd`);
+				const res = await fetch(`/api/cwd`);
 				const data = await res.json();
 				setCwd(data.cwd || "");
 
@@ -116,7 +114,7 @@ export default function App() {
 				if (data.latestSessionId) {
 					localStorage.setItem("sessionId", data.latestSessionId);
 					const historyRes = await fetch(
-						`${API_URL}/api/session/${encodeURIComponent(data.latestSessionId)}/history`,
+						`/api/session/${encodeURIComponent(data.latestSessionId)}/history`,
 					);
 					const historyData = await historyRes.json();
 					const messages = historyData.messages?.length
@@ -140,7 +138,7 @@ export default function App() {
 			const currentSessionId = localStorage.getItem("sessionId");
 			if (currentSessionId) {
 				const statusRes = await fetch(
-					`${API_URL}/api/session/${encodeURIComponent(currentSessionId)}/status`,
+					`/api/session/${encodeURIComponent(currentSessionId)}/status`,
 				);
 				const statusData = await statusRes.json();
 				if (statusData.busy) {
@@ -229,7 +227,7 @@ export default function App() {
 
 		// Set session name from first message if not set
 		if (!sessionName()) {
-			setSessionName(text.length > 50 ? text.slice(0, 50) + "..." : text);
+			setSessionName(text.length > 50 ? `${text.slice(0, 50)}...` : text);
 		}
 
 		addEvent({ type: "user", id: String(++idCounter), content: text });
@@ -241,7 +239,7 @@ export default function App() {
 
 		try {
 			const sessionId = localStorage.getItem("sessionId");
-			const res = await fetch(`${API_URL}/api/messages`, {
+			const res = await fetch(`/api/messages`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ message: text, sessionId }),
@@ -395,7 +393,7 @@ export default function App() {
 			}
 			// Tell the backend to cancel the Claude request
 			try {
-				await fetch(`${API_URL}/api/cancel`, { method: "POST" });
+				await fetch(`/api/cancel`, { method: "POST" });
 			} catch {
 				// Ignore errors - the request may have already finished
 			}
@@ -449,7 +447,7 @@ export default function App() {
 		setIsCompacting(true);
 		try {
 			const res = await fetch(
-				`${API_URL}/api/session/${encodeURIComponent(sessionId)}/compact`,
+				`/api/session/${encodeURIComponent(sessionId)}/compact`,
 				{
 					method: "POST",
 				},
@@ -488,7 +486,7 @@ export default function App() {
 		setIsClearing(true);
 		try {
 			const res = await fetch(
-				`${API_URL}/api/session/${encodeURIComponent(sessionId)}/clear`,
+				`/api/session/${encodeURIComponent(sessionId)}/clear`,
 				{
 					method: "POST",
 				},
@@ -735,53 +733,57 @@ export default function App() {
 			</div>
 
 			{/* Git Diff Modal */}
-			<GitDiffModal
-				show={showDiffModal()}
-				onClose={() => setShowDiffModal(false)}
-				onCommit={handleCommit}
-			/>
+			<Show when={showDiffModal()}>
+				<GitDiffModal
+					onClose={() => setShowDiffModal(false)}
+					onCommit={handleCommit}
+				/>
+			</Show>
 
 			{/* Session Manager Modal */}
-			<SessionManagerModal
-				show={showSessionModal()}
-				onClose={() => setShowSessionModal(false)}
-				onSwitch={(messages, sessionId, compacted, firstPrompt) => {
-					localStorage.setItem("sessionId", sessionId);
-					setEvents(messages);
-					setIsCompacted(compacted);
-					setSessionName(firstPrompt || getSessionNameFromEvents(messages));
-					idCounter = messages.length;
-					setShowSessionModal(false);
-				}}
-				onNewSession={async () => {
-					localStorage.removeItem("sessionId");
-					setEvents([]);
-					setIsCompacted(false);
-					setSessionName("");
-					idCounter = 0;
-					setShowSessionModal(false);
-					// Fetch cwd without loading a session
-					await loadHistory(null);
-				}}
-			/>
+			<Show when={showSessionModal()}>
+				<SessionManagerModal
+					onClose={() => setShowSessionModal(false)}
+					onSwitch={(messages, sessionId, compacted, firstPrompt) => {
+						localStorage.setItem("sessionId", sessionId);
+						setEvents(messages);
+						setIsCompacted(compacted);
+						setSessionName(firstPrompt || getSessionNameFromEvents(messages));
+						idCounter = messages.length;
+						setShowSessionModal(false);
+					}}
+					onNewSession={async () => {
+						localStorage.removeItem("sessionId");
+						setEvents([]);
+						setIsCompacted(false);
+						setSessionName("");
+						idCounter = 0;
+						setShowSessionModal(false);
+						// Fetch cwd without loading a session
+						await loadHistory(null);
+					}}
+				/>
+			</Show>
 
 			{/* File Browser Modal */}
-			<FileBrowserModal
-				show={showFileBrowser()}
-				onClose={() => setShowFileBrowser(false)}
-				onSelectFile={(path) => {
-					setShowFileBrowser(false);
-					setFileViewerPath(path);
-					setShowFileViewer(true);
-				}}
-			/>
+			<Show when={showFileBrowser()}>
+				<FileBrowserModal
+					onClose={() => setShowFileBrowser(false)}
+					onSelectFile={(path) => {
+						setShowFileBrowser(false);
+						setFileViewerPath(path);
+						setShowFileViewer(true);
+					}}
+				/>
+			</Show>
 
 			{/* File Viewer Modal */}
-			<FileViewerModal
-				show={showFileViewer()}
-				filePath={fileViewerPath()}
-				onClose={() => setShowFileViewer(false)}
-			/>
+			<Show when={showFileViewer()}>
+				<FileViewerModal
+					filePath={fileViewerPath()}
+					onClose={() => setShowFileViewer(false)}
+				/>
+			</Show>
 		</div>
 	);
 }

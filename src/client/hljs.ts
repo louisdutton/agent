@@ -19,4 +19,4 @@ hljs.registerLanguage("xml", xml);
 hljs.registerLanguage("html", xml);
 hljs.registerLanguage("css", css);
 
-export default hljs;
+export { hljs };

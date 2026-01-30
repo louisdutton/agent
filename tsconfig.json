@@ -1,16 +1,12 @@
 {
 	"include": ["**/*.ts", "**/*.tsx"],
-	"exclude": ["node_modules", "frontend", "backend"],
+	"exclude": ["node_modules", "result"],
 	"compilerOptions": {
 		"target": "ES2022",
 		"jsx": "preserve",
 		"jsxImportSource": "solid-js",
 		"module": "ESNext",
 		"lib": ["ES2022", "DOM", "DOM.Iterable"],
-		"baseUrl": ".",
-		"paths": {
-			"~/*": ["./src/*"]
-		},
 		"moduleResolution": "bundler",
 		"allowImportingTsExtensions": true,
 		"verbatimModuleSyntax": true,

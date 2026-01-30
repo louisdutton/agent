@@ -1,6 +1,6 @@
 import { marked } from "marked";
 import { createMemo } from "solid-js";
-import hljs from "./hljs";
+import { hljs } from "./hljs";
 
 // Create a custom renderer that handles code blocks
 const renderer = new marked.Renderer();
@@ -48,7 +48,7 @@ interface MarkdownProps {
 	class?: string;
 }
 
-export default function Markdown(props: MarkdownProps) {
+export function Markdown(props: MarkdownProps) {
 	const html = createMemo(() => {
 		try {
 			return marked.parse(props.content, { async: false }) as string;

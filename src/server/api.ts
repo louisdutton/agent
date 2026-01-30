@@ -76,8 +76,8 @@ function parseDiff(rawDiff: string): DiffFile[] {
 			if (line.startsWith("@@")) {
 				const match = line.match(/@@ -(\d+),?\d* \+(\d+),?\d* @@/);
 				if (match) {
-					oldLineNum = Number.parseInt(match[1]);
-					newLineNum = Number.parseInt(match[2]);
+					oldLineNum = Number.parseInt(match[1], 10);
+					newLineNum = Number.parseInt(match[2], 10);
 					currentHunk = { header: line, lines: [] };
 					file.hunks.push(currentHunk);
 				}
@@ -724,8 +724,8 @@ export const routes = {
 				for (const line of diffOutput.trim().split("\n")) {
 					if (!line) continue;
 					const [added, removed] = line.split("\t");
-					if (added !== "-") insertions += Number.parseInt(added) || 0;
-					if (removed !== "-") deletions += Number.parseInt(removed) || 0;
+					if (added !== "-") insertions += Number.parseInt(added, 10) || 0;
+					if (removed !== "-") deletions += Number.parseInt(removed, 10) || 0;
 					filesChanged++;
 				}
 
@@ -833,7 +833,7 @@ export const routes = {
 						return null;
 					}),
 				);
-				files.push(...untrackedDiffs.filter((d): d is DiffFile => d !== null));
+				files.push(...(untrackedDiffs.filter((d) => d !== null) as DiffFile[]));
 
 				return json({ files });
 			} catch (err) {

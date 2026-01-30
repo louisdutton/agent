@@ -51,10 +51,7 @@ export function ToolGroup(props: {
 }) {
 	// Check if tool has a file path that can be opened
 	const getFilePath = (tool: Tool): string | null => {
-		if (
-			["Read", "Edit", "Write"].includes(tool.name) &&
-			tool.input.file_path
-		) {
+		if (["Read", "Edit", "Write"].includes(tool.name) && tool.input.file_path) {
 			return String(tool.input.file_path);
 		}
 		return null;
@@ -116,7 +113,7 @@ export function ToolGroup(props: {
 											type="button"
 											onClick={(e) => {
 												e.stopPropagation();
-												props.onOpenFile!(filePath);
+												props.onOpenFile?.(filePath);
 											}}
 											class="text-muted-foreground opacity-60 ml-2 break-all hover:text-foreground hover:opacity-100 transition-colors text-left"
 										>
@@ -131,12 +128,14 @@ export function ToolGroup(props: {
 							</div>
 							{/* Inline diff for Edit/Write tools */}
 							<Show when={diffData}>
-								<InlineDiffView
-									filePath={diffData!.filePath}
-									oldContent={diffData!.oldContent}
-									newContent={diffData!.newContent}
-									isNewFile={diffData!.isNewFile}
-								/>
+								{(data) => (
+									<InlineDiffView
+										filePath={data().filePath}
+										oldContent={data().oldContent}
+										newContent={data().newContent}
+										isNewFile={data().isNewFile}
+									/>
+								)}
 							</Show>
 						</div>
 					);

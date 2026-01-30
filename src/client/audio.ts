@@ -1,7 +1,5 @@
 import type { Accessor, Setter } from "solid-js";
 
-const API_URL = "";
-
 export type AudioState = {
 	isRecording: Accessor<boolean>;
 	setIsRecording: Setter<boolean>;
@@ -42,9 +40,7 @@ export async function transcribeAudio(
 	audioBlob: Blob,
 	state: Pick<
 		AudioState,
-		| "setIsTranscribing"
-		| "setInput"
-		| "setPendingVoiceInput"
+		"setIsTranscribing" | "setInput" | "setPendingVoiceInput"
 	>,
 ): Promise<void> {
 	state.setIsTranscribing(true);
@@ -52,7 +48,7 @@ export async function transcribeAudio(
 		const formData = new FormData();
 		formData.append("audio", audioBlob, "recording.webm");
 
-		const res = await fetch(`${API_URL}/api/transcribe`, {
+		const res = await fetch("/api/transcribe", {
 			method: "POST",
 			body: formData,
 		});
@@ -179,7 +175,7 @@ export async function playTTS(
 	state.setPlayingId(id);
 	state.setIsPlaying(true);
 	try {
-		const res = await fetch(`${API_URL}/api/tts`, {
+		const res = await fetch("/api/tts", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ text }),

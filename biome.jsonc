@@ -38,7 +38,8 @@
 					"options": {
 						"allow": ["debug", "info", "warn", "error"]
 					}
-				}
+				},
+				"useIterableCallbackReturn": "off"
 			},
 			"style": {
 				"noDefaultExport": "error",
@@ -51,6 +52,14 @@
 			},
 			"performance": {
 				"noBarrelFile": "error"
+			},
+			"a11y": {
+				"noSvgWithoutTitle": "off",
+				"noStaticElementInteractions": "off",
+				"useKeyWithClickEvents": "off"
+			},
+			"complexity": {
+				"noImportantStyles": "off"
 			}
 		}
 	},

@@ -1,5 +1,4 @@
 import {
-	createEffect,
 	createMemo,
 	createSignal,
 	For,
@@ -15,9 +14,7 @@ import {
 	type DiffLineType,
 } from "./diff";
 import { createLongPress } from "./gestures";
-import hljs from "./hljs";
-
-const API_URL = "";
+import { hljs } from "./hljs";
 
 // Git diff types
 export type GitStatus = {
@@ -75,7 +72,7 @@ function highlightCodeSync(code: string, lang: string): string[] {
 		const lines = code.split("\n");
 		return lines.map((line) => {
 			if (!line.trim()) return line || " ";
-			let result: hljs.HighlightResult;
+			let result: ReturnType<typeof hljs.highlight>;
 			if (lang && hljs.getLanguage(lang)) {
 				result = hljs.highlight(line, { language: lang, ignoreIllegals: true });
 			} else {
@@ -217,7 +214,7 @@ export function useGitStatus() {
 	onMount(() => {
 		const fetchGitStatus = async () => {
 			try {
-				const res = await fetch(`${API_URL}/api/git/status`);
+				const res = await fetch(`/api/git/status`);
 				if (res.ok) {
 					const data = await res.json();
 					setGitStatus(data);
@@ -290,7 +287,7 @@ export function GitStatusIndicator(props: {
 								: "text-muted-foreground"
 						}
 					>
-						+{props.gitStatus!.insertions}
+						+{props.gitStatus?.insertions}
 					</span>
 				</span>
 				<span class="text-sm font-mono leading-none mt-0.5">
@@ -301,7 +298,7 @@ export function GitStatusIndicator(props: {
 								: "text-muted-foreground"
 						}
 					>
-						-{props.gitStatus!.deletions}
+						-{props.gitStatus?.deletions}
 					</span>
 				</span>
 			</button>
@@ -310,86 +307,80 @@ export function GitStatusIndicator(props: {
 }
 
 export function GitDiffModal(props: {
-	show: boolean;
 	onClose: () => void;
 	onCommit: () => void;
 }) {
 	const [diffData, setDiffData] = createSignal<DiffFile[] | null>(null);
 	const [diffLoading, setDiffLoading] = createSignal(false);
 
-	createEffect(() => {
-		if (props.show) {
-			setDiffLoading(true);
-			fetch(`${API_URL}/api/git/diff`)
-				.then((res) => (res.ok ? res.json() : null))
-				.then((data) => {
-					if (data) setDiffData(data.files);
-				})
-				.catch((err) => console.error("Git diff error:", err))
-				.finally(() => setDiffLoading(false));
-		}
+	onMount(() => {
+		setDiffLoading(true);
+		fetch(`/api/git/diff`)
+			.then((res) => (res.ok ? res.json() : null))
+			.then((data) => {
+				if (data) setDiffData(data.files);
+			})
+			.catch((err) => console.error("Git diff error:", err))
+			.finally(() => setDiffLoading(false));
 	});
 
 	return (
-		<Show when={props.show}>
-			<div
-				class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
-				onClick={(e) => {
-					if (e.target === e.currentTarget) props.onClose();
-				}}
-				onKeyDown={(e) => {
-					if (e.key === "Escape") props.onClose();
-				}}
-			>
-				<div class="h-full flex flex-col">
-					{/* Content */}
-					<div class="flex-1 overflow-y-auto p-4">
-						<Show when={diffLoading()}>
-							<div class="flex items-center justify-center h-32">
-								<span class="text-muted-foreground">Loading diff...</span>
-							</div>
-						</Show>
+		<div
+			class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
+			onClick={(e) => {
+				if (e.target === e.currentTarget) props.onClose();
+			}}
+			onKeyDown={(e) => {
+				if (e.key === "Escape") props.onClose();
+			}}
+		>
+			<div class="h-full flex flex-col">
+				{/* Content */}
+				<div class="flex-1 overflow-y-auto p-4">
+					<Show when={diffLoading()}>
+						<div class="flex items-center justify-center h-32">
+							<span class="text-muted-foreground">Loading diff...</span>
+						</div>
+					</Show>
 
-						<Show when={!diffLoading() && diffData()}>
-							<div class="space-y-6 max-w-4xl mx-auto">
-								<For each={diffData()}>
-									{(file) => <DiffFileView file={file} />}
-								</For>
-							</div>
-						</Show>
+					<Show when={!diffLoading() && diffData()}>
+						<div class="space-y-6 max-w-4xl mx-auto">
+							<For each={diffData()}>
+								{(file) => <DiffFileView file={file} />}
+							</For>
+						</div>
+					</Show>
 
-						<Show when={!diffLoading() && diffData()?.length === 0}>
-							<div class="text-center text-muted-foreground py-8">
-								No changes detected
-							</div>
-						</Show>
-					</div>
+					<Show when={!diffLoading() && diffData()?.length === 0}>
+						<div class="text-center text-muted-foreground py-8">
+							No changes detected
+						</div>
+					</Show>
+				</div>
 
-					{/* Bottom bar - secondary on left, primary on right */}
-					<div class="flex items-center justify-between px-4 pb-6 pt-2">
-						<button
-							type="button"
-							onClick={props.onClose}
-							class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
-						>
-							Close
-						</button>
-						<button
-							type="button"
-							onClick={props.onCommit}
-							class="btn px-4 py-2 text-sm"
-						>
-							Commit
-						</button>
-					</div>
+				{/* Bottom bar - secondary on left, primary on right */}
+				<div class="flex items-center justify-between px-4 pb-6 pt-2">
+					<button
+						type="button"
+						onClick={props.onClose}
+						class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+					>
+						Close
+					</button>
+					<button
+						type="button"
+						onClick={props.onCommit}
+						class="btn px-4 py-2 text-sm"
+					>
+						Commit
+					</button>
 				</div>
 			</div>
-		</Show>
+		</div>
 	);
 }
 
 export function FileViewerModal(props: {
-	show: boolean;
 	filePath: string;
 	onClose: () => void;
 }) {
@@ -408,12 +399,12 @@ export function FileViewerModal(props: {
 		return highlightCodeSync(code, lang());
 	});
 
-	createEffect(() => {
-		if (props.show && props.filePath) {
+	onMount(() => {
+		if (props.filePath) {
 			setLoading(true);
 			setError(null);
 			setContent(null);
-			fetch(`${API_URL}/api/file/${encodeURIComponent(props.filePath)}`)
+			fetch(`/api/file/${encodeURIComponent(props.filePath)}`)
 				.then((res) => {
 					if (!res.ok) {
 						throw new Error(
@@ -436,78 +427,74 @@ export function FileViewerModal(props: {
 	const lines = createMemo(() => content()?.split("\n") || []);
 
 	return (
-		<Show when={props.show}>
-			<div
-				class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
-				onClick={(e) => {
-					if (e.target === e.currentTarget) props.onClose();
-				}}
-				onKeyDown={(e) => {
-					if (e.key === "Escape") props.onClose();
-				}}
-			>
-				<div class="h-full flex flex-col">
-					{/* Header */}
-					<div class="flex items-center gap-3 px-4 py-3 border-b border-border">
-						<span class="font-mono text-sm text-foreground truncate flex-1">
-							{props.filePath}
-						</span>
-						<span class="text-xs text-muted-foreground shrink-0">
-							{lines().length} lines
-						</span>
-					</div>
+		<div
+			class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
+			onClick={(e) => {
+				if (e.target === e.currentTarget) props.onClose();
+			}}
+			onKeyDown={(e) => {
+				if (e.key === "Escape") props.onClose();
+			}}
+		>
+			<div class="h-full flex flex-col">
+				{/* Header */}
+				<div class="flex items-center gap-3 px-4 py-3 border-b border-border">
+					<span class="font-mono text-sm text-foreground truncate flex-1">
+						{props.filePath}
+					</span>
+					<span class="text-xs text-muted-foreground shrink-0">
+						{lines().length} lines
+					</span>
+				</div>
 
-					{/* Content */}
-					<div class="flex-1 overflow-y-auto">
-						<Show when={loading()}>
-							<div class="flex items-center justify-center h-32">
-								<span class="text-muted-foreground">Loading...</span>
+				{/* Content */}
+				<div class="flex-1 overflow-y-auto">
+					<Show when={loading()}>
+						<div class="flex items-center justify-center h-32">
+							<span class="text-muted-foreground">Loading...</span>
+						</div>
+					</Show>
+
+					<Show when={error()}>
+						<div class="flex items-center justify-center h-32">
+							<span class="text-red-500">{error()}</span>
+						</div>
+					</Show>
+
+					<Show when={!loading() && !error() && content() !== null}>
+						<div class="overflow-x-auto">
+							<div class="min-w-max font-mono text-xs">
+								<For each={lines()}>
+									{(line, index) => (
+										<div class="flex hover:bg-muted/30">
+											<span class="shrink-0 text-right pl-2 pr-2 py-0 text-muted-foreground/50 select-none border-r border-border tabular-nums">
+												{index() + 1}
+											</span>
+											<pre
+												class="px-4 whitespace-pre py-0 hljs"
+												innerHTML={highlightedLines()?.[index()] || line || " "}
+											/>
+										</div>
+									)}
+								</For>
 							</div>
-						</Show>
+						</div>
+					</Show>
+				</div>
 
-						<Show when={error()}>
-							<div class="flex items-center justify-center h-32">
-								<span class="text-red-500">{error()}</span>
-							</div>
-						</Show>
-
-						<Show when={!loading() && !error() && content() !== null}>
-							<div class="overflow-x-auto">
-								<div class="min-w-max font-mono text-xs">
-									<For each={lines()}>
-										{(line, index) => (
-											<div class="flex hover:bg-muted/30">
-												<span class="shrink-0 text-right pl-2 pr-2 py-0 text-muted-foreground/50 select-none border-r border-border tabular-nums">
-													{index() + 1}
-												</span>
-												<pre
-													class="px-4 whitespace-pre py-0 hljs"
-													innerHTML={
-														highlightedLines()?.[index()] || line || " "
-													}
-												/>
-											</div>
-										)}
-									</For>
-								</div>
-							</div>
-						</Show>
-					</div>
-
-					{/* Bottom bar */}
-					<div class="flex items-center justify-between px-4 pb-6 pt-2">
-						<button
-							type="button"
-							onClick={props.onClose}
-							class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
-						>
-							Close
-						</button>
-						<span class="text-xs text-muted-foreground">{fileName()}</span>
-					</div>
+				{/* Bottom bar */}
+				<div class="flex items-center justify-between px-4 pb-6 pt-2">
+					<button
+						type="button"
+						onClick={props.onClose}
+						class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+					>
+						Close
+					</button>
+					<span class="text-xs text-muted-foreground">{fileName()}</span>
 				</div>
 			</div>
-		</Show>
+		</div>
 	);
 }
 
@@ -594,7 +581,6 @@ export function InlineDiffView(props: {
 }
 
 export function FileBrowserModal(props: {
-	show: boolean;
 	onClose: () => void;
 	onSelectFile: (path: string) => void;
 }) {
@@ -607,9 +593,7 @@ export function FileBrowserModal(props: {
 		setLoading(true);
 		setError(null);
 		try {
-			const res = await fetch(
-				`${API_URL}/api/files?path=${encodeURIComponent(path)}`,
-			);
+			const res = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
 			if (!res.ok) {
 				throw new Error("Failed to load directory");
 			}
@@ -624,10 +608,8 @@ export function FileBrowserModal(props: {
 		}
 	};
 
-	createEffect(() => {
-		if (props.show) {
-			loadDirectory("");
-		}
+	onMount(() => {
+		loadDirectory("");
 	});
 
 	const handleClick = (file: FileEntry) => {
@@ -645,112 +627,108 @@ export function FileBrowserModal(props: {
 	};
 
 	return (
-		<Show when={props.show}>
-			<div
-				class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
-				onClick={(e) => {
-					if (e.target === e.currentTarget) props.onClose();
-				}}
-				onKeyDown={(e) => {
-					if (e.key === "Escape") props.onClose();
-				}}
-			>
-				<div class="h-full flex flex-col">
-					{/* Header */}
-					<div class="flex items-center gap-3 px-4 py-3 border-b border-border">
-						<button
-							type="button"
-							onClick={goUp}
-							disabled={!currentPath()}
-							class="p-1 hover:bg-muted rounded transition-colors disabled:opacity-30"
-							title="Go up"
+		<div
+			class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
+			onClick={(e) => {
+				if (e.target === e.currentTarget) props.onClose();
+			}}
+			onKeyDown={(e) => {
+				if (e.key === "Escape") props.onClose();
+			}}
+		>
+			<div class="h-full flex flex-col">
+				{/* Header */}
+				<div class="flex items-center gap-3 px-4 py-3 border-b border-border">
+					<button
+						type="button"
+						onClick={goUp}
+						disabled={!currentPath()}
+						class="p-1 hover:bg-muted rounded transition-colors disabled:opacity-30"
+						title="Go up"
+					>
+						<svg
+							class="w-5 h-5"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
 						>
-							<svg
-								class="w-5 h-5"
-								fill="none"
-								stroke="currentColor"
-								viewBox="0 0 24 24"
-							>
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="2"
-									d="M15 19l-7-7 7-7"
-								/>
-							</svg>
-						</button>
-						<span class="font-mono text-sm text-foreground truncate flex-1">
-							{currentPath() || "/"}
-						</span>
-					</div>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M15 19l-7-7 7-7"
+							/>
+						</svg>
+					</button>
+					<span class="font-mono text-sm text-foreground truncate flex-1">
+						{currentPath() || "/"}
+					</span>
+				</div>
 
-					{/* Content */}
-					<div class="flex-1 overflow-y-auto p-2">
-						<Show when={loading()}>
-							<div class="flex items-center justify-center h-32">
-								<span class="text-muted-foreground">Loading...</span>
-							</div>
-						</Show>
+				{/* Content */}
+				<div class="flex-1 overflow-y-auto p-2">
+					<Show when={loading()}>
+						<div class="flex items-center justify-center h-32">
+							<span class="text-muted-foreground">Loading...</span>
+						</div>
+					</Show>
 
-						<Show when={error()}>
-							<div class="flex items-center justify-center h-32">
-								<span class="text-red-500">{error()}</span>
-							</div>
-						</Show>
+					<Show when={error()}>
+						<div class="flex items-center justify-center h-32">
+							<span class="text-red-500">{error()}</span>
+						</div>
+					</Show>
 
-						<Show when={!loading() && !error()}>
-							<div class="space-y-0.5">
-								<For each={files()}>
-									{(file) => (
-										<button
-											type="button"
-											onClick={() => handleClick(file)}
-											class="w-full flex items-center gap-3 px-3 py-2 hover:bg-muted rounded-lg transition-colors text-left"
+					<Show when={!loading() && !error()}>
+						<div class="space-y-0.5">
+							<For each={files()}>
+								{(file) => (
+									<button
+										type="button"
+										onClick={() => handleClick(file)}
+										class="w-full flex items-center gap-3 px-3 py-2 hover:bg-muted rounded-lg transition-colors text-left"
+									>
+										<svg
+											class="w-5 h-5 shrink-0 text-muted-foreground"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
 										>
-											<svg
-												class="w-5 h-5 shrink-0 text-muted-foreground"
-												fill="none"
-												stroke="currentColor"
-												viewBox="0 0 24 24"
-											>
-												{file.isDirectory ? (
-													<path
-														stroke-linecap="round"
-														stroke-linejoin="round"
-														stroke-width="2"
-														d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-													/>
-												) : (
-													<path
-														stroke-linecap="round"
-														stroke-linejoin="round"
-														stroke-width="2"
-														d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-													/>
-												)}
-											</svg>
-											<span class="font-mono text-xs truncate">
-												{file.name}
-											</span>
-										</button>
-									)}
-								</For>
-							</div>
-						</Show>
-					</div>
+											{file.isDirectory ? (
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="2"
+													d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+												/>
+											) : (
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="2"
+													d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+												/>
+											)}
+										</svg>
+										<span class="font-mono text-xs truncate">{file.name}</span>
+									</button>
+								)}
+							</For>
+						</div>
+					</Show>
+				</div>
 
-					{/* Bottom bar */}
-					<div class="flex items-center px-4 pb-6 pt-2">
-						<button
-							type="button"
-							onClick={props.onClose}
-							class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
-						>
-							Close
-						</button>
-					</div>
+				{/* Bottom bar */}
+				<div class="flex items-center px-4 pb-6 pt-2">
+					<button
+						type="button"
+						onClick={props.onClose}
+						class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+					>
+						Close
+					</button>
 				</div>
 			</div>
-		</Show>
+		</div>
 	);
 }

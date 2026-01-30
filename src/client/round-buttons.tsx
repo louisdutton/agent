@@ -1,7 +1,5 @@
+import type { JSX, Setter } from "solid-js";
 import { For, Show } from "solid-js";
-import type { Accessor, JSX, Setter } from "solid-js";
-
-const API_URL = "";
 
 export type VoiceStatus =
 	| "idle"
