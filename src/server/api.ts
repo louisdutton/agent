@@ -315,8 +315,16 @@ export const routes = {
 	// Send message (streaming)
 	"/api/messages": {
 		POST: async (req: Request) => {
-			const body = (await req.json()) as { message: string };
+			const body = (await req.json()) as {
+				message: string;
+				sessionId?: string | null;
+			};
 			console.debug(`POST /api/messages:`, body.message?.slice(0, 50));
+
+			// If client provides a sessionId, ensure it's set as active before sending
+			if (body.sessionId) {
+				setActiveSession(body.sessionId);
+			}
 
 			try {
 				const encoder = new TextEncoder();

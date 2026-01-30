@@ -240,10 +240,11 @@ export default function App() {
 		abortController = new AbortController();
 
 		try {
+			const sessionId = localStorage.getItem("sessionId");
 			const res = await fetch(`${API_URL}/api/messages`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ message: text }),
+				body: JSON.stringify({ message: text, sessionId }),
 				signal: abortController.signal,
 			});
 
