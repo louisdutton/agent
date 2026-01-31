@@ -4,6 +4,7 @@
 	"description": "Agent Mobile Interface",
 	"start_url": "/",
 	"display": "standalone",
+	"display_override": ["edge-to-edge"],
 	"background_color": "#000000",
 	"theme_color": "#000000",
 	"orientation": "portrait",
