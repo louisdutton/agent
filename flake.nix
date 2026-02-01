@@ -108,7 +108,7 @@
               --length-scale 0.7 &
 
             echo "Starting Agent on :9370..."
-            PORT=9370 bun serve &
+            PORT=9370 ${pkgs.bun}/bin/bun serve &
 
             wait
           '');
