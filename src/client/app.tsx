@@ -528,11 +528,9 @@ export function App() {
 							onClick={() => setShowSessionModal(true)}
 							class="text-sm hover:text-foreground transition-colors text-left w-full overflow-hidden"
 						>
-							<Show when={sessionName()}>
-								<div class="text-foreground font-medium truncate">
-									{sessionName()}
-								</div>
-							</Show>
+							<div class="text-foreground font-medium truncate">
+								{sessionName() || "New Session"}
+							</div>
 							<div class="text-muted-foreground font-mono text-xs truncate">
 								{cwd()}
 							</div>
