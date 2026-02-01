@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { clearContext, compactSession, sendMessage } from "./claude";
+import { compactSession, sendMessage } from "./claude";
 import {
 	cancelCurrentRequest,
 	clearSessionById,
@@ -548,18 +548,6 @@ export const routes = {
 				return json({ ok: true });
 			}
 			return error(result.error || "Compaction failed");
-		},
-	},
-
-	// Clear session context
-	"/api/session/:sessionId/clear": {
-		POST: async (req: Request & { params: { sessionId: string } }) => {
-			const { sessionId } = req.params;
-			const result = await clearContext(sessionId);
-			if (result.success) {
-				return json({ ok: true });
-			}
-			return error(result.error || "Clear failed");
 		},
 	},
 

@@ -485,33 +485,31 @@ export function App() {
 			alert("No active session to clear");
 			return;
 		}
-		if (
-			!confirm(
-				"Clear the session context? This will reset Claude's memory of this conversation.",
-			)
-		) {
+		if (!confirm("Delete this session? This cannot be undone.")) {
 			return;
 		}
 		setIsClearing(true);
 		try {
 			const res = await fetch(
-				`/api/session/${encodeURIComponent(sessionId)}/clear`,
+				`/api/sessions/${encodeURIComponent(sessionId)}`,
 				{
-					method: "POST",
+					method: "DELETE",
 				},
 			);
 			const data = await res.json();
 			if (data.ok) {
-				// Clear the events display
+				// Clear the events display and start fresh
 				setEvents([]);
 				setIsCompacted(false);
+				setSessionName("");
+				localStorage.removeItem("sessionId");
 				idCounter = 0;
 			} else {
-				alert(data.error || "Failed to clear session");
+				alert(data.error || "Failed to delete session");
 			}
 		} catch (err) {
-			console.error("Clear failed:", err);
-			alert("Failed to clear session");
+			console.error("Delete failed:", err);
+			alert("Failed to delete session");
 		} finally {
 			setIsClearing(false);
 		}

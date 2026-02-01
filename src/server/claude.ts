@@ -119,14 +119,6 @@ export async function compactSession(
 	return sendSlashCommand("/compact", sessionId);
 }
 
-// Clear a session's context
-export async function clearContext(
-	sessionId: string,
-): Promise<{ success: boolean; error?: string }> {
-	return sendSlashCommand("/clear", sessionId);
-}
-
-
 // Generator that yields session_id when available
 export async function* sendMessage(
 	message: string,
