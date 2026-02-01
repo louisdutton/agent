@@ -1,9 +1,77 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
 	getCwd,
 	setAbortController,
 	setActiveSessionId,
 } from "./session";
+
+type ImageBlock = {
+	type: "image";
+	source: {
+		type: "base64";
+		media_type: string;
+		data: string;
+	};
+};
+
+type TextBlock = {
+	type: "text";
+	text: string;
+};
+
+type ContentBlock = TextBlock | ImageBlock;
+
+// Build message content with images
+function buildMessageContent(
+	message: string,
+	images?: string[],
+): string | ContentBlock[] {
+	if (!images?.length) {
+		return message;
+	}
+
+	const content: ContentBlock[] = [];
+
+	// Add images first
+	for (const img of images) {
+		// Parse data URL: data:image/png;base64,<data>
+		const match = img.match(/^data:([^;]+);base64,(.+)$/);
+		if (match) {
+			content.push({
+				type: "image",
+				source: {
+					type: "base64",
+					media_type: match[1],
+					data: match[2],
+				},
+			});
+		}
+	}
+
+	// Add text message
+	if (message) {
+		content.push({ type: "text", text: message });
+	}
+
+	return content;
+}
+
+// Create an async generator that yields the user message with images
+async function* createImagePrompt(
+	message: string,
+	images: string[],
+	sessionId: string | null,
+): AsyncGenerator<SDKUserMessage> {
+	yield {
+		type: "user",
+		session_id: sessionId ?? "", // Empty string for new sessions, like SDK does internally
+		message: {
+			role: "user",
+			content: buildMessageContent(message, images),
+		},
+		parent_tool_use_id: null,
+	} as SDKUserMessage;
+}
 
 // Send a slash command to a session
 async function sendSlashCommand(
@@ -58,12 +126,17 @@ export async function clearContext(
 	return sendSlashCommand("/clear", sessionId);
 }
 
+
 // Generator that yields session_id when available
 export async function* sendMessage(
 	message: string,
 	sessionId: string | null,
+	images?: string[],
 ): AsyncGenerator<string> {
-	console.debug(`Sending: ${message.slice(0, 50)}...`);
+	console.debug(
+		`Sending: ${message.slice(0, 50)}...`,
+		images?.length ? `(${images.length} images)` : "",
+	);
 
 	const cwd = getCwd();
 	const abortController = new AbortController();
@@ -94,12 +167,18 @@ export async function* sendMessage(
 		}
 		// When sessionId is null, we start a fresh session by not setting resume
 
+		const hasImages = images?.length;
 		let actualSessionId = sessionId;
+
+		// Use async generator for images, plain string for text-only
+		const prompt = hasImages
+			? createImagePrompt(message, images, sessionId)
+			: message;
+
 		for await (const event of query({
-			prompt: message,
+			prompt,
 			options,
 		})) {
-			// Update session tracking with actual sessionId once we get it
 			if (!actualSessionId && "session_id" in event && event.session_id) {
 				actualSessionId = event.session_id;
 				setActiveSessionId(actualSessionId);

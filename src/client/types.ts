@@ -8,7 +8,7 @@ export type Tool = {
 };
 
 export type EventItem =
-	| { type: "user"; id: string; content: string }
+	| { type: "user"; id: string; content: string; images?: string[] }
 	| { type: "assistant"; id: string; content: string }
 	| { type: "tools"; id: string; tools: Tool[] }
 	| { type: "error"; id: string; message: string };

@@ -415,8 +415,13 @@ export const routes = {
 			const body = (await req.json()) as {
 				message: string;
 				sessionId?: string | null;
+				images?: string[];
 			};
-			console.debug(`POST /api/messages:`, body.message?.slice(0, 50));
+			console.debug(
+				`POST /api/messages:`,
+				body.message?.slice(0, 50),
+				body.images?.length ? `(${body.images.length} images)` : "",
+			);
 
 			try {
 				const encoder = new TextEncoder();
@@ -424,10 +429,11 @@ export const routes = {
 				const stream = new ReadableStream({
 					async start(controller) {
 						try {
-							// Pass sessionId directly to sendMessage
+							// Pass sessionId and images directly to sendMessage
 							for await (const line of sendMessage(
 								body.message,
 								body.sessionId ?? null,
+								body.images,
 							)) {
 								if (controllerClosed) break;
 								controller.enqueue(encoder.encode(`data: ${line}\n\n`));
