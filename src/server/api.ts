@@ -619,42 +619,11 @@ export const routes = {
 					return json({ error: "No audio file" }, { status: 400 });
 				}
 
-				console.debug(`POST /api/transcribe: ${audioFile.size} bytes`);
+				console.debug(`POST /api/transcribe: ${audioFile.size} bytes, type: ${audioFile.type}`);
 
-				// Convert WebM to WAV using FFmpeg (whisper.cpp requires WAV)
-				const inputBuffer = await audioFile.arrayBuffer();
-				const ffmpeg = Bun.spawn(
-					[
-						"ffmpeg",
-						"-i",
-						"pipe:0",
-						"-ar",
-						"16000",
-						"-ac",
-						"1",
-						"-f",
-						"wav",
-						"pipe:1",
-					],
-					{ stdin: "pipe", stdout: "pipe", stderr: "pipe" },
-				);
-				ffmpeg.stdin.write(new Uint8Array(inputBuffer));
-				ffmpeg.stdin.end();
-				const wavBuffer = await new Response(ffmpeg.stdout).arrayBuffer();
-				const exitCode = await ffmpeg.exited;
-				if (exitCode !== 0) {
-					const stderr = await new Response(ffmpeg.stderr).text();
-					console.error("FFmpeg error:", stderr);
-					return error("Audio conversion failed");
-				}
-
-				// Forward to Whisper server (whisper.cpp format)
+				// Forward to Whisper server (whisper.cpp with ffmpeg support handles format conversion)
 				const whisperForm = new FormData();
-				whisperForm.append(
-					"file",
-					new Blob([wavBuffer], { type: "audio/wav" }),
-					"audio.wav",
-				);
+				whisperForm.append("file", audioFile);
 				whisperForm.append("response_format", "json");
 
 				const whisperRes = await fetch(`${WHISPER_URL}/inference`, {

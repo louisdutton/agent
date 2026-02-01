@@ -36,6 +36,72 @@ export function createAudioRefs(): AudioRefs {
 	};
 }
 
+// Convert audio blob to WAV format using Web Audio API
+async function convertToWav(audioBlob: Blob): Promise<Blob> {
+	const audioContext = new AudioContext({ sampleRate: 16000 });
+	const arrayBuffer = await audioBlob.arrayBuffer();
+	const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+	// Get mono audio data (use first channel or mix down)
+	const numberOfChannels = 1;
+	const sampleRate = 16000;
+	const length = audioBuffer.length;
+
+	// Resample if needed
+	let samples: Float32Array;
+	if (audioBuffer.sampleRate !== sampleRate) {
+		const offlineCtx = new OfflineAudioContext(
+			numberOfChannels,
+			Math.ceil(length * sampleRate / audioBuffer.sampleRate),
+			sampleRate,
+		);
+		const source = offlineCtx.createBufferSource();
+		source.buffer = audioBuffer;
+		source.connect(offlineCtx.destination);
+		source.start(0);
+		const resampled = await offlineCtx.startRendering();
+		samples = resampled.getChannelData(0);
+	} else {
+		samples = audioBuffer.getChannelData(0);
+	}
+
+	// Create WAV file
+	const wavBuffer = new ArrayBuffer(44 + samples.length * 2);
+	const view = new DataView(wavBuffer);
+
+	// WAV header
+	const writeString = (offset: number, str: string) => {
+		for (let i = 0; i < str.length; i++) {
+			view.setUint8(offset + i, str.charCodeAt(i));
+		}
+	};
+
+	writeString(0, "RIFF");
+	view.setUint32(4, 36 + samples.length * 2, true);
+	writeString(8, "WAVE");
+	writeString(12, "fmt ");
+	view.setUint32(16, 16, true); // fmt chunk size
+	view.setUint16(20, 1, true); // PCM format
+	view.setUint16(22, numberOfChannels, true);
+	view.setUint32(24, sampleRate, true);
+	view.setUint32(28, sampleRate * numberOfChannels * 2, true); // byte rate
+	view.setUint16(32, numberOfChannels * 2, true); // block align
+	view.setUint16(34, 16, true); // bits per sample
+	writeString(36, "data");
+	view.setUint32(40, samples.length * 2, true);
+
+	// Write audio data as 16-bit PCM
+	let offset = 44;
+	for (let i = 0; i < samples.length; i++) {
+		const sample = Math.max(-1, Math.min(1, samples[i]));
+		view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+		offset += 2;
+	}
+
+	await audioContext.close();
+	return new Blob([wavBuffer], { type: "audio/wav" });
+}
+
 export async function transcribeAudio(
 	audioBlob: Blob,
 	state: Pick<
@@ -45,8 +111,11 @@ export async function transcribeAudio(
 ): Promise<void> {
 	state.setIsTranscribing(true);
 	try {
+		// Convert to WAV format for whisper.cpp
+		const wavBlob = await convertToWav(audioBlob);
+
 		const formData = new FormData();
-		formData.append("audio", audioBlob, "recording.webm");
+		formData.append("audio", wavBlob, "recording.wav");
 
 		const res = await fetch("/api/transcribe", {
 			method: "POST",

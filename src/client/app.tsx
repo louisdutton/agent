@@ -518,7 +518,7 @@ export function App() {
 	};
 
 	return (
-		<div class="h-dvh flex flex-col bg-background">
+		<div class="h-dvh flex flex-col bg-background overflow-hidden">
 			{/* Header */}
 			<Show when={cwd()}>
 				<header class="flex-none px-4 py-2 border-b border-border">
