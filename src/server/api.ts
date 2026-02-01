@@ -613,6 +613,11 @@ export const routes = {
 				const whisperForm = new FormData();
 				whisperForm.append("file", audioFile);
 				whisperForm.append("response_format", "json");
+				whisperForm.append("language", "en");
+				whisperForm.append(
+					"prompt",
+					"A software engineer is discussing code, programming, and AI with Claude.",
+				);
 
 				const whisperRes = await fetch(`${WHISPER_URL}/inference`, {
 					method: "POST",
