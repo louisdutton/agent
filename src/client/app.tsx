@@ -518,10 +518,10 @@ export function App() {
 	};
 
 	return (
-		<div class="h-dvh flex flex-col bg-background overflow-hidden">
+		<div class="h-dvh flex flex-col bg-background">
 			{/* Header */}
 			<Show when={cwd()}>
-				<header class="flex-none px-4 py-2 border-b border-border">
+				<header class="flex-none px-4 py-2 border-b border-border z-20 bg-background">
 					<div class="max-w-2xl mx-auto">
 						<button
 							type="button"
@@ -544,9 +544,9 @@ export function App() {
 			{/* Scrollable chat history */}
 			<main
 				ref={mainRef}
-				class="flex-1 min-h-0 overflow-y-auto p-4 border-b border-border"
+				class="flex-1 overflow-y-auto p-4"
 			>
-				<div class="max-w-2xl mx-auto space-y-4 w-full pb-4">
+				<div class="max-w-2xl mx-auto space-y-4 w-full pb-40">
 					{/* Compacted context indicator */}
 					<Show when={isCompacted()}>
 						<div class="flex items-center gap-2 text-sm text-muted-foreground border border-border rounded-lg px-3 py-2 bg-muted/30">
@@ -668,65 +668,64 @@ export function App() {
 				</div>
 			</main>
 
-			{/* Bottom controls */}
-			<div class="flex-none flex flex-col items-center pt-2 pb-6 gap-3">
+			{/* Fixed floating bottom controls */}
+			<div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-3">
+				{/* Text input */}
+				<Show when={showTextInput()}>
+					<form
+						onSubmit={(e) => {
+							e.preventDefault();
+							sendMessage();
+						}}
+						class="flex gap-2 bg-background/90 backdrop-blur-sm border border-border rounded-full px-3 py-2 shadow-lg"
+					>
+						<ImagePickerButton
+							images={attachedImages}
+							setImages={setAttachedImages}
+							disabled={() =>
+								isLoading() || isRecording() || isTranscribing()
+							}
+						/>
+						<input
+							type="text"
+							value={input()}
+							onInput={(e) => setInput(e.currentTarget.value)}
+							placeholder="Type a message..."
+							disabled={isLoading() || isRecording() || isTranscribing()}
+							class="input flex-1 min-w-[200px]"
+						/>
+						<button
+							type="submit"
+							disabled={
+								(!input().trim() && attachedImages().length === 0) ||
+								isLoading() ||
+								isRecording() ||
+								isTranscribing()
+							}
+							class="px-3 py-1.5 rounded-full bg-foreground text-background disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+						>
+							<svg
+								class="w-5 h-5"
+								fill="none"
+								stroke="currentColor"
+								viewBox="0 0 24 24"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+								/>
+							</svg>
+						</button>
+					</form>
+				</Show>
+
 				{/* Image preview */}
 				<ImagePreview images={attachedImages} setImages={setAttachedImages} />
 
-				{/* Text input */}
-				<Show when={showTextInput()}>
-					<div class="w-full max-w-2xl px-4">
-						<form
-							onSubmit={(e) => {
-								e.preventDefault();
-								sendMessage();
-							}}
-							class="flex gap-2"
-						>
-							<ImagePickerButton
-								images={attachedImages}
-								setImages={setAttachedImages}
-								disabled={() =>
-									isLoading() || isRecording() || isTranscribing()
-								}
-							/>
-							<input
-								type="text"
-								value={input()}
-								onInput={(e) => setInput(e.currentTarget.value)}
-								placeholder="Type a message..."
-								disabled={isLoading() || isRecording() || isTranscribing()}
-								class="input flex-1"
-							/>
-							<button
-								type="submit"
-								disabled={
-									(!input().trim() && attachedImages().length === 0) ||
-									isLoading() ||
-									isRecording() ||
-									isTranscribing()
-								}
-								class="px-4 py-2 rounded-lg bg-foreground text-background disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
-							>
-								<svg
-									class="w-5 h-5"
-									fill="none"
-									stroke="currentColor"
-									viewBox="0 0 24 24"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										stroke-width="2"
-										d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-									/>
-								</svg>
-							</button>
-						</form>
-					</div>
-				</Show>
-
-				<div class="flex items-center justify-center gap-6">
+				{/* Buttons */}
+				<div class="flex items-center justify-center gap-4 bg-background/90 backdrop-blur-sm rounded-full px-3 py-2 border border-border shadow-lg">
 					{/* Options menu button */}
 					<OptionsMenuButton
 						menuRef={menuRef}
