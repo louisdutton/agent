@@ -558,10 +558,7 @@ export function App() {
 			</Show>
 
 			{/* Scrollable chat history */}
-			<main
-				ref={mainRef}
-				class="flex-1 overflow-y-auto p-4"
-			>
+			<main ref={mainRef} class="flex-1 overflow-y-auto p-4">
 				<div class="max-w-2xl mx-auto space-y-4 w-full pb-40">
 					{/* Compacted context indicator */}
 					<Show when={isCompacted()}>
@@ -698,9 +695,7 @@ export function App() {
 						<ImagePickerButton
 							images={attachedImages}
 							setImages={setAttachedImages}
-							disabled={() =>
-								isLoading() || isRecording() || isTranscribing()
-							}
+							disabled={() => isLoading() || isRecording() || isTranscribing()}
 						/>
 						<input
 							type="text"

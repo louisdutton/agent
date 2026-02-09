@@ -1,5 +1,5 @@
-import { For, Show } from "solid-js";
 import type { Accessor, Setter } from "solid-js";
+import { For, Show } from "solid-js";
 
 type ImageAttachmentProps = {
 	images: Accessor<string[]>;

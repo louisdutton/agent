@@ -631,7 +631,9 @@ export const routes = {
 					return json({ error: "No audio file" }, { status: 400 });
 				}
 
-				console.debug(`POST /api/transcribe: ${audioFile.size} bytes, type: ${audioFile.type}`);
+				console.debug(
+					`POST /api/transcribe: ${audioFile.size} bytes, type: ${audioFile.type}`,
+				);
 
 				// Forward to Whisper server (whisper.cpp with ffmpeg support handles format conversion)
 				const whisperForm = new FormData();

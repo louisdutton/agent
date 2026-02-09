@@ -52,7 +52,7 @@ async function convertToWav(audioBlob: Blob): Promise<Blob> {
 	if (audioBuffer.sampleRate !== sampleRate) {
 		const offlineCtx = new OfflineAudioContext(
 			numberOfChannels,
-			Math.ceil(length * sampleRate / audioBuffer.sampleRate),
+			Math.ceil((length * sampleRate) / audioBuffer.sampleRate),
 			sampleRate,
 		);
 		const source = offlineCtx.createBufferSource();
