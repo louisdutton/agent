@@ -25,10 +25,10 @@
           (final: prev: {
             bun = prev.bun.overrideAttrs rec {
               __intentionallyOverridingVersion = true;
-              version = "1.3.8";
+              version = "1.3.9";
               passthru.sources.aarch64-linux = prev.fetchurl {
                 url = "https://github.com/oven-sh/bun/releases/download/bun-v${version}/bun-linux-aarch64.zip";
-                hash = "sha256-Tp3raBSn7H9ocl3dl9DXtAZbzamoUPadSXVn6ZWn+jM=";
+                hash = "sha256-osKGK8wf0cCzqNzcjH77XirNhx6yDtLxdheITt6ByEQ=";
               };
             };
           })
