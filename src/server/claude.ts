@@ -1,25 +1,16 @@
-import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { spawn, type Subprocess } from "bun";
 import {
 	getCwd,
 	setAbortController,
 	setActiveSessionId,
 } from "./session";
-
-type ImageBlock = {
-	type: "image";
-	source: {
-		type: "base64";
-		media_type: string;
-		data: string;
-	};
-};
-
-type TextBlock = {
-	type: "text";
-	text: string;
-};
-
-type ContentBlock = TextBlock | ImageBlock;
+import type {
+	SDKUserMessage,
+	SDKMessage,
+	ContentBlock,
+	TextBlock,
+	ImageBlock,
+} from "./claude-cli-types";
 
 // Build message content with images
 function buildMessageContent(
@@ -44,33 +35,78 @@ function buildMessageContent(
 					media_type: match[1],
 					data: match[2],
 				},
-			});
+			} as ImageBlock);
 		}
 	}
 
 	// Add text message
 	if (message) {
-		content.push({ type: "text", text: message });
+		content.push({ type: "text", text: message } as TextBlock);
 	}
 
 	return content;
 }
 
-// Create an async generator that yields the user message with images
-async function* createImagePrompt(
-	message: string,
-	images: string[],
-	sessionId: string | null,
-): AsyncGenerator<SDKUserMessage> {
-	yield {
-		type: "user",
-		session_id: sessionId ?? "", // Empty string for new sessions, like SDK does internally
-		message: {
-			role: "user",
-			content: buildMessageContent(message, images),
-		},
-		parent_tool_use_id: null,
-	} as SDKUserMessage;
+// Get the path to the Claude CLI executable
+function getClaudePath(): string {
+	return process.env.CLAUDE_CODE_PATH || "claude";
+}
+
+// Parse newline-delimited JSON from the CLI output using Bun.JSONL
+async function* parseNDJSON(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+): AsyncGenerator<SDKMessage> {
+	const decoder = new TextDecoder();
+	let buffer = "";
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+
+		buffer += decoder.decode(value, { stream: true });
+
+		// Parse complete JSON lines using Bun's native JSONL parser
+		const result = Bun.JSONL.parseChunk(buffer);
+		for (const message of result.values as SDKMessage[]) {
+			yield message;
+		}
+
+		// Keep unparsed remainder in buffer
+		buffer = buffer.slice(result.read);
+	}
+
+	// Process any remaining content
+	if (buffer.trim()) {
+		const result = Bun.JSONL.parseChunk(buffer);
+		for (const message of result.values as SDKMessage[]) {
+			yield message;
+		}
+	}
+}
+
+// Spawn the Claude CLI process with the given arguments
+function spawnClaudeProcess(
+	args: string[],
+	cwd: string,
+	signal?: AbortSignal,
+): Subprocess<"pipe", "pipe", "pipe"> {
+	const claudePath = getClaudePath();
+
+	const proc = spawn([claudePath, ...args], {
+		cwd,
+		stdin: "pipe",
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+
+	// Handle abort signal
+	if (signal) {
+		signal.addEventListener("abort", () => {
+			proc.kill();
+		});
+	}
+
+	return proc;
 }
 
 // Send a slash command to a session
@@ -83,28 +119,31 @@ async function sendSlashCommand(
 	console.debug(`Sending ${command} to session: ${sessionId}`);
 
 	try {
-		const options: Parameters<typeof query>[0]["options"] = {
-			systemPrompt: {
-				type: "preset",
-				preset: "claude_code",
-			},
-			permissionMode: "bypassPermissions",
-			allowDangerouslySkipPermissions: true,
-			cwd,
-			resume: sessionId,
-			pathToClaudeCodeExecutable: process.env.CLAUDE_CODE_PATH,
-		};
+		const args = [
+			"-p",
+			"--output-format", "stream-json",
+			"--verbose",
+			"--permission-mode", "bypassPermissions",
+			"--dangerously-skip-permissions",
+			"--resume", sessionId,
+			command,
+		];
 
-		for await (const event of query({
-			prompt: command,
-			options,
-		})) {
-			if (event.type === "result") {
-				console.debug(`${command} complete`);
-				return { success: true };
-			}
+		const proc = spawnClaudeProcess(args, cwd);
+
+		// Close stdin immediately since we're passing the command as an argument
+		proc.stdin.end();
+
+		// Wait for the process to complete
+		const exitCode = await proc.exited;
+
+		if (exitCode !== 0) {
+			const stderr = await new Response(proc.stderr).text();
+			console.error(`${command} failed with exit code ${exitCode}:`, stderr);
+			return { success: false, error: stderr || `Exit code: ${exitCode}` };
 		}
 
+		console.debug(`${command} complete`);
 		return { success: true };
 	} catch (err) {
 		console.error(`${command} failed:`, err);
@@ -138,44 +177,72 @@ export async function* sendMessage(
 	setActiveSessionId(sessionId);
 
 	try {
-		const options: Parameters<typeof query>[0]["options"] = {
-			systemPrompt: {
-				type: "preset",
-				preset: "claude_code",
-				append: "Your reponses must always be accurate and concise.",
-			},
-			// model: "claude-haiku-4-5",
-			permissionMode: "bypassPermissions",
-			allowDangerouslySkipPermissions: true,
-			includePartialMessages: true,
-			abortController,
-			cwd,
-			pathToClaudeCodeExecutable: process.env.CLAUDE_CODE_PATH,
-		};
+		const hasImages = images?.length;
+
+		// Build CLI arguments
+		const args = [
+			"-p",
+			"--output-format", "stream-json",
+			"--verbose",
+			"--permission-mode", "bypassPermissions",
+			"--dangerously-skip-permissions",
+			"--include-partial-messages",
+			"--append-system-prompt", "Your reponses must always be accurate and concise.",
+		];
 
 		// Resume existing session if sessionId provided
 		if (sessionId) {
-			options.resume = sessionId;
+			args.push("--resume", sessionId);
 		}
-		// When sessionId is null, we start a fresh session by not setting resume
 
-		const hasImages = images?.length;
+		// For text-only messages, pass the message as an argument
+		// For messages with images, we need to use stream-json input
+		if (hasImages) {
+			args.push("--input-format", "stream-json");
+		} else {
+			// Pass message as the prompt argument
+			args.push(message);
+		}
+
+		const proc = spawnClaudeProcess(args, cwd, abortController.signal);
+
+		// If we have images, send the message via stdin
+		if (hasImages) {
+			const userMessage: SDKUserMessage = {
+				type: "user",
+				session_id: sessionId ?? "",
+				message: {
+					role: "user",
+					content: buildMessageContent(message, images),
+				},
+				parent_tool_use_id: null,
+			};
+
+			proc.stdin.write(JSON.stringify(userMessage) + "\n");
+			proc.stdin.end();
+		} else {
+			// Close stdin since we passed the message as an argument
+			proc.stdin.end();
+		}
+
+		// Read and yield messages from stdout
+		const reader = proc.stdout.getReader();
 		let actualSessionId = sessionId;
 
-		// Use async generator for images, plain string for text-only
-		const prompt = hasImages
-			? createImagePrompt(message, images, sessionId)
-			: message;
-
-		for await (const event of query({
-			prompt,
-			options,
-		})) {
+		for await (const event of parseNDJSON(reader)) {
+			// Extract session_id from events
 			if (!actualSessionId && "session_id" in event && event.session_id) {
 				actualSessionId = event.session_id;
 				setActiveSessionId(actualSessionId);
 			}
 			yield JSON.stringify(event);
+		}
+
+		// Check for errors
+		const exitCode = await proc.exited;
+		if (exitCode !== 0) {
+			const stderr = await new Response(proc.stderr).text();
+			console.error(`Claude process exited with code ${exitCode}:`, stderr);
 		}
 	} finally {
 		setAbortController(null);
