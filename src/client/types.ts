@@ -5,6 +5,7 @@ export type Tool = {
 	name: string;
 	input: Record<string, unknown>;
 	status: ToolStatus;
+	resultImages?: string[]; // Base64 data URLs from tool results (e.g., Playwright screenshots)
 };
 
 export type EventItem =

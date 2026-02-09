@@ -112,6 +112,7 @@ type Tool = {
 	name: string;
 	input: Record<string, unknown>;
 	status: "running" | "complete" | "error";
+	resultImages?: string[];
 };
 type Message =
 	| { type: "user"; id: string; content: string }
@@ -129,6 +130,9 @@ function parseTranscript(content: string): {
 	let isCompacted = false;
 	let compactBoundaryIndex = -1;
 
+	// Store tool result images: tool_use_id -> base64 data URLs
+	const toolResultImages = new Map<string, string[]>();
+
 	// First pass: find compact boundary and collect all tool results
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
@@ -145,6 +149,25 @@ function parseTranscript(content: string): {
 					for (const block of entryContent) {
 						if (block.type === "tool_result" && block.tool_use_id) {
 							toolResults.set(block.tool_use_id, !!block.is_error);
+							// Extract images from tool result content
+							if (Array.isArray(block.content)) {
+								const images: string[] = [];
+								for (const resultBlock of block.content) {
+									if (
+										resultBlock.type === "image" &&
+										resultBlock.source?.type === "base64" &&
+										resultBlock.source?.media_type &&
+										resultBlock.source?.data
+									) {
+										images.push(
+											`data:${resultBlock.source.media_type};base64,${resultBlock.source.data}`,
+										);
+									}
+								}
+								if (images.length > 0) {
+									toolResultImages.set(block.tool_use_id, images);
+								}
+							}
 						}
 					}
 				}
@@ -212,6 +235,7 @@ function parseTranscript(content: string): {
 									? "error"
 									: "complete"
 								: "complete",
+							resultImages: toolResultImages.get(t.id),
 						}),
 					);
 					messages.push({

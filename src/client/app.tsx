@@ -189,14 +189,20 @@ export function App() {
 		});
 	};
 
-	const updateToolStatus = (toolUseId: string, status: ToolStatus) => {
+	const updateToolStatus = (
+		toolUseId: string,
+		status: ToolStatus,
+		resultImages?: string[],
+	) => {
 		setEvents((prev) =>
 			prev.map((e) => {
 				if (e.type === "tools") {
 					return {
 						...e,
 						tools: e.tools.map((t) =>
-							t.toolUseId === toolUseId ? { ...t, status } : t,
+							t.toolUseId === toolUseId
+								? { ...t, status, resultImages: resultImages ?? t.resultImages }
+								: t,
 						),
 					};
 				}
@@ -318,9 +324,23 @@ export function App() {
 								if (Array.isArray(content)) {
 									for (const block of content) {
 										if (block.type === "tool_result" && block.tool_use_id) {
+											// Extract images from tool result content
+											const resultImages: string[] = [];
+											if (Array.isArray(block.content)) {
+												for (const resultBlock of block.content) {
+													if (
+														resultBlock.type === "image" &&
+														resultBlock.source?.type === "base64"
+													) {
+														const dataUrl = `data:${resultBlock.source.media_type};base64,${resultBlock.source.data}`;
+														resultImages.push(dataUrl);
+													}
+												}
+											}
 											updateToolStatus(
 												block.tool_use_id,
 												block.is_error ? "error" : "complete",
+												resultImages.length > 0 ? resultImages : undefined,
 											);
 										}
 									}

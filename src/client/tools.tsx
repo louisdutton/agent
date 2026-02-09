@@ -137,6 +137,20 @@ export function ToolGroup(props: {
 									/>
 								)}
 							</Show>
+							{/* Images from tool results (e.g., Playwright screenshots) */}
+							<Show when={tool.resultImages?.length}>
+								<div class="mt-2 flex flex-wrap gap-2">
+									<For each={tool.resultImages}>
+										{(img) => (
+											<img
+												src={img}
+												alt="Tool result"
+												class="max-w-full rounded-lg border border-border"
+											/>
+										)}
+									</For>
+								</div>
+							</Show>
 						</div>
 					);
 				}}
