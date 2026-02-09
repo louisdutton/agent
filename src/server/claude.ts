@@ -1,16 +1,12 @@
-import { spawn, type Subprocess } from "bun";
-import {
-	getCwd,
-	setAbortController,
-	setActiveSessionId,
-} from "./session";
+import { type Subprocess, spawn } from "bun";
 import type {
-	SDKUserMessage,
-	SDKMessage,
 	ContentBlock,
-	TextBlock,
 	ImageBlock,
+	SDKMessage,
+	SDKUserMessage,
+	TextBlock,
 } from "./claude-cli-types";
+import { getCwd, setAbortController, setActiveSessionId } from "./session";
 
 // Build message content with images
 function buildMessageContent(
@@ -45,11 +41,6 @@ function buildMessageContent(
 	}
 
 	return content;
-}
-
-// Get the path to the Claude CLI executable
-function getClaudePath(): string {
-	return process.env.CLAUDE_CODE_PATH || "claude";
 }
 
 // Parse newline-delimited JSON from the CLI output using Bun.JSONL
@@ -90,9 +81,8 @@ function spawnClaudeProcess(
 	cwd: string,
 	signal?: AbortSignal,
 ): Subprocess<"pipe", "pipe", "pipe"> {
-	const claudePath = getClaudePath();
-
-	const proc = spawn([claudePath, ...args], {
+	// Run claude within nix develop shell of the project
+	const proc = spawn(["nix", "develop", "--command", "claude", ...args], {
 		cwd,
 		stdin: "pipe",
 		stdout: "pipe",
@@ -121,11 +111,14 @@ async function sendSlashCommand(
 	try {
 		const args = [
 			"-p",
-			"--output-format", "stream-json",
+			"--output-format",
+			"stream-json",
 			"--verbose",
-			"--permission-mode", "bypassPermissions",
+			"--permission-mode",
+			"bypassPermissions",
 			"--dangerously-skip-permissions",
-			"--resume", sessionId,
+			"--resume",
+			sessionId,
 			command,
 		];
 
@@ -182,12 +175,15 @@ export async function* sendMessage(
 		// Build CLI arguments
 		const args = [
 			"-p",
-			"--output-format", "stream-json",
+			"--output-format",
+			"stream-json",
 			"--verbose",
-			"--permission-mode", "bypassPermissions",
+			"--permission-mode",
+			"bypassPermissions",
 			"--dangerously-skip-permissions",
 			"--include-partial-messages",
-			"--append-system-prompt", "Your reponses must always be accurate and concise.",
+			"--append-system-prompt",
+			"Your reponses must always be accurate and concise.",
 		];
 
 		// Resume existing session if sessionId provided
