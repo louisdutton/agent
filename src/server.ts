@@ -1,8 +1,16 @@
+import { parseArgs } from "util";
 import app from "./index.html";
 import { apiFallback, routes } from "./server/api";
 
+const { values } = parseArgs({
+	args: Bun.argv.slice(2),
+	options: {
+		port: { type: "string", short: "p", default: "3000" },
+	},
+});
+
 const server = Bun.serve({
-	port: Number(Bun.env.PORT) || 3000,
+	port: Number(values.port),
 	idleTimeout: 120,
 
 	routes: {
