@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { $ } from "bun";
 import { getCwd } from "./session";
 
@@ -21,42 +20,9 @@ export async function getGitFiles() {
 	const cwd = getCwd();
 	$.cwd(cwd);
 
+	await $`git add -N .`; // include untracked files
 	const diff = await $`git diff`.text();
-	const diffFiles = parseDiff(diff);
-
-	const untrackedOutput =
-		await $`git ls-files --others --exclude-standard`.text();
-	const untrackedFiles = untrackedOutput.trim().split("\n").filter(Boolean);
-
-	const untrackedDiffs = await Promise.all(
-		untrackedFiles.map(async (filePath) => {
-			try {
-				const file = Bun.file(join(cwd, filePath));
-				if (await file.exists()) {
-					const content = await file.text();
-					const lines = content.split("\n");
-					return {
-						path: filePath,
-						status: "added" as const,
-						hunks: [
-							{
-								header: `@@ -0,0 +1,${lines.length} @@`,
-								lines: lines.map((line, i) => ({
-									type: "addition" as const,
-									content: line,
-									newLineNum: i + 1,
-								})),
-							},
-						],
-					};
-				}
-			} catch {
-				// Skip files we can't read
-			}
-			return null;
-		}),
-	);
-	diffFiles.push(...(untrackedDiffs.filter((d) => d !== null) as DiffFile[]));
+	return parseDiff(diff);
 }
 
 // Parse git diff output into structured format
