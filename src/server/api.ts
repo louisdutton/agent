@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { compactSession, sendMessage } from "./claude";
+import { getGitFiles } from "./git";
 import {
 	cancelCurrentRequest,
 	clearSessionById,
@@ -30,82 +31,6 @@ const json = (data: unknown, init?: ResponseInit) =>
 const error = (message: string, status = 500) =>
 	json({ error: message }, { status });
 
-// Git diff types
-type DiffLineType = "context" | "addition" | "deletion";
-type DiffLine = {
-	type: DiffLineType;
-	content: string;
-	oldLineNum?: number;
-	newLineNum?: number;
-};
-type DiffHunk = { header: string; lines: DiffLine[] };
-type DiffFile = {
-	path: string;
-	status: "modified" | "added" | "deleted" | "renamed";
-	hunks: DiffHunk[];
-};
-
-// Parse git diff output into structured format
-function parseDiff(rawDiff: string): DiffFile[] {
-	const files: DiffFile[] = [];
-	const fileChunks = rawDiff.split(/^diff --git /m).filter(Boolean);
-
-	for (const chunk of fileChunks) {
-		const lines = chunk.split("\n");
-		const pathMatch = lines[0]?.match(/a\/(.+) b\/(.+)/);
-		if (!pathMatch) continue;
-
-		const file: DiffFile = {
-			path: pathMatch[2],
-			status: "modified",
-			hunks: [],
-		};
-
-		// Detect status from header
-		if (lines.some((l) => l.startsWith("new file"))) file.status = "added";
-		if (lines.some((l) => l.startsWith("deleted file")))
-			file.status = "deleted";
-		if (lines.some((l) => l.startsWith("rename"))) file.status = "renamed";
-
-		// Parse hunks
-		let currentHunk: DiffHunk | null = null;
-		let oldLineNum = 0;
-		let newLineNum = 0;
-
-		for (const line of lines) {
-			if (line.startsWith("@@")) {
-				const match = line.match(/@@ -(\d+),?\d* \+(\d+),?\d* @@/);
-				if (match) {
-					oldLineNum = Number.parseInt(match[1], 10);
-					newLineNum = Number.parseInt(match[2], 10);
-					currentHunk = { header: line, lines: [] };
-					file.hunks.push(currentHunk);
-				}
-			} else if (
-				currentHunk &&
-				(line.startsWith("+") || line.startsWith("-") || line.startsWith(" "))
-			) {
-				const type: DiffLineType =
-					line[0] === "+"
-						? "addition"
-						: line[0] === "-"
-							? "deletion"
-							: "context";
-				currentHunk.lines.push({
-					type,
-					content: line.slice(1),
-					oldLineNum: type !== "addition" ? oldLineNum++ : undefined,
-					newLineNum: type !== "deletion" ? newLineNum++ : undefined,
-				});
-			}
-		}
-
-		files.push(file);
-	}
-
-	return files;
-}
-
 // Shared types for session history
 type Tool = {
 	toolUseId: string;
@@ -130,7 +55,7 @@ function parseTranscript(content: string): {
 	let isCompacted = false;
 	let compactBoundaryIndex = -1;
 
-	// Store tool result images: tool_use_id -> base64 data URLs
+	// Store tool result ima es: tool_use_id -> base64 data URLs
 	const toolResultImages = new Map<string, string[]>();
 
 	// First pass: find compact boundary and collect all tool results
@@ -433,16 +358,88 @@ async function getSessionsFromTranscripts(
 
 // Declarative API routes
 export const routes = {
+	// List all sessions for current project
+	"/api/sessions": {
+		GET: async () => {
+			try {
+				const cwd = getCwd();
+				const allSessions = await getSessionsFromTranscripts();
+				const sorted = allSessions
+					.filter((e) => !e.isSidechain)
+					.sort(
+						(a, b) =>
+							new Date(b.modified).getTime() - new Date(a.modified).getTime(),
+					);
+
+				const sessions = sorted.map((e) => ({
+					sessionId: e.sessionId,
+					firstPrompt: e.firstPrompt || "Untitled session",
+					created: e.created,
+					modified: e.modified,
+					gitBranch: e.gitBranch,
+				}));
+
+				return json({
+					sessions,
+					cwd,
+					latestSessionId: sorted[0]?.sessionId,
+				});
+			} catch (err) {
+				console.error("Failed to list sessions:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Delete a specific session
+	"/api/sessions/:sessionId": {
+		DELETE: async (req: Request & { params: { sessionId: string } }) => {
+			try {
+				const { sessionId } = req.params;
+				const url = new URL(req.url);
+				const projectPath = url.searchParams.get("project") ?? getCwd();
+
+				await clearSessionById(sessionId, projectPath);
+
+				return json({ ok: true });
+			} catch (err) {
+				console.error("Failed to delete session:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Session history by ID
+	"/api/sessions/:sessionId/history": {
+		GET: async (req: Request & { params: { sessionId: string } }) => {
+			const { sessionId } = req.params;
+			const cwd = getCwd();
+			const { messages, isCompacted, firstPrompt } =
+				await getSessionHistoryById(sessionId);
+			return json({ messages, cwd, sessionId, isCompacted, firstPrompt });
+		},
+	},
+
+	// Session status
+	"/api/sessions/:sessionId/status": {
+		GET: (req: Request & { params: { sessionId: string } }) => {
+			const { sessionId } = req.params;
+			const activeSession = getActiveSessionId();
+			const busy = isRequestInProgress() && activeSession === sessionId;
+			return json({ busy });
+		},
+	},
+
 	// Send message (streaming)
-	"/api/messages": {
-		POST: async (req: Request) => {
+	"/api/sessions/:sessionId/messages": {
+		POST: async (req: Request & { params: { sessionId: string } }) => {
+			const { sessionId } = req.params;
 			const body = (await req.json()) as {
 				message: string;
-				sessionId?: string | null;
 				images?: string[];
 			};
 			console.debug(
-				`POST /api/messages:`,
+				`POST /api/sessions/${sessionId}/messages:`,
 				body.message?.slice(0, 50),
 				body.images?.length ? `(${body.images.length} images)` : "",
 			);
@@ -453,10 +450,11 @@ export const routes = {
 				const stream = new ReadableStream({
 					async start(controller) {
 						try {
-							// Pass sessionId and images directly to sendMessage
+							// "new" is a special value meaning create a new session
+							const resolvedSessionId = sessionId === "new" ? null : sessionId;
 							for await (const line of sendMessage(
 								body.message,
-								body.sessionId ?? null,
+								resolvedSessionId,
 								body.images,
 							)) {
 								if (controllerClosed) break;
@@ -502,69 +500,22 @@ export const routes = {
 		},
 	},
 
-	// Get cwd and optionally the latest session
-	"/api/cwd": {
-		GET: async () => {
-			const cwd = getCwd();
-			try {
-				const sessions = await getSessionsFromTranscripts();
-				const sorted = sessions
-					.filter((e) => !e.isSidechain)
-					.sort(
-						(a, b) =>
-							new Date(b.modified).getTime() - new Date(a.modified).getTime(),
-					);
-
-				if (sorted.length > 0) {
-					return json({ cwd, latestSessionId: sorted[0].sessionId });
-				}
-			} catch {
-				// Ignore errors, just return cwd
-			}
-			return json({ cwd });
-		},
-	},
-
 	// Cancel current request
-	"/api/cancel": {
-		POST: () => {
-			const cancelled = cancelCurrentRequest();
-			return json({ cancelled });
-		},
-	},
-
-	// Get active session info (for detecting running state on reconnect)
-	"/api/active-session": {
-		GET: () => {
-			const sessionId = getActiveSessionId();
-			const busy = isRequestInProgress();
-			return json({ sessionId, busy });
-		},
-	},
-
-	// Session history by ID (stateless - just reads from filesystem)
-	"/api/session/:sessionId/history": {
-		GET: async (req: Request & { params: { sessionId: string } }) => {
-			const { sessionId } = req.params;
-			const cwd = getCwd();
-			const { messages, isCompacted, firstPrompt } =
-				await getSessionHistoryById(sessionId);
-			return json({ messages, cwd, sessionId, isCompacted, firstPrompt });
-		},
-	},
-
-	// Session status
-	"/api/session/:sessionId/status": {
-		GET: (req: Request & { params: { sessionId: string } }) => {
+	"/api/sessions/:sessionId/cancel": {
+		POST: (req: Request & { params: { sessionId: string } }) => {
 			const { sessionId } = req.params;
 			const activeSession = getActiveSessionId();
-			const busy = isRequestInProgress() && activeSession === sessionId;
-			return json({ busy });
+			// Only cancel if this session is the active one
+			if (activeSession === sessionId) {
+				const cancelled = cancelCurrentRequest();
+				return json({ cancelled });
+			}
+			return json({ cancelled: false });
 		},
 	},
 
 	// Compact session context
-	"/api/session/:sessionId/compact": {
+	"/api/sessions/:sessionId/compact": {
 		POST: async (req: Request & { params: { sessionId: string } }) => {
 			const { sessionId } = req.params;
 			const result = await compactSession(sessionId);
@@ -572,51 +523,6 @@ export const routes = {
 				return json({ ok: true });
 			}
 			return error(result.error || "Compaction failed");
-		},
-	},
-
-	// List all sessions for current project
-	"/api/sessions": {
-		GET: async () => {
-			try {
-				const allSessions = await getSessionsFromTranscripts();
-				const sessions = allSessions
-					.filter((e) => !e.isSidechain)
-					.sort(
-						(a, b) =>
-							new Date(b.modified).getTime() - new Date(a.modified).getTime(),
-					)
-					.map((e) => ({
-						sessionId: e.sessionId,
-						firstPrompt: e.firstPrompt || "Untitled session",
-						created: e.created,
-						modified: e.modified,
-						gitBranch: e.gitBranch,
-					}));
-
-				return json({ sessions });
-			} catch (err) {
-				console.error("Failed to list sessions:", err);
-				return error(String(err));
-			}
-		},
-	},
-
-	// Delete a specific session
-	"/api/sessions/:sessionId": {
-		DELETE: async (req: Request & { params: { sessionId: string } }) => {
-			try {
-				const { sessionId } = req.params;
-				const url = new URL(req.url);
-				const projectPath = url.searchParams.get("project") ?? getCwd();
-
-				await clearSessionById(sessionId, projectPath);
-
-				return json({ ok: true });
-			} catch (err) {
-				console.error("Failed to delete session:", err);
-				return error(String(err));
-			}
 		},
 	},
 
@@ -783,63 +689,7 @@ export const routes = {
 	"/api/git/diff": {
 		GET: async () => {
 			try {
-				const cwd = getCwd();
-				const diffProc = Bun.spawn(["git", "diff"], {
-					cwd,
-					stdout: "pipe",
-					stderr: "pipe",
-				});
-				const diffOutput = await new Response(diffProc.stdout).text();
-				await diffProc.exited;
-
-				const files = parseDiff(diffOutput);
-
-				const untrackedProc = Bun.spawn(
-					["git", "ls-files", "--others", "--exclude-standard"],
-					{
-						cwd,
-						stdout: "pipe",
-						stderr: "pipe",
-					},
-				);
-				const untrackedOutput = await new Response(untrackedProc.stdout).text();
-				await untrackedProc.exited;
-
-				const untrackedFiles = untrackedOutput
-					.trim()
-					.split("\n")
-					.filter(Boolean);
-
-				const untrackedDiffs = await Promise.all(
-					untrackedFiles.map(async (filePath) => {
-						try {
-							const file = Bun.file(join(cwd, filePath));
-							if (await file.exists()) {
-								const content = await file.text();
-								const lines = content.split("\n");
-								return {
-									path: filePath,
-									status: "added" as const,
-									hunks: [
-										{
-											header: `@@ -0,0 +1,${lines.length} @@`,
-											lines: lines.map((line, i) => ({
-												type: "addition" as const,
-												content: line,
-												newLineNum: i + 1,
-											})),
-										},
-									],
-								};
-							}
-						} catch {
-							// Skip files we can't read
-						}
-						return null;
-					}),
-				);
-				files.push(...(untrackedDiffs.filter((d) => d !== null) as DiffFile[]));
-
+				const files = getGitFiles();
 				return json({ files });
 			} catch (err) {
 				console.error("Git diff error:", err);

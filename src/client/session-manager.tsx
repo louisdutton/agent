@@ -86,7 +86,7 @@ export function SessionManagerModal(props: {
 
 			// Fetch session history directly (stateless)
 			const res = await fetch(
-				`/api/session/${encodeURIComponent(sessionId)}/history`,
+				`/api/sessions/${encodeURIComponent(sessionId)}/history`,
 			);
 			const data = await res.json();
 			setActiveSessionId(sessionId);

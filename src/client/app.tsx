@@ -97,7 +97,7 @@ export function App() {
 			const storedSessionId = sessionId ?? localStorage.getItem("sessionId");
 			if (storedSessionId) {
 				const res = await fetch(
-					`/api/session/${encodeURIComponent(storedSessionId)}/history`,
+					`/api/sessions/${encodeURIComponent(storedSessionId)}/history`,
 				);
 				const data = await res.json();
 				const messages = data.messages?.length ? data.messages : [];
@@ -107,8 +107,8 @@ export function App() {
 				setSessionName(data.firstPrompt || getSessionNameFromEvents(messages));
 				idCounter = messages.length || 0;
 			} else {
-				// No session stored - fetch cwd and check for latest session
-				const res = await fetch(`/api/cwd`);
+				// No session stored - fetch sessions list to get cwd and latest session
+				const res = await fetch("/api/sessions");
 				const data = await res.json();
 				setCwd(data.cwd || "");
 
@@ -116,7 +116,7 @@ export function App() {
 				if (data.latestSessionId) {
 					localStorage.setItem("sessionId", data.latestSessionId);
 					const historyRes = await fetch(
-						`/api/session/${encodeURIComponent(data.latestSessionId)}/history`,
+						`/api/sessions/${encodeURIComponent(data.latestSessionId)}/history`,
 					);
 					const historyData = await historyRes.json();
 					const messages = historyData.messages?.length
@@ -140,7 +140,7 @@ export function App() {
 			const currentSessionId = localStorage.getItem("sessionId");
 			if (currentSessionId) {
 				const statusRes = await fetch(
-					`/api/session/${encodeURIComponent(currentSessionId)}/status`,
+					`/api/sessions/${encodeURIComponent(currentSessionId)}/status`,
 				);
 				const statusData = await statusRes.json();
 				if (statusData.busy) {
@@ -253,13 +253,16 @@ export function App() {
 		abortController = new AbortController();
 
 		try {
-			const sessionId = localStorage.getItem("sessionId");
-			const res = await fetch(`/api/messages`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ message: text, sessionId, images }),
-				signal: abortController.signal,
-			});
+			const sessionId = localStorage.getItem("sessionId") || "new";
+			const res = await fetch(
+				`/api/sessions/${encodeURIComponent(sessionId)}/messages`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ message: text, images }),
+					signal: abortController.signal,
+				},
+			);
 
 			const reader = res.body?.getReader();
 			if (!reader) return;
@@ -421,10 +424,15 @@ export function App() {
 				abortController.abort();
 			}
 			// Tell the backend to cancel the Claude request
-			try {
-				await fetch(`/api/cancel`, { method: "POST" });
-			} catch {
-				// Ignore errors - the request may have already finished
+			const sessionId = localStorage.getItem("sessionId");
+			if (sessionId) {
+				try {
+					await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/cancel`, {
+						method: "POST",
+					});
+				} catch {
+					// Ignore errors - the request may have already finished
+				}
 			}
 			setIsLoading(false);
 			setStreamingContent("");
@@ -476,7 +484,7 @@ export function App() {
 		setIsCompacting(true);
 		try {
 			const res = await fetch(
-				`/api/session/${encodeURIComponent(sessionId)}/compact`,
+				`/api/sessions/${encodeURIComponent(sessionId)}/compact`,
 				{
 					method: "POST",
 				},
