@@ -18,36 +18,48 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 	return result;
 }
 
-export function sendNotification(
+export async function sendNotification(
 	title: string,
 	options?: NotificationOptions,
-): void {
+): Promise<void> {
 	if (permission() !== "granted") return;
 
 	// Only notify if page is not visible (user switched away)
 	if (document.visibilityState === "visible") return;
 
-	const notification = new Notification(title, {
-		icon: "/public/icon.svg",
-		badge: "/public/icon.svg",
-		tag: "claude-response",
-		...options,
-	});
+	// Use service worker notification for Android PWA support
+	const registration = await navigator.serviceWorker?.ready;
+	if (registration) {
+		await registration.showNotification(title, {
+			icon: "/public/icon.svg",
+			badge: "/public/icon.svg",
+			tag: "claude-response",
+			...options,
+		});
+	} else {
+		// Fallback for desktop browsers without service worker
+		const notification = new Notification(title, {
+			icon: "/public/icon.svg",
+			badge: "/public/icon.svg",
+			tag: "claude-response",
+			...options,
+		});
 
-	notification.onclick = () => {
-		window.focus();
-		notification.close();
-	};
+		notification.onclick = () => {
+			window.focus();
+			notification.close();
+		};
+	}
 }
 
-export function notifyClaudeFinished(preview?: string): void {
-	sendNotification("Claude finished", {
+export async function notifyClaudeFinished(preview?: string): Promise<void> {
+	await sendNotification("Claude finished", {
 		body: preview ? preview.slice(0, 100) : "Response ready",
 	});
 }
 
-export function notifyClaudeError(error: string): void {
-	sendNotification("Claude error", {
+export async function notifyClaudeError(error: string): Promise<void> {
+	await sendNotification("Claude error", {
 		body: error.slice(0, 100),
 	});
 }
