@@ -4,7 +4,7 @@
  * via --input-format stream-json and --output-format stream-json.
  */
 
-import type { UUID } from "crypto";
+import type { UUID } from "node:crypto";
 
 // ============================================================================
 // Anthropic SDK Types (minimal subset needed for messages)

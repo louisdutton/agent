@@ -1,5 +1,5 @@
 import { $ } from "bun";
-import { getCwd } from "./session";
+import { getCwd } from "../session";
 
 // Git diff types
 type DiffLineType = "context" | "addition" | "deletion";

@@ -1,4 +1,5 @@
 import { type Subprocess, spawn } from "bun";
+import { getCwd, setAbortController, setActiveSessionId } from "../session";
 import type {
 	ContentBlock,
 	ImageBlock,
@@ -6,7 +7,6 @@ import type {
 	SDKUserMessage,
 	TextBlock,
 } from "./claude-cli-types";
-import { getCwd, setAbortController, setActiveSessionId } from "./session";
 
 // Build message content with images
 function buildMessageContent(
@@ -214,7 +214,7 @@ export async function* sendMessage(
 				parent_tool_use_id: null,
 			};
 
-			proc.stdin.write(JSON.stringify(userMessage) + "\n");
+			proc.stdin.write(`${JSON.stringify(userMessage)}\n`);
 			proc.stdin.end();
 		} else {
 			// Close stdin since we passed the message as an argument
