@@ -50,8 +50,18 @@ export function startSession(sessionId: string, pid: number): void {
 	});
 }
 
-// Stop tracking a session and kill its process
+// Stop tracking a session (does not kill the process - use cancelSession for that)
 export function endSession(sessionId: string): boolean {
+	const ctx = activeSessions.get(sessionId);
+	if (ctx) {
+		activeSessions.delete(sessionId);
+		return true;
+	}
+	return false;
+}
+
+// Cancel a session by killing its process
+export function cancelSession(sessionId: string): boolean {
 	const ctx = activeSessions.get(sessionId);
 	if (ctx) {
 		try {

@@ -5,8 +5,8 @@ import { compactSession, sendMessage } from "./claude";
 import { listProjects, PROJECTS_DIR } from "./files";
 import { getGitFiles } from "./git";
 import {
+	cancelSession,
 	clearSessionById,
-	endSession,
 	getCwd,
 	getSessionHistoryById,
 	getSessionsFromTranscripts,
@@ -165,7 +165,7 @@ export const routes = {
 	"/api/sessions/:sessionId/cancel": {
 		POST: (req: Request & { params: { sessionId: string } }) => {
 			const { sessionId } = req.params;
-			const cancelled = endSession(sessionId);
+			const cancelled = cancelSession(sessionId);
 			return json({ cancelled });
 		},
 	},
