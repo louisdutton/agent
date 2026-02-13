@@ -16,6 +16,7 @@ import {
 } from "./git";
 import { ImagePickerButton, ImagePreview } from "./image-attachment";
 import { Markdown } from "./markdown";
+import { notifyClaudeError, notifyClaudeFinished } from "./notifications";
 import {
 	MicButton,
 	OptionsMenu,
@@ -373,11 +374,15 @@ export function App() {
 								markAllToolsComplete();
 
 								if (parsed.subtype !== "success") {
+									const errorMsg = parsed.errors?.join(", ") || parsed.subtype;
 									addEvent({
 										type: "error",
 										id: String(++idCounter),
-										message: parsed.errors?.join(", ") || parsed.subtype,
+										message: errorMsg,
 									});
+									notifyClaudeError(errorMsg);
+								} else {
+									notifyClaudeFinished(assistantContent);
 								}
 							}
 						} catch {

@@ -1,5 +1,6 @@
 import type { JSX, Setter } from "solid-js";
 import { For, Show } from "solid-js";
+import { permission, requestNotificationPermission } from "./notifications";
 
 export type VoiceStatus =
 	| "idle"
@@ -143,9 +144,31 @@ export function OptionsMenu(props: {
 				type="button"
 				onClick={props.onClear}
 				disabled={props.isCompacting || props.isClearing || props.isLoading}
-				class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm rounded-b-lg disabled:opacity-50"
+				class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm disabled:opacity-50"
 			>
 				{props.isClearing ? "Clearing..." : "Clear Context"}
+			</button>
+			<button
+				type="button"
+				onClick={() => requestNotificationPermission()}
+				class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm rounded-b-lg flex items-center justify-between"
+			>
+				<span>Notifications</span>
+				<span
+					class={`text-xs px-1.5 py-0.5 rounded ${
+						permission() === "granted"
+							? "bg-green-500/20 text-green-400"
+							: permission() === "denied"
+								? "bg-red-500/20 text-red-400"
+								: "bg-muted text-muted-foreground"
+					}`}
+				>
+					{permission() === "granted"
+						? "On"
+						: permission() === "denied"
+							? "Blocked"
+							: "Off"}
+				</span>
 			</button>
 		</div>
 	);
