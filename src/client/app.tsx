@@ -25,6 +25,7 @@ import {
 import { SessionManagerModal } from "./session-manager";
 import { ToolGroup } from "./tools";
 import type { EventItem, Tool, ToolStatus } from "./types";
+import { connectionStatus, initWebSocket } from "./ws";
 
 export function App() {
 	const [events, setEvents] = createSignal<EventItem[]>([]);
@@ -154,7 +155,10 @@ export function App() {
 		}
 	};
 
-	onMount(() => loadHistory());
+	onMount(() => {
+		loadHistory();
+		initWebSocket();
+	});
 
 	const handleCommit = () => {
 		setShowDiffModal(false);
@@ -557,7 +561,16 @@ export function App() {
 							<div class="text-foreground font-medium truncate">
 								{sessionName() || "New Session"}
 							</div>
-							<div class="text-muted-foreground font-mono text-xs truncate">
+							<div class="text-muted-foreground font-mono text-xs truncate flex items-center gap-1.5">
+								<span
+									class={`w-1.5 h-1.5 rounded-full ${
+										connectionStatus() === "connected"
+											? "bg-green-500"
+											: connectionStatus() === "connecting"
+												? "bg-yellow-500"
+												: "bg-red-500"
+									}`}
+								/>
 								{cwd()}
 							</div>
 						</button>
