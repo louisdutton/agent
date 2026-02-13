@@ -1,5 +1,5 @@
 import { type Subprocess, spawn } from "bun";
-import { getCwd, setAbortController, setActiveSessionId } from "../session";
+import { endSession, getCwd, startSession } from "../session";
 import type {
 	ContentBlock,
 	ImageBlock,
@@ -79,24 +79,13 @@ async function* parseNDJSON(
 function spawnClaudeProcess(
 	args: string[],
 	cwd: string,
-	signal?: AbortSignal,
 ): Subprocess<"pipe", "pipe", "pipe"> {
-	// Run claude within nix develop shell of the project
-	const proc = spawn(["nix", "develop", "--command", "claude", ...args], {
+	return spawn(["nix", "develop", "--command", "claude", ...args], {
 		cwd,
 		stdin: "pipe",
 		stdout: "pipe",
 		stderr: "pipe",
 	});
-
-	// Handle abort signal
-	if (signal) {
-		signal.addEventListener("abort", () => {
-			proc.kill();
-		});
-	}
-
-	return proc;
 }
 
 // Send a slash command to a session
@@ -152,6 +141,7 @@ export async function compactSession(
 }
 
 // Generator that yields session_id when available
+// Supports concurrent sessions - each session tracked independently
 export async function* sendMessage(
 	message: string,
 	sessionId: string | null,
@@ -163,11 +153,9 @@ export async function* sendMessage(
 	);
 
 	const cwd = getCwd();
-	const abortController = new AbortController();
-	setAbortController(abortController);
 
-	// Track active session so UI can detect running state after refresh
-	setActiveSessionId(sessionId);
+	// Track the actual session ID (may be assigned by Claude for new sessions)
+	let actualSessionId = sessionId;
 
 	try {
 		const hasImages = images?.length;
@@ -200,7 +188,12 @@ export async function* sendMessage(
 			args.push(message);
 		}
 
-		const proc = spawnClaudeProcess(args, cwd, abortController.signal);
+		const proc = spawnClaudeProcess(args, cwd);
+
+		// Track session with PID for 1:1 process mapping
+		if (sessionId) {
+			startSession(sessionId, proc.pid);
+		}
 
 		// If we have images, send the message via stdin
 		if (hasImages) {
@@ -223,13 +216,13 @@ export async function* sendMessage(
 
 		// Read and yield messages from stdout
 		const reader = proc.stdout.getReader();
-		let actualSessionId = sessionId;
 
 		for await (const event of parseNDJSON(reader)) {
-			// Extract session_id from events
+			// Extract session_id from events (for new sessions)
 			if (!actualSessionId && "session_id" in event && event.session_id) {
 				actualSessionId = event.session_id;
-				setActiveSessionId(actualSessionId);
+				// Start tracking this new session with PID
+				startSession(actualSessionId, proc.pid);
 			}
 			yield JSON.stringify(event);
 		}
@@ -241,7 +234,9 @@ export async function* sendMessage(
 			console.error(`Claude process exited with code ${exitCode}:`, stderr);
 		}
 	} finally {
-		setAbortController(null);
-		setActiveSessionId(null);
+		// Clean up session tracking
+		if (actualSessionId) {
+			endSession(actualSessionId);
+		}
 	}
 }

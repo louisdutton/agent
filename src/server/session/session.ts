@@ -17,13 +17,17 @@ export type Message =
 	| { type: "assistant"; id: string; content: string }
 	| { type: "tools"; id: string; tools: Tool[] };
 
-// Simplified state - only track cwd and abort controller
+// Simplified state - only track cwd and per-session contexts
 // Claude Code filesystem is the source of truth for session data
 let cwd: string = process.cwd();
-let abortController: AbortController | null = null;
 
-// Track which session is currently active (for UI state after refresh)
-let activeSessionId: string | null = null;
+// Per-session state for concurrent session support
+type SessionContext = {
+	pid: number;
+	startTime: number;
+};
+
+const activeSessions = new Map<string, SessionContext>();
 
 export function getCwd(): string {
 	return cwd;
@@ -33,34 +37,37 @@ export function setCwd(dir: string): void {
 	cwd = dir;
 }
 
-export function setAbortController(controller: AbortController | null): void {
-	abortController = controller;
+// Get all active session IDs
+export function getActiveSessions(): string[] {
+	return Array.from(activeSessions.keys());
 }
 
-export function getAbortController(): AbortController | null {
-	return abortController;
+// Start tracking a session with its process PID
+export function startSession(sessionId: string, pid: number): void {
+	activeSessions.set(sessionId, {
+		pid,
+		startTime: Date.now(),
+	});
 }
 
-export function cancelCurrentRequest(): boolean {
-	if (abortController) {
-		abortController.abort();
-		abortController = null;
-		console.debug("Request cancelled");
+// Stop tracking a session and kill its process
+export function endSession(sessionId: string): boolean {
+	const ctx = activeSessions.get(sessionId);
+	if (ctx) {
+		try {
+			process.kill(ctx.pid);
+		} catch {
+			// Process may have already exited
+		}
+		activeSessions.delete(sessionId);
 		return true;
 	}
 	return false;
 }
 
-export function isRequestInProgress(): boolean {
-	return abortController !== null;
-}
-
-export function getActiveSessionId(): string | null {
-	return activeSessionId;
-}
-
-export function setActiveSessionId(sessionId: string | null): void {
-	activeSessionId = sessionId;
+// Check if a specific session has an active request
+export function isSessionActive(sessionId: string): boolean {
+	return activeSessions.has(sessionId);
 }
 
 // Clear session by deleting its transcript file directly

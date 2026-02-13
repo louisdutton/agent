@@ -5,13 +5,12 @@ import { compactSession, sendMessage } from "./claude";
 import { listProjects, PROJECTS_DIR } from "./files";
 import { getGitFiles } from "./git";
 import {
-	cancelCurrentRequest,
 	clearSessionById,
-	getActiveSessionId,
+	endSession,
 	getCwd,
 	getSessionHistoryById,
 	getSessionsFromTranscripts,
-	isRequestInProgress,
+	isSessionActive,
 	setCwd,
 } from "./session";
 import { corsHeaders, EMPTY, error, json } from "./util";
@@ -87,8 +86,7 @@ export const routes = {
 	"/api/sessions/:sessionId/status": {
 		GET: (req: Request & { params: { sessionId: string } }) => {
 			const { sessionId } = req.params;
-			const activeSession = getActiveSessionId();
-			const busy = isRequestInProgress() && activeSession === sessionId;
+			const busy = isSessionActive(sessionId);
 			return json({ busy });
 		},
 	},
@@ -163,17 +161,12 @@ export const routes = {
 		},
 	},
 
-	// Cancel current request
+	// Cancel a session's request
 	"/api/sessions/:sessionId/cancel": {
 		POST: (req: Request & { params: { sessionId: string } }) => {
 			const { sessionId } = req.params;
-			const activeSession = getActiveSessionId();
-			// Only cancel if this session is the active one
-			if (activeSession === sessionId) {
-				const cancelled = cancelCurrentRequest();
-				return json({ cancelled });
-			}
-			return json({ cancelled: false });
+			const cancelled = endSession(sessionId);
+			return json({ cancelled });
 		},
 	},
 
