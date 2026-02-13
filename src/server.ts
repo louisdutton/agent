@@ -27,6 +27,11 @@ const server = Bun.serve({
 	routes: {
 		"/": app,
 		...routes,
+		// Serve SW from root so it can control the whole site
+		"/sw.js": () =>
+			new Response(Bun.file("./public/sw.js"), {
+				headers: { "Content-Type": "application/javascript" },
+			}),
 		"/ws": (req, server) => {
 			if (server.upgrade(req)) {
 				return undefined;
