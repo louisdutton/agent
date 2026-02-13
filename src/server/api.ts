@@ -352,7 +352,7 @@ export const routes = {
 	"/api/git/diff": {
 		GET: async () => {
 			try {
-				const files = getGitFiles();
+				const files = await getGitFiles();
 				return json({ files });
 			} catch (err) {
 				console.error("Git diff error:", err);
