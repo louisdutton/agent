@@ -23,6 +23,7 @@ export function wsSend(data: object) {
 const server = Bun.serve({
 	port: Number(values.port),
 	idleTimeout: 120,
+	development: { console: true },
 
 	routes: {
 		"/": app,
