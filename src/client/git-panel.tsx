@@ -855,6 +855,8 @@ export function GitPanel(props: { onClose: () => void }) {
 	};
 
 	const handlePush = async () => {
+		if (!confirm(`Push commits to remote?`)) return;
+
 		setActionLoading(true);
 		try {
 			const res = await fetch("/api/git/push", {
