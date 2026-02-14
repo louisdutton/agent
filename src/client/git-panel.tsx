@@ -815,7 +815,7 @@ export function GitPanel(props: { onClose: () => void }) {
 	const loadCommits = async () => {
 		setLoading(true);
 		try {
-			const res = await fetch("/api/git/log?count=100");
+			const res = await fetch("/api/git/log");
 			if (res.ok) {
 				const data = await res.json();
 				setCommits(data.commits);

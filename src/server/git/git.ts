@@ -141,7 +141,7 @@ export async function getGitLog(
 	const output = await $`git ${args}`.text();
 	const commits: GitCommit[] = [];
 
-	for (const entry of output.split("%x00\n").filter(Boolean)) {
+	for (const entry of output.split("\x00\n").filter(Boolean)) {
 		const parts = entry.split("\x00");
 		if (parts.length < 9) continue;
 
