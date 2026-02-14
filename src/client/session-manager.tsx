@@ -220,7 +220,7 @@ export function SessionManagerModal(props: {
 		>
 			<div class="h-full flex flex-col">
 				{/* Top bar */}
-				<div class="flex items-center justify-between px-4 pt-4 pb-2 max-w-2xl mx-auto w-full">
+				<div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-border max-w-2xl mx-auto w-full">
 					<button
 						type="button"
 						onClick={() => {
@@ -230,7 +230,7 @@ export function SessionManagerModal(props: {
 								props.onClose();
 							}
 						}}
-						class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+						class="h-11 px-5 text-base rounded-xl border border-border active:bg-muted transition-colors"
 					>
 						{showProjectPicker() ? "Back" : "Close"}
 					</button>
@@ -238,7 +238,7 @@ export function SessionManagerModal(props: {
 						<button
 							type="button"
 							onClick={() => setShowProjectPicker(true)}
-							class="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+							class="h-11 px-5 text-base rounded-xl bg-foreground text-background active:opacity-80 transition-colors"
 						>
 							New Session
 						</button>
@@ -256,8 +256,8 @@ export function SessionManagerModal(props: {
 					<Show when={!loading()}>
 						{/* Project picker overlay */}
 						<Show when={showProjectPicker()}>
-							<div class="space-y-2 max-w-2xl mx-auto w-full max-h-[70vh] overflow-y-auto">
-								<div class="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 sticky top-0 bg-background pb-2">
+							<div class="space-y-2 max-w-2xl mx-auto w-full">
+								<div class="text-sm font-medium text-muted-foreground mb-3">
 									Select project
 								</div>
 								<For each={projects()}>
@@ -266,10 +266,10 @@ export function SessionManagerModal(props: {
 											type="button"
 											onClick={() => startNewSession(project.name)}
 											disabled={starting() === project.name}
-											class="w-full p-3 rounded-lg border border-border hover:border-primary hover:bg-muted/30 transition-colors text-left disabled:opacity-50"
+											class="w-full p-4 rounded-xl border border-border active:bg-muted/30 transition-colors text-left disabled:opacity-50 min-h-[72px]"
 										>
-											<div class="text-sm font-medium">{project.name}</div>
-											<div class="text-xs text-muted-foreground mt-1">
+											<div class="text-base font-medium">{project.name}</div>
+											<div class="text-sm text-muted-foreground mt-1">
 												{project.sessions.length} session
 												{project.sessions.length !== 1 ? "s" : ""}
 											</div>
@@ -328,17 +328,17 @@ export function SessionManagerModal(props: {
 																			);
 																		}
 																	}}
-																	class={`w-full flex items-center gap-3 p-3 rounded-lg border transition-colors text-left ${
+																	class={`w-full flex items-center gap-3 p-4 rounded-xl border transition-colors text-left min-h-[72px] ${
 																		isActiveSession(
 																			session.sessionId,
 																			project.name,
 																		)
-																			? "border-primary bg-muted/50 cursor-default"
-																			: "border-border hover:bg-muted/30 cursor-pointer"
+																			? "border-foreground bg-muted/50 cursor-default"
+																			: "border-border active:bg-muted/30 cursor-pointer"
 																	} ${switching() === session.sessionId ? "opacity-50" : ""}`}
 																>
 																	<div class="flex-1 min-w-0">
-																		<div class="text-sm font-medium truncate">
+																		<div class="text-base font-medium truncate">
 																			{switching() === session.sessionId
 																				? "Switching..."
 																				: truncatePrompt(session.firstPrompt)}
@@ -367,7 +367,7 @@ export function SessionManagerModal(props: {
 																			);
 																		}}
 																		disabled={deleting() === session.sessionId}
-																		class="p-1.5 rounded-md text-red-400 hover:bg-red-500/20 disabled:opacity-50 transition-colors"
+																		class="p-3 -m-1 rounded-lg text-red-400 hover:bg-red-500/20 disabled:opacity-50 transition-colors"
 																		title="Delete session"
 																	>
 																		<svg

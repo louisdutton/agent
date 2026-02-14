@@ -359,18 +359,18 @@ export function GitDiffModal(props: {
 				</div>
 
 				{/* Bottom bar - secondary on left, primary on right */}
-				<div class="flex items-center justify-between px-4 pb-6 pt-2">
+				<div class="flex items-center gap-3 px-4 pb-6 pt-3 border-t border-border">
 					<button
 						type="button"
 						onClick={props.onClose}
-						class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+						class="flex-1 h-12 text-base rounded-xl border border-border active:bg-muted transition-colors"
 					>
 						Close
 					</button>
 					<button
 						type="button"
 						onClick={props.onCommit}
-						class="btn px-4 py-2 text-sm"
+						class="flex-1 h-12 text-base rounded-xl bg-foreground text-background active:opacity-80"
 					>
 						Commit
 					</button>
@@ -389,9 +389,6 @@ export function FileViewerModal(props: {
 	const [error, setError] = createSignal<string | null>(null);
 
 	const lang = createMemo(() => getLanguageFromPath(props.filePath));
-	const fileName = createMemo(
-		() => props.filePath.split("/").pop() || props.filePath,
-	);
 
 	const highlightedLines = createMemo(() => {
 		const code = content();
@@ -483,15 +480,14 @@ export function FileViewerModal(props: {
 				</div>
 
 				{/* Bottom bar */}
-				<div class="flex items-center justify-between px-4 pb-6 pt-2">
+				<div class="flex items-center gap-3 px-4 pb-6 pt-3 border-t border-border">
 					<button
 						type="button"
 						onClick={props.onClose}
-						class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+						class="flex-1 h-12 text-base rounded-xl border border-border active:bg-muted transition-colors"
 					>
 						Close
 					</button>
-					<span class="text-xs text-muted-foreground">{fileName()}</span>
 				</div>
 			</div>
 		</div>
@@ -643,11 +639,11 @@ export function FileBrowserModal(props: {
 						type="button"
 						onClick={goUp}
 						disabled={!currentPath()}
-						class="p-1 hover:bg-muted rounded transition-colors disabled:opacity-30"
+						class="w-10 h-10 flex items-center justify-center active:bg-muted rounded-xl transition-colors disabled:opacity-30"
 						title="Go up"
 					>
 						<svg
-							class="w-5 h-5"
+							class="w-6 h-6"
 							fill="none"
 							stroke="currentColor"
 							viewBox="0 0 24 24"
@@ -680,13 +676,13 @@ export function FileBrowserModal(props: {
 					</Show>
 
 					<Show when={!loading() && !error()}>
-						<div class="space-y-0.5">
+						<div class="space-y-1">
 							<For each={files()}>
 								{(file) => (
 									<button
 										type="button"
 										onClick={() => handleClick(file)}
-										class="w-full flex items-center gap-3 px-3 py-2 hover:bg-muted rounded-lg transition-colors text-left"
+										class="w-full flex items-center gap-3 px-4 py-3 active:bg-muted rounded-xl transition-colors text-left min-h-[52px]"
 									>
 										<svg
 											class="w-5 h-5 shrink-0 text-muted-foreground"
@@ -710,7 +706,7 @@ export function FileBrowserModal(props: {
 												/>
 											)}
 										</svg>
-										<span class="font-mono text-xs truncate">{file.name}</span>
+										<span class="font-mono text-sm truncate">{file.name}</span>
 									</button>
 								)}
 							</For>
@@ -719,11 +715,11 @@ export function FileBrowserModal(props: {
 				</div>
 
 				{/* Bottom bar */}
-				<div class="flex items-center px-4 pb-6 pt-2">
+				<div class="flex items-center gap-3 px-4 pb-6 pt-3 border-t border-border">
 					<button
 						type="button"
 						onClick={props.onClose}
-						class="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+						class="flex-1 h-12 text-base rounded-xl border border-border active:bg-muted transition-colors"
 					>
 						Close
 					</button>

@@ -124,11 +124,11 @@ export function OptionsMenu(props: {
 	isLoading: boolean;
 }) {
 	return (
-		<div class="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 bg-background border border-border rounded-lg shadow-lg min-w-48">
+		<div class="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 bg-background border border-border rounded-xl shadow-lg min-w-56">
 			<button
 				type="button"
 				onClick={props.onToggleTextInput}
-				class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm rounded-t-lg"
+				class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base rounded-t-xl min-h-[48px]"
 			>
 				{props.showTextInput ? "Hide Text Input" : "Show Text Input"}
 			</button>
@@ -136,7 +136,7 @@ export function OptionsMenu(props: {
 				type="button"
 				onClick={props.onCompact}
 				disabled={props.isCompacting || props.isClearing || props.isLoading}
-				class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm disabled:opacity-50"
+				class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base disabled:opacity-50 min-h-[48px]"
 			>
 				{props.isCompacting ? "Compacting..." : "Compact Context"}
 			</button>
@@ -144,18 +144,18 @@ export function OptionsMenu(props: {
 				type="button"
 				onClick={props.onClear}
 				disabled={props.isCompacting || props.isClearing || props.isLoading}
-				class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm disabled:opacity-50"
+				class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base disabled:opacity-50 min-h-[48px]"
 			>
 				{props.isClearing ? "Clearing..." : "Clear Context"}
 			</button>
 			<button
 				type="button"
 				onClick={() => requestNotificationPermission()}
-				class="w-full text-left px-4 py-2 hover:bg-muted transition-colors text-sm rounded-b-lg flex items-center justify-between"
+				class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base rounded-b-xl flex items-center justify-between min-h-[48px]"
 			>
 				<span>Notifications</span>
 				<span
-					class={`text-xs px-1.5 py-0.5 rounded ${
+					class={`text-sm px-2 py-1 rounded-lg ${
 						permission() === "granted"
 							? "bg-green-500/20 text-green-400"
 							: permission() === "denied"

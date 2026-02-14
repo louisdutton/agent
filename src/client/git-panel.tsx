@@ -276,8 +276,8 @@ function CommitDetail(props: {
 												class="text-sm font-mono font-bold w-5"
 												classList={{
 													"text-green-500": file.status === "A",
-													"text-red-500": file.status === "D",
 													"text-foreground": file.status === "M",
+													"text-red-500": file.status === "D",
 													"text-muted-foreground": file.status === "R",
 												}}
 											>
