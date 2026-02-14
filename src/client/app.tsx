@@ -14,6 +14,7 @@ import {
 	GitStatusIndicator,
 	useGitStatus,
 } from "./git";
+import { GitPanel } from "./git-panel";
 import { ImagePickerButton, ImagePreview } from "./image-attachment";
 import { Markdown } from "./markdown";
 import { notifyClaudeError, notifyClaudeFinished } from "./notifications";
@@ -57,6 +58,7 @@ export function App() {
 	const [showFileBrowser, setShowFileBrowser] = createSignal(false);
 	const [showFileViewer, setShowFileViewer] = createSignal(false);
 	const [fileViewerPath, setFileViewerPath] = createSignal("");
+	const [showGitPanel, setShowGitPanel] = createSignal(false);
 
 	let mainRef: HTMLElement | undefined;
 	let menuRef: HTMLDivElement | undefined;
@@ -791,11 +793,11 @@ export function App() {
 						onClick={handleMicClick}
 					/>
 
-					{/* Git status button - tap for diff, hold for file browser */}
+					{/* Git status button - tap for diff, hold for git panel */}
 					<GitStatusIndicator
 						gitStatus={gitStatus()}
 						onClick={() => setShowDiffModal(true)}
-						onLongPress={() => setShowFileBrowser(true)}
+						onLongPress={() => setShowGitPanel(true)}
 					/>
 				</div>
 			</div>
@@ -852,6 +854,11 @@ export function App() {
 					filePath={fileViewerPath()}
 					onClose={() => setShowFileViewer(false)}
 				/>
+			</Show>
+
+			{/* Git Panel */}
+			<Show when={showGitPanel()}>
+				<GitPanel onClose={() => setShowGitPanel(false)} />
 			</Show>
 		</div>
 	);

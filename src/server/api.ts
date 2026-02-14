@@ -3,7 +3,28 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { compactSession, sendMessage } from "./claude";
 import { listProjects, PROJECTS_DIR } from "./files";
-import { getGitFiles } from "./git";
+import {
+	createBranch,
+	deleteBranch,
+	getBranches,
+	getCommitDetails,
+	getCurrentBranch,
+	getGitFiles,
+	getGitLog,
+	getStashes,
+	gitCherryPick,
+	gitFetch,
+	gitPull,
+	gitPush,
+	gitReset,
+	gitRevert,
+	mergeBranch,
+	stashApply,
+	stashDrop,
+	stashPop,
+	stashSave,
+	switchBranch,
+} from "./git";
 import {
 	cancelSession,
 	clearSessionById,
@@ -391,6 +412,267 @@ export const routes = {
 				return json({ ok: true, output: stdout });
 			} catch (err) {
 				console.error("Git commit error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Git log (commit history)
+	"/api/git/log": {
+		GET: async (req: Request) => {
+			try {
+				const url = new URL(req.url);
+				const count = Number.parseInt(
+					url.searchParams.get("count") || "50",
+					10,
+				);
+				const branch = url.searchParams.get("branch") || undefined;
+				const commits = await getGitLog(count, branch);
+				const currentBranch = await getCurrentBranch();
+				return json({ commits, currentBranch });
+			} catch (err) {
+				console.error("Git log error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Git commit details
+	"/api/git/commits/:hash": {
+		GET: async (req: Request & { params: { hash: string } }) => {
+			try {
+				const { hash } = req.params;
+				const details = await getCommitDetails(hash);
+				return json(details);
+			} catch (err) {
+				console.error("Git commit details error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Git branches
+	"/api/git/branches": {
+		GET: async () => {
+			try {
+				const branches = await getBranches();
+				const current = await getCurrentBranch();
+				return json({ branches, current });
+			} catch (err) {
+				console.error("Git branches error:", err);
+				return error(String(err));
+			}
+		},
+		POST: async (req: Request) => {
+			try {
+				const { name, startPoint } = (await req.json()) as {
+					name: string;
+					startPoint?: string;
+				};
+				if (!name?.trim()) {
+					return json({ error: "Branch name required" }, { status: 400 });
+				}
+				await createBranch(name.trim(), startPoint);
+				return json({ ok: true });
+			} catch (err) {
+				console.error("Git create branch error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Git branch operations
+	"/api/git/branches/:name": {
+		DELETE: async (req: Request & { params: { name: string } }) => {
+			try {
+				const { name } = req.params;
+				const url = new URL(req.url);
+				const force = url.searchParams.get("force") === "true";
+				await deleteBranch(decodeURIComponent(name), force);
+				return json({ ok: true });
+			} catch (err) {
+				console.error("Git delete branch error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Switch branch
+	"/api/git/checkout": {
+		POST: async (req: Request) => {
+			try {
+				const { branch } = (await req.json()) as { branch: string };
+				if (!branch?.trim()) {
+					return json({ error: "Branch name required" }, { status: 400 });
+				}
+				await switchBranch(branch.trim());
+				return json({ ok: true });
+			} catch (err) {
+				console.error("Git checkout error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Merge branch
+	"/api/git/merge": {
+		POST: async (req: Request) => {
+			try {
+				const { branch } = (await req.json()) as { branch: string };
+				if (!branch?.trim()) {
+					return json({ error: "Branch name required" }, { status: 400 });
+				}
+				const result = await mergeBranch(branch.trim());
+				return json({ ok: true, output: result });
+			} catch (err) {
+				console.error("Git merge error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Git stashes
+	"/api/git/stashes": {
+		GET: async () => {
+			try {
+				const stashes = await getStashes();
+				return json({ stashes });
+			} catch (err) {
+				console.error("Git stashes error:", err);
+				return error(String(err));
+			}
+		},
+		POST: async (req: Request) => {
+			try {
+				const { message } = (await req.json()) as { message?: string };
+				await stashSave(message);
+				return json({ ok: true });
+			} catch (err) {
+				console.error("Git stash save error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Stash operations
+	"/api/git/stashes/:index": {
+		POST: async (req: Request & { params: { index: string } }) => {
+			try {
+				const index = Number.parseInt(req.params.index, 10);
+				const { action } = (await req.json()) as {
+					action: "pop" | "apply" | "drop";
+				};
+
+				if (action === "pop") {
+					await stashPop(index);
+				} else if (action === "apply") {
+					await stashApply(index);
+				} else if (action === "drop") {
+					await stashDrop(index);
+				} else {
+					return json({ error: "Invalid action" }, { status: 400 });
+				}
+
+				return json({ ok: true });
+			} catch (err) {
+				console.error("Git stash operation error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Git pull
+	"/api/git/pull": {
+		POST: async () => {
+			try {
+				const result = await gitPull();
+				return json({ ok: true, output: result });
+			} catch (err) {
+				console.error("Git pull error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Git push
+	"/api/git/push": {
+		POST: async (req: Request) => {
+			try {
+				const { force, setUpstream } = (await req.json()) as {
+					force?: boolean;
+					setUpstream?: boolean;
+				};
+				const result = await gitPush(force, setUpstream);
+				return json({ ok: true, output: result });
+			} catch (err) {
+				console.error("Git push error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Git fetch
+	"/api/git/fetch": {
+		POST: async () => {
+			try {
+				const result = await gitFetch();
+				return json({ ok: true, output: result });
+			} catch (err) {
+				console.error("Git fetch error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Git reset
+	"/api/git/reset": {
+		POST: async (req: Request) => {
+			try {
+				const { hash, mode } = (await req.json()) as {
+					hash: string;
+					mode?: "soft" | "mixed" | "hard";
+				};
+				if (!hash?.trim()) {
+					return json({ error: "Commit hash required" }, { status: 400 });
+				}
+				await gitReset(hash.trim(), mode || "mixed");
+				return json({ ok: true });
+			} catch (err) {
+				console.error("Git reset error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Git cherry-pick
+	"/api/git/cherry-pick": {
+		POST: async (req: Request) => {
+			try {
+				const { hash } = (await req.json()) as { hash: string };
+				if (!hash?.trim()) {
+					return json({ error: "Commit hash required" }, { status: 400 });
+				}
+				const result = await gitCherryPick(hash.trim());
+				return json({ ok: true, output: result });
+			} catch (err) {
+				console.error("Git cherry-pick error:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Git revert
+	"/api/git/revert": {
+		POST: async (req: Request) => {
+			try {
+				const { hash } = (await req.json()) as { hash: string };
+				if (!hash?.trim()) {
+					return json({ error: "Commit hash required" }, { status: 400 });
+				}
+				const result = await gitRevert(hash.trim());
+				return json({ ok: true, output: result });
+			} catch (err) {
+				console.error("Git revert error:", err);
 				return error(String(err));
 			}
 		},
