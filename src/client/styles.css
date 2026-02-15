@@ -27,7 +27,7 @@
 
 	code,
 	pre {
-		font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
+		font-family: ui-monospace, monospace;
 	}
 
 	/* Code blocks */
@@ -39,11 +39,26 @@
 	.hljs {
 		background: transparent !important;
 	}
+}
 
-	/* Inline code */
-	:not(pre) > code {
-		@apply px-1.5 py-0.5 rounded bg-muted text-sm;
-	}
+/* Inline code - override prose typography styles (outside @layer for higher specificity) */
+.prose :where(code):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+	color: inherit;
+	font-size: 0.9em;
+	border: 1px solid var(--color-border);
+	border-radius: 0.25rem;
+	padding: 0.1em 0.3em;
+}
+
+.prose
+	:where(code):not(
+		:where([class~="not-prose"], [class~="not-prose"] *)
+	)::before,
+.prose
+	:where(code):not(
+		:where([class~="not-prose"], [class~="not-prose"] *)
+	)::after {
+	content: none;
 }
 
 @layer components {

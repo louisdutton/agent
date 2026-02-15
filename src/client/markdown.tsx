@@ -34,7 +34,7 @@ renderer.codespan = ({ text }) => {
 		.replace(/&/g, "&amp;")
 		.replace(/</g, "&lt;")
 		.replace(/>/g, "&gt;");
-	return `<code class="bg-muted px-1.5 py-0.5 rounded text-accent">${escaped}</code>`;
+	return `<code>${escaped}</code>`;
 };
 
 marked.setOptions({
