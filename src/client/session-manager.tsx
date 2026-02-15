@@ -204,7 +204,7 @@ export function SessionManagerModal(props: {
 
 	return (
 		<div
-			class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
+			class="fixed inset-0 z-50 bg-background"
 			onClick={(e) => {
 				if (e.target === e.currentTarget) props.onClose();
 			}}
@@ -367,7 +367,7 @@ export function SessionManagerModal(props: {
 																			);
 																		}}
 																		disabled={deleting() === session.sessionId}
-																		class="p-3 -m-1 rounded-lg text-red-400 hover:bg-red-500/20 disabled:opacity-50 transition-colors"
+																		class="p-3 -m-1 rounded-lg text-red-400 hover:bg-red-950 disabled:opacity-50 transition-colors"
 																		title="Delete session"
 																	>
 																		<svg

@@ -157,9 +157,9 @@ export function OptionsMenu(props: {
 				<span
 					class={`text-sm px-2 py-1 rounded-lg ${
 						permission() === "granted"
-							? "bg-green-500/20 text-green-400"
+							? "bg-green-950 text-green-400"
 							: permission() === "denied"
-								? "bg-red-500/20 text-red-400"
+								? "bg-red-950 text-red-400"
 								: "bg-muted text-muted-foreground"
 					}`}
 				>

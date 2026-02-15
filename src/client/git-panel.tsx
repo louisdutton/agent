@@ -340,7 +340,7 @@ function CommitDetail(props: {
 					<button
 						type="button"
 						onClick={() => props.onAction("reset-hard", props.hash)}
-						class="flex-1 h-12 text-base rounded-xl bg-red-500/20 text-red-400 active:bg-red-500/30"
+						class="flex-1 h-12 text-base rounded-xl bg-red-950 text-red-400 active:bg-red-900"
 					>
 						Reset hard
 					</button>
@@ -369,8 +369,8 @@ function DiffView(props: { diff?: DiffFile }) {
 										<div
 											class="flex font-mono text-sm"
 											classList={{
-												"bg-green-500/15": line.type === "addition",
-												"bg-red-500/15": line.type === "deletion",
+												"bg-green-950": line.type === "addition",
+												"bg-red-950": line.type === "deletion",
 											}}
 										>
 											<span class="w-12 shrink-0 text-right px-2 text-muted-foreground/50 select-none border-r border-border">
@@ -506,7 +506,7 @@ function BranchRow(props: {
 					<button
 						type="button"
 						onClick={props.onDelete}
-						class="w-11 h-11 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center active:bg-red-500/30"
+						class="w-11 h-11 rounded-xl bg-red-950 text-red-400 flex items-center justify-center active:bg-red-900"
 						title="Delete"
 					>
 						<svg
@@ -628,7 +628,7 @@ function StashRow(props: {
 				<button
 					type="button"
 					onClick={props.onDrop}
-					class="w-11 h-11 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center active:bg-red-500/30"
+					class="w-11 h-11 rounded-xl bg-red-950 text-red-400 flex items-center justify-center active:bg-red-900"
 				>
 					<svg
 						class="w-5 h-5"
@@ -1114,8 +1114,8 @@ export function GitPanel(props: { onClose: () => void }) {
 				<div
 					class="mx-4 mt-2 px-4 py-3 rounded-xl text-base"
 					classList={{
-						"bg-green-500/20 text-green-400": message()?.type === "success",
-						"bg-red-500/20 text-red-400": message()?.type === "error",
+						"bg-green-950 text-green-400": message()?.type === "success",
+						"bg-red-950 text-red-400": message()?.type === "error",
 					}}
 				>
 					{message()?.text}

@@ -718,7 +718,7 @@ export function App() {
 							e.preventDefault();
 							sendMessage();
 						}}
-						class="flex gap-2 bg-background/90 backdrop-blur-sm border border-border rounded-full px-3 py-2 shadow-lg"
+						class="flex gap-2 bg-muted border border-border rounded-full px-3 py-2 shadow-lg"
 					>
 						<ImagePickerButton
 							images={attachedImages}
@@ -764,7 +764,7 @@ export function App() {
 				<ImagePreview images={attachedImages} setImages={setAttachedImages} />
 
 				{/* Buttons */}
-				<div class="flex items-center justify-center gap-4 bg-background/90 backdrop-blur-sm rounded-full px-3 py-2 border border-border shadow-lg">
+				<div class="flex items-center justify-center gap-4 bg-muted rounded-full px-3 py-2 border border-border shadow-lg">
 					{/* Options menu button */}
 					<OptionsMenuButton
 						menuRef={menuRef}

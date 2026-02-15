@@ -98,7 +98,7 @@ function DiffHunkView(props: { hunk: DiffHunk; lang: string }) {
 
 	return (
 		<div>
-			<div class="px-4 py-1 bg-blue-500/10 text-blue-400 font-mono text-xs">
+			<div class="px-4 py-1 bg-blue-950 text-blue-400 font-mono text-xs">
 				{props.hunk.header}
 			</div>
 			<div class="font-mono text-xs">
@@ -107,9 +107,9 @@ function DiffHunkView(props: { hunk: DiffHunk; lang: string }) {
 						<div
 							class={`flex ${
 								line.type === "addition"
-									? "bg-green-500/15"
+									? "bg-green-950"
 									: line.type === "deletion"
-										? "bg-red-500/15"
+										? "bg-red-950"
 										: ""
 							}`}
 						>
@@ -326,7 +326,7 @@ export function GitDiffModal(props: {
 
 	return (
 		<div
-			class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
+			class="fixed inset-0 z-50 bg-background"
 			onClick={(e) => {
 				if (e.target === e.currentTarget) props.onClose();
 			}}
@@ -425,7 +425,7 @@ export function FileViewerModal(props: {
 
 	return (
 		<div
-			class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
+			class="fixed inset-0 z-50 bg-background"
 			onClick={(e) => {
 				if (e.target === e.currentTarget) props.onClose();
 			}}
@@ -543,9 +543,9 @@ export function InlineDiffView(props: {
 						<div
 							class={`flex ${
 								line.type === "addition"
-									? "bg-green-500/15"
+									? "bg-green-950"
 									: line.type === "deletion"
-										? "bg-red-500/15"
+										? "bg-red-950"
 										: ""
 							}`}
 						>
@@ -624,7 +624,7 @@ export function FileBrowserModal(props: {
 
 	return (
 		<div
-			class="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm"
+			class="fixed inset-0 z-50 bg-background"
 			onClick={(e) => {
 				if (e.target === e.currentTarget) props.onClose();
 			}}
