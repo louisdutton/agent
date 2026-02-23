@@ -75,12 +75,24 @@ async function* parseNDJSON(
 	}
 }
 
+// Check if a directory has a flake.nix
+async function hasFlake(dir: string): Promise<boolean> {
+	const file = Bun.file(`${dir}/flake.nix`);
+	return file.exists();
+}
+
 // Spawn the Claude CLI process with the given arguments
-function spawnClaudeProcess(
+// Uses nix develop if flake.nix exists, otherwise runs claude directly
+async function spawnClaudeProcess(
 	args: string[],
 	cwd: string,
-): Subprocess<"pipe", "pipe", "pipe"> {
-	return spawn(["nix", "develop", "--command", "claude", ...args], {
+): Promise<Subprocess<"pipe", "pipe", "pipe">> {
+	const useNix = await hasFlake(cwd);
+	const command = useNix
+		? ["nix", "develop", "--command", "claude", ...args]
+		: ["claude", ...args];
+
+	return spawn(command, {
 		cwd,
 		stdin: "pipe",
 		stdout: "pipe",
@@ -111,7 +123,7 @@ async function sendSlashCommand(
 			command,
 		];
 
-		const proc = spawnClaudeProcess(args, cwd);
+		const proc = await spawnClaudeProcess(args, cwd);
 
 		// Close stdin immediately since we're passing the command as an argument
 		proc.stdin.end();
@@ -188,7 +200,7 @@ export async function* sendMessage(
 			args.push(message);
 		}
 
-		const proc = spawnClaudeProcess(args, cwd);
+		const proc = await spawnClaudeProcess(args, cwd);
 
 		// Track session with PID for 1:1 process mapping
 		if (sessionId) {
