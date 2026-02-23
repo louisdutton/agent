@@ -87,7 +87,7 @@ export async function clearSessionById(
 ): Promise<void> {
 	try {
 		const targetCwd = projectPath ?? cwd;
-		const projectFolder = targetCwd.replace(/\//g, "-");
+		const projectFolder = targetCwd.replace(/[/.]/g, "-");
 		const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 		const transcriptPath = join(claudeDir, `${sessionId}.jsonl`);
 
@@ -109,7 +109,7 @@ export async function getSessionsFromTranscripts(
 	projectPath?: string,
 ): Promise<SessionEntry[]> {
 	const targetCwd = projectPath ?? getCwd();
-	const projectFolder = targetCwd.replace(/\//g, "-");
+	const projectFolder = targetCwd.replace(/[/.]/g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 
 	try {
@@ -139,7 +139,7 @@ export async function getSessionHistoryById(
 	firstPrompt?: string;
 }> {
 	const targetCwd = projectPath ?? getCwd();
-	const projectFolder = targetCwd.replace(/\//g, "-");
+	const projectFolder = targetCwd.replace(/[/.]/g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 
 	// Look for transcript file directly by sessionId
