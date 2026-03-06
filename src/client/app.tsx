@@ -1,4 +1,11 @@
-import { createEffect, createSignal, For, onMount, Show } from "solid-js";
+import {
+	createEffect,
+	createSignal,
+	For,
+	onCleanup,
+	onMount,
+	Show,
+} from "solid-js";
 import {
 	type AudioRefs,
 	createAudioRefs,
@@ -24,23 +31,10 @@ import {
 	OptionsMenuButton,
 	type VoiceStatus,
 } from "./round-buttons";
-import { SessionManagerModal } from "./session-manager";
+import { SpawnWorkerDialog, ThreadListPanel } from "./thread-list";
 import { ToolGroup } from "./tools";
-import type { EventItem, Tool, ToolStatus } from "./types";
-import { SpawnWorkerDialog, WorkerListPanel } from "./worker-list";
-import { WorkerView } from "./worker";
+import type { EventItem, Thread, Tool, ToolStatus } from "./types";
 import { connectionStatus, initWebSocket } from "./ws";
-
-type WorkerSession = {
-	sessionId: string;
-	type: "worker";
-	status: "idle" | "running" | "error" | "completed" | "stopped";
-	projectPath: string;
-	pid: number | null;
-	startTime: number;
-	parentSession: string;
-	task: string;
-};
 
 // Helper to build URL with project query param
 function apiUrl(path: string, projectPath: string): string {
@@ -49,50 +43,52 @@ function apiUrl(path: string, projectPath: string): string {
 }
 
 export function App() {
+	// Core state
 	const [events, setEvents] = createSignal<EventItem[]>([]);
 	const [input, setInput] = createSignal("");
 	const [isLoading, setIsLoading] = createSignal(false);
 	const [streamingContent, setStreamingContent] = createSignal("");
+	const [projectPath, setProjectPath] = createSignal("");
+	const [sessionName, setSessionName] = createSignal("");
+	const [isCompacted, setIsCompacted] = createSignal(false);
+
+	// Thread state - null means viewing the main assistant thread
+	const [activeThread, setActiveThread] = createSignal<Thread | null>(null);
+	const [showThreadList, setShowThreadList] = createSignal(false);
+	const [showSpawnWorker, setShowSpawnWorker] = createSignal(false);
+
+	// UI state
+	const [showMenu, setShowMenu] = createSignal(false);
+	const [showTextInput, setShowTextInput] = createSignal(false);
+	const [isCompacting, setIsCompacting] = createSignal(false);
+	const [isClearing, setIsClearing] = createSignal(false);
+	const [attachedImages, setAttachedImages] = createSignal<string[]>([]);
+
+	// Audio state
 	const [isRecording, setIsRecording] = createSignal(false);
 	const [isTranscribing, setIsTranscribing] = createSignal(false);
 	const [pendingVoiceInput, setPendingVoiceInput] = createSignal(false);
 	const [playingId, setPlayingId] = createSignal<string | null>(null);
 	const [isPlaying, setIsPlaying] = createSignal(false);
-	const [showMenu, setShowMenu] = createSignal(false);
-	const [showSessionModal, setShowSessionModal] = createSignal(false);
-	const [projectPath, setProjectPath] = createSignal("");
-	const [isCompacting, setIsCompacting] = createSignal(false);
-	const [isClearing, setIsClearing] = createSignal(false);
-	const [isCompacted, setIsCompacted] = createSignal(false);
-	const [showTextInput, setShowTextInput] = createSignal(false);
-	const [sessionName, setSessionName] = createSignal("");
-	const [attachedImages, setAttachedImages] = createSignal<string[]>([]);
+	const [audioLevels, setAudioLevels] = createSignal<number[]>([0, 0, 0, 0]);
 
-	// Git state - pass projectPath getter
+	// Git state
 	const gitStatus = useGitStatus(projectPath);
 	const [showDiffModal, setShowDiffModal] = createSignal(false);
-	const [audioLevels, setAudioLevels] = createSignal<number[]>([0, 0, 0, 0]);
+	const [showGitPanel, setShowGitPanel] = createSignal(false);
 
 	// File viewer state
 	const [showFileBrowser, setShowFileBrowser] = createSignal(false);
 	const [showFileViewer, setShowFileViewer] = createSignal(false);
 	const [fileViewerPath, setFileViewerPath] = createSignal("");
-	const [showGitPanel, setShowGitPanel] = createSignal(false);
-
-	// Worker state
-	const [selectedWorker, setSelectedWorker] =
-		createSignal<WorkerSession | null>(null);
-	const [showSpawnWorker, setShowSpawnWorker] = createSignal(false);
 
 	let mainRef: HTMLElement | undefined;
 	let menuRef: HTMLDivElement | undefined;
 	let idCounter = 0;
 	let abortController: AbortController | null = null;
+	let workerEventSource: EventSource | null = null;
 
-	// Audio refs
 	const audioRefs: AudioRefs = createAudioRefs();
-
-	// Audio state for passing to audio functions
 	const audioState = {
 		isRecording,
 		setIsRecording,
@@ -109,114 +105,10 @@ export function App() {
 		setInput,
 	};
 
-	// Extract first user message from events as session name
-	const getSessionNameFromEvents = (messages: EventItem[]) => {
-		const firstUser = messages.find((m) => m.type === "user");
-		if (firstUser && firstUser.type === "user") {
-			const content = firstUser.content;
-			return content.length > 50 ? `${content.slice(0, 50)}...` : content;
-		}
-		return "";
-	};
+	// Derived state
+	const isWorkerThread = () => activeThread()?.type === "worker";
 
-	// Load chat history
-	const loadHistory = async (sessionId?: string | null) => {
-		const currentProjectPath = projectPath();
-		if (!currentProjectPath) return;
-
-		try {
-			const storedSessionId = sessionId ?? localStorage.getItem("sessionId");
-			if (storedSessionId) {
-				const res = await fetch(
-					apiUrl(
-						`/api/sessions/${encodeURIComponent(storedSessionId)}/history`,
-						currentProjectPath,
-					),
-				);
-				const data = await res.json();
-				const messages = data.messages?.length ? data.messages : [];
-				setEvents(messages);
-				setIsCompacted(data.isCompacted || false);
-				setSessionName(data.firstPrompt || getSessionNameFromEvents(messages));
-				idCounter = messages.length || 0;
-			} else {
-				// No session stored - fetch sessions list to get latest session
-				const res = await fetch(apiUrl("/api/sessions", currentProjectPath));
-				const data = await res.json();
-
-				// If there's a latest session available, load it
-				if (data.latestSessionId) {
-					localStorage.setItem("sessionId", data.latestSessionId);
-					const historyRes = await fetch(
-						apiUrl(
-							`/api/sessions/${encodeURIComponent(data.latestSessionId)}/history`,
-							currentProjectPath,
-						),
-					);
-					const historyData = await historyRes.json();
-					const messages = historyData.messages?.length
-						? historyData.messages
-						: [];
-					setEvents(messages);
-					setIsCompacted(historyData.isCompacted || false);
-					setSessionName(
-						historyData.firstPrompt || getSessionNameFromEvents(messages),
-					);
-					idCounter = messages.length || 0;
-				} else {
-					setEvents([]);
-					setIsCompacted(false);
-					setSessionName("");
-					idCounter = 0;
-				}
-			}
-
-			// Check if the backend is busy processing a request for this session
-			const currentSessionId = localStorage.getItem("sessionId");
-			if (currentSessionId) {
-				const statusRes = await fetch(
-					`/api/sessions/${encodeURIComponent(currentSessionId)}/status`,
-				);
-				const statusData = await statusRes.json();
-				if (statusData.busy) {
-					setIsLoading(true);
-				}
-			}
-		} catch (err) {
-			console.error("Failed to load history:", err);
-			setEvents([]);
-			idCounter = 0;
-		}
-	};
-
-	onMount(async () => {
-		// Load projectPath from localStorage or fetch from server
-		let storedProjectPath = localStorage.getItem("projectPath");
-		if (!storedProjectPath) {
-			const res = await fetch("/api/info");
-			const info = await res.json();
-			storedProjectPath = info.cwd;
-		}
-		setProjectPath(storedProjectPath);
-		localStorage.setItem("projectPath", storedProjectPath);
-
-		await loadHistory();
-		initWebSocket();
-	});
-
-	const handleCommit = () => {
-		setShowDiffModal(false);
-		sendMessage("Commit the current changes");
-	};
-
-	createEffect(() => {
-		events();
-		streamingContent();
-		if (mainRef) {
-			mainRef.scrollTop = mainRef.scrollHeight;
-		}
-	});
-
+	// Event handling helpers (shared between assistant and worker)
 	const addEvent = (event: EventItem) => {
 		setEvents((prev) => [...prev, event]);
 	};
@@ -277,14 +169,332 @@ export function App() {
 		);
 	};
 
+	const getSessionNameFromEvents = (messages: EventItem[]) => {
+		const firstUser = messages.find((m) => m.type === "user");
+		if (firstUser && firstUser.type === "user") {
+			const content = firstUser.content;
+			return content.length > 50 ? `${content.slice(0, 50)}...` : content;
+		}
+		return "";
+	};
+
+	// Process streaming data (shared format for both assistant and worker)
+	const processStreamEvent = (
+		parsed: Record<string, unknown>,
+		assistantContentRef: { value: string },
+	) => {
+		// Handle streaming text
+		if (parsed.type === "stream_event" && parsed.event) {
+			const event = parsed.event as Record<string, unknown>;
+			if (
+				event.type === "content_block_delta" &&
+				(event.delta as Record<string, unknown>)?.type === "text_delta"
+			) {
+				assistantContentRef.value += (
+					event.delta as Record<string, string>
+				).text;
+				setStreamingContent(assistantContentRef.value);
+			}
+		}
+
+		// Skip replayed messages
+		if (parsed.isReplay) return;
+
+		// Handle assistant messages with tool uses
+		if (parsed.type === "assistant" && parsed.message) {
+			const message = parsed.message as { content?: unknown[] };
+			if (assistantContentRef.value) {
+				addEvent({
+					type: "assistant",
+					id: String(++idCounter),
+					content: assistantContentRef.value,
+				});
+				assistantContentRef.value = "";
+				setStreamingContent("");
+			}
+
+			if (Array.isArray(message.content)) {
+				for (const block of message.content) {
+					const b = block as Record<string, unknown>;
+					if (b.type === "tool_use") {
+						addOrUpdateToolGroup({
+							toolUseId: b.id as string,
+							name: b.name as string,
+							input: (b.input as Record<string, unknown>) || {},
+							status: "running",
+						});
+					}
+				}
+			}
+		}
+
+		// Handle tool results
+		if (parsed.type === "user") {
+			const message = parsed.message as { content?: unknown[] };
+			if (Array.isArray(message?.content)) {
+				for (const block of message.content) {
+					const b = block as Record<string, unknown>;
+					if (b.type === "tool_result" && b.tool_use_id) {
+						const resultImages: string[] = [];
+						if (Array.isArray(b.content)) {
+							for (const resultBlock of b.content) {
+								const rb = resultBlock as Record<string, unknown>;
+								if (rb.type === "image") {
+									const source = rb.source as Record<string, string>;
+									if (source?.type === "base64") {
+										resultImages.push(
+											`data:${source.media_type};base64,${source.data}`,
+										);
+									}
+								}
+							}
+						}
+						updateToolStatus(
+							b.tool_use_id as string,
+							b.is_error ? "error" : "complete",
+							resultImages.length > 0 ? resultImages : undefined,
+						);
+					}
+				}
+			}
+		}
+
+		// Handle result
+		if (parsed.type === "result") {
+			if (parsed.session_id) {
+				localStorage.setItem("sessionId", parsed.session_id as string);
+			}
+
+			if (assistantContentRef.value) {
+				addEvent({
+					type: "assistant",
+					id: String(++idCounter),
+					content: assistantContentRef.value,
+				});
+				assistantContentRef.value = "";
+				setStreamingContent("");
+			}
+
+			markAllToolsComplete();
+
+			if (parsed.subtype !== "success") {
+				const errors = parsed.errors as string[] | undefined;
+				const errorMsg = errors?.join(", ") || (parsed.subtype as string);
+				addEvent({
+					type: "error",
+					id: String(++idCounter),
+					message: errorMsg,
+				});
+				notifyClaudeError(errorMsg);
+			} else {
+				notifyClaudeFinished(assistantContentRef.value);
+			}
+		}
+	};
+
+	// Load assistant session history
+	const loadHistory = async (sessionId?: string | null) => {
+		const currentProjectPath = projectPath();
+		if (!currentProjectPath) return;
+
+		try {
+			const storedSessionId = sessionId ?? localStorage.getItem("sessionId");
+			if (storedSessionId) {
+				const res = await fetch(
+					apiUrl(
+						`/api/sessions/${encodeURIComponent(storedSessionId)}/history`,
+						currentProjectPath,
+					),
+				);
+				const data = await res.json();
+				const messages = data.messages?.length ? data.messages : [];
+				setEvents(messages);
+				setIsCompacted(data.isCompacted || false);
+				setSessionName(data.firstPrompt || getSessionNameFromEvents(messages));
+				idCounter = messages.length || 0;
+			} else {
+				const res = await fetch(apiUrl("/api/sessions", currentProjectPath));
+				const data = await res.json();
+
+				if (data.latestSessionId) {
+					localStorage.setItem("sessionId", data.latestSessionId);
+					const historyRes = await fetch(
+						apiUrl(
+							`/api/sessions/${encodeURIComponent(data.latestSessionId)}/history`,
+							currentProjectPath,
+						),
+					);
+					const historyData = await historyRes.json();
+					const messages = historyData.messages?.length
+						? historyData.messages
+						: [];
+					setEvents(messages);
+					setIsCompacted(historyData.isCompacted || false);
+					setSessionName(
+						historyData.firstPrompt || getSessionNameFromEvents(messages),
+					);
+					idCounter = messages.length || 0;
+				} else {
+					setEvents([]);
+					setIsCompacted(false);
+					setSessionName("");
+					idCounter = 0;
+				}
+			}
+
+			// Check if backend is busy
+			const currentSession = localStorage.getItem("sessionId");
+			if (currentSession) {
+				const statusRes = await fetch(
+					`/api/sessions/${encodeURIComponent(currentSession)}/status`,
+				);
+				const statusData = await statusRes.json();
+				if (statusData.busy) {
+					setIsLoading(true);
+				}
+			}
+		} catch (err) {
+			console.error("Failed to load history:", err);
+			setEvents([]);
+			idCounter = 0;
+		}
+	};
+
+	// Connect to worker stream
+	const connectToWorkerStream = (workerId: string) => {
+		if (workerEventSource) {
+			workerEventSource.close();
+		}
+
+		setEvents([]);
+		setIsLoading(true);
+		idCounter = 0;
+
+		const assistantContentRef = { value: "" };
+		workerEventSource = new EventSource(`/api/workers/${workerId}/stream`);
+
+		workerEventSource.onmessage = (e) => {
+			try {
+				const parsed = JSON.parse(e.data);
+
+				// Handle stream completion
+				if (parsed.type === "done" || parsed.type === "error") {
+					if (assistantContentRef.value) {
+						addEvent({
+							type: "assistant",
+							id: String(++idCounter),
+							content: assistantContentRef.value,
+						});
+						assistantContentRef.value = "";
+						setStreamingContent("");
+					}
+					markAllToolsComplete();
+					setIsLoading(false);
+					workerEventSource?.close();
+					return;
+				}
+
+				processStreamEvent(parsed, assistantContentRef);
+			} catch {
+				// Skip invalid JSON
+			}
+		};
+
+		workerEventSource.onerror = () => {
+			setIsLoading(false);
+			workerEventSource?.close();
+		};
+	};
+
+	// Handle thread selection
+	const handleSelectThread = async (thread: Thread) => {
+		// Clean up any existing worker connection
+		if (workerEventSource) {
+			workerEventSource.close();
+			workerEventSource = null;
+		}
+
+		if (thread.type === "worker") {
+			setActiveThread(thread);
+			setShowThreadList(false);
+
+			// Show initial task as user message
+			setEvents([
+				{
+					type: "user",
+					id: "0",
+					content: thread.name,
+				},
+			]);
+
+			// Connect to worker stream if running
+			if (thread.status === "running") {
+				connectToWorkerStream(thread.id);
+			}
+		} else {
+			// Switch to assistant thread
+			setActiveThread(null);
+			localStorage.setItem("sessionId", thread.id);
+			localStorage.setItem("projectPath", thread.projectPath);
+			setProjectPath(thread.projectPath);
+			await loadHistory(thread.id);
+			setShowThreadList(false);
+		}
+	};
+
+	// Return to assistant view
+	const returnToAssistant = () => {
+		if (workerEventSource) {
+			workerEventSource.close();
+			workerEventSource = null;
+		}
+		setActiveThread(null);
+		loadHistory();
+	};
+
+	onMount(async () => {
+		let storedProjectPath = localStorage.getItem("projectPath");
+		if (!storedProjectPath) {
+			const res = await fetch("/api/info");
+			const info = await res.json();
+			storedProjectPath = info.cwd;
+		}
+		setProjectPath(storedProjectPath || "");
+		if (storedProjectPath) {
+			localStorage.setItem("projectPath", storedProjectPath);
+		}
+
+		await loadHistory();
+		initWebSocket();
+	});
+
+	onCleanup(() => {
+		if (workerEventSource) {
+			workerEventSource.close();
+		}
+	});
+
+	// Auto-scroll on new content
+	createEffect(() => {
+		events();
+		streamingContent();
+		if (mainRef) {
+			mainRef.scrollTop = mainRef.scrollHeight;
+		}
+	});
+
+	// Send message (assistant mode)
 	const sendMessage = async (directMessage?: string) => {
+		if (isWorkerThread()) {
+			return sendWorkerMessage(directMessage);
+		}
+
 		const text = directMessage ?? input().trim();
 		const images = attachedImages();
 		const currentProjectPath = projectPath();
 		if ((!text && images.length === 0) || isLoading() || !currentProjectPath)
 			return;
 
-		// Set session name from first message if not set
 		if (!sessionName() && text) {
 			setSessionName(text.length > 50 ? `${text.slice(0, 50)}...` : text);
 		}
@@ -321,7 +531,7 @@ export function App() {
 			if (!reader) return;
 
 			const decoder = new TextDecoder();
-			let assistantContent = "";
+			const assistantContentRef = { value: "" };
 
 			while (true) {
 				const { done, value } = await reader.read();
@@ -337,102 +547,7 @@ export function App() {
 
 						try {
 							const parsed = JSON.parse(data);
-
-							if (parsed.type === "stream_event" && parsed.event) {
-								const event = parsed.event;
-								if (
-									event.type === "content_block_delta" &&
-									event.delta?.type === "text_delta"
-								) {
-									assistantContent += event.delta.text;
-									setStreamingContent(assistantContent);
-								}
-							}
-
-							// Skip replayed messages - history is loaded from /api/history
-							if (parsed.isReplay) continue;
-
-							if (parsed.type === "assistant" && parsed.message?.content) {
-								if (assistantContent) {
-									addEvent({
-										type: "assistant",
-										id: String(++idCounter),
-										content: assistantContent,
-									});
-									assistantContent = "";
-									setStreamingContent("");
-								}
-
-								for (const block of parsed.message.content) {
-									if (block.type === "tool_use") {
-										addOrUpdateToolGroup({
-											toolUseId: block.id,
-											name: block.name,
-											input: block.input || {},
-											status: "running",
-										});
-									}
-								}
-							}
-
-							if (parsed.type === "user") {
-								const content = parsed.message?.content;
-								if (Array.isArray(content)) {
-									for (const block of content) {
-										if (block.type === "tool_result" && block.tool_use_id) {
-											// Extract images from tool result content
-											const resultImages: string[] = [];
-											if (Array.isArray(block.content)) {
-												for (const resultBlock of block.content) {
-													if (
-														resultBlock.type === "image" &&
-														resultBlock.source?.type === "base64"
-													) {
-														const dataUrl = `data:${resultBlock.source.media_type};base64,${resultBlock.source.data}`;
-														resultImages.push(dataUrl);
-													}
-												}
-											}
-											updateToolStatus(
-												block.tool_use_id,
-												block.is_error ? "error" : "complete",
-												resultImages.length > 0 ? resultImages : undefined,
-											);
-										}
-									}
-								}
-							}
-
-							if (parsed.type === "result") {
-								// Capture session_id from result to persist across refreshes
-								if (parsed.session_id) {
-									localStorage.setItem("sessionId", parsed.session_id);
-								}
-
-								if (assistantContent) {
-									addEvent({
-										type: "assistant",
-										id: String(++idCounter),
-										content: assistantContent,
-									});
-									assistantContent = "";
-									setStreamingContent("");
-								}
-
-								markAllToolsComplete();
-
-								if (parsed.subtype !== "success") {
-									const errorMsg = parsed.errors?.join(", ") || parsed.subtype;
-									addEvent({
-										type: "error",
-										id: String(++idCounter),
-										message: errorMsg,
-									});
-									notifyClaudeError(errorMsg);
-								} else {
-									notifyClaudeFinished(assistantContent);
-								}
-							}
+							processStreamEvent(parsed, assistantContentRef);
 						} catch {
 							// Skip invalid JSON
 						}
@@ -440,15 +555,14 @@ export function App() {
 				}
 			}
 
-			if (assistantContent && streamingContent()) {
+			if (assistantContentRef.value && streamingContent()) {
 				addEvent({
 					type: "assistant",
 					id: String(++idCounter),
-					content: assistantContent,
+					content: assistantContentRef.value,
 				});
 			}
 		} catch (err) {
-			// Don't show error if request was aborted
 			if (!(err instanceof DOMException && err.name === "AbortError")) {
 				addEvent({
 					type: "error",
@@ -463,7 +577,38 @@ export function App() {
 		}
 	};
 
-	// Status helpers for mic button
+	// Send message to worker (inject)
+	const sendWorkerMessage = async (directMessage?: string) => {
+		const thread = activeThread();
+		if (!thread || thread.type !== "worker") return;
+
+		const text = directMessage ?? input().trim();
+		if (!text || isLoading()) return;
+
+		if (!directMessage) setInput("");
+
+		try {
+			const res = await fetch(`/api/workers/${thread.id}/inject`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ message: text }),
+			});
+			const data = await res.json();
+			if (data.ok) {
+				addEvent({
+					type: "user",
+					id: String(++idCounter),
+					content: text,
+				});
+			} else {
+				alert(data.error || "Failed to send message");
+			}
+		} catch (err) {
+			alert(String(err));
+		}
+	};
+
+	// Voice status
 	const status = (): VoiceStatus => {
 		if (isRecording()) return "recording";
 		if (isTranscribing()) return "transcribing";
@@ -476,11 +621,9 @@ export function App() {
 		if (isRecording()) {
 			stopRecording(audioRefs, audioState);
 		} else if (isLoading()) {
-			// Cancel the AI response on both frontend and backend
 			if (abortController) {
 				abortController.abort();
 			}
-			// Tell the backend to cancel the Claude request
 			const sessionId = localStorage.getItem("sessionId");
 			if (sessionId) {
 				try {
@@ -488,7 +631,7 @@ export function App() {
 						method: "POST",
 					});
 				} catch {
-					// Ignore errors - the request may have already finished
+					// Ignore
 				}
 			}
 			setIsLoading(false);
@@ -504,7 +647,7 @@ export function App() {
 		playTTS(id, text, audioRefs, audioState);
 	};
 
-	// Auto-send after voice transcription only
+	// Auto-send after voice transcription
 	createEffect(() => {
 		const text = input();
 		if (text && pendingVoiceInput() && !isTranscribing() && !isLoading()) {
@@ -531,6 +674,11 @@ export function App() {
 		}
 	});
 
+	const handleCommit = () => {
+		setShowDiffModal(false);
+		sendMessage("Commit the current changes");
+	};
+
 	const handleCompact = async () => {
 		setShowMenu(false);
 		const sessionId = localStorage.getItem("sessionId");
@@ -546,13 +694,10 @@ export function App() {
 					`/api/sessions/${encodeURIComponent(sessionId)}/compact`,
 					currentProjectPath,
 				),
-				{
-					method: "POST",
-				},
+				{ method: "POST" },
 			);
 			const data = await res.json();
 			if (data.ok) {
-				// Clear the events and show compacted indicator
 				setEvents([]);
 				setIsCompacted(true);
 				idCounter = 0;
@@ -575,7 +720,7 @@ export function App() {
 			alert("No active session to clear");
 			return;
 		}
-		if (!confirm("Delete this session? This cannot be undone.")) {
+		if (!confirm("Delete this thread? This cannot be undone.")) {
 			return;
 		}
 		setIsClearing(true);
@@ -585,13 +730,10 @@ export function App() {
 					`/api/sessions/${encodeURIComponent(sessionId)}`,
 					currentProjectPath,
 				),
-				{
-					method: "DELETE",
-				},
+				{ method: "DELETE" },
 			);
 			const data = await res.json();
 			if (data.ok) {
-				// Clear the events display and start fresh
 				setEvents([]);
 				setIsCompacted(false);
 				setSessionName("");
@@ -608,33 +750,123 @@ export function App() {
 		}
 	};
 
+	const handleStopWorker = async () => {
+		const thread = activeThread();
+		if (thread?.type === "worker") {
+			await fetch(`/api/workers/${thread.id}/stop`, { method: "POST" });
+			setActiveThread({ ...thread, status: "stopped" });
+		}
+	};
+
+	const handleDeleteSession = async (sessionId: string, path: string) => {
+		const res = await fetch(
+			`/api/sessions/${sessionId}?project=${encodeURIComponent(path)}`,
+			{ method: "DELETE" },
+		);
+		const data = await res.json();
+		if (!data.ok) {
+			throw new Error(data.error || "Failed to delete");
+		}
+	};
+
+	const handleStopWorkerById = async (sessionId: string) => {
+		await fetch(`/api/workers/${sessionId}/stop`, { method: "POST" });
+	};
+
+	// Header display
+	const headerTitle = () => {
+		const thread = activeThread();
+		if (thread) {
+			return thread.name.length > 40
+				? `${thread.name.slice(0, 40)}...`
+				: thread.name;
+		}
+		return sessionName() || "New Thread";
+	};
+
+	const headerSubtitle = () => {
+		const thread = activeThread();
+		if (thread) {
+			const runtime = Math.floor((Date.now() - thread.startTime) / 1000);
+			const mins = Math.floor(runtime / 60);
+			const timeStr = mins > 0 ? `${mins}m` : `${runtime}s`;
+			return `${thread.projectName} · Worker · ${timeStr}`;
+		}
+		return projectPath();
+	};
+
 	return (
 		<div class="h-dvh flex flex-col bg-background">
 			{/* Header */}
 			<Show when={projectPath()}>
 				<header class="flex-none px-4 py-2 border-b border-border z-20 bg-background">
-					<div class="max-w-2xl mx-auto">
+					<div class="max-w-2xl mx-auto flex items-center justify-between">
 						<button
 							type="button"
-							onClick={() => setShowSessionModal(true)}
-							class="text-sm hover:text-foreground transition-colors text-left w-full overflow-hidden"
+							onClick={() =>
+								isWorkerThread() ? returnToAssistant() : setShowThreadList(true)
+							}
+							class="text-sm hover:text-foreground transition-colors text-left flex-1 overflow-hidden"
 						>
-							<div class="text-foreground font-medium truncate">
-								{sessionName() || "New Session"}
+							<div class="flex items-center gap-2">
+								<Show when={isWorkerThread()}>
+									<svg
+										class="w-4 h-4 text-muted-foreground"
+										fill="none"
+										stroke="currentColor"
+										viewBox="0 0 24 24"
+									>
+										<path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											stroke-width="2"
+											d="M15 19l-7-7 7-7"
+										/>
+									</svg>
+								</Show>
+								<span class="text-foreground font-medium truncate">
+									{headerTitle()}
+								</span>
 							</div>
 							<div class="text-muted-foreground font-mono text-xs truncate flex items-center gap-1.5">
-								<span
-									class={`w-1.5 h-1.5 rounded-full ${
-										connectionStatus() === "connected"
-											? "bg-green-500"
-											: connectionStatus() === "connecting"
-												? "bg-yellow-500"
-												: "bg-red-500"
-									}`}
-								/>
-								{projectPath()}
+								<Show when={!isWorkerThread()}>
+									<span
+										class={`w-1.5 h-1.5 rounded-full ${
+											connectionStatus() === "connected"
+												? "bg-green-500"
+												: connectionStatus() === "connecting"
+													? "bg-yellow-500"
+													: "bg-red-500"
+										}`}
+									/>
+								</Show>
+								<Show when={isWorkerThread()}>
+									<span
+										class={`w-1.5 h-1.5 rounded-full ${
+											activeThread()?.status === "running"
+												? "bg-green-500 animate-pulse"
+												: activeThread()?.status === "completed"
+													? "bg-blue-500"
+													: activeThread()?.status === "error"
+														? "bg-red-500"
+														: "bg-muted-foreground"
+										}`}
+									/>
+								</Show>
+								{headerSubtitle()}
 							</div>
 						</button>
+						<Show
+							when={isWorkerThread() && activeThread()?.status === "running"}
+						>
+							<button
+								type="button"
+								onClick={handleStopWorker}
+								class="ml-2 px-3 py-1.5 text-sm rounded-lg bg-red-950 text-red-400"
+							>
+								Stop
+							</button>
+						</Show>
 					</div>
 				</header>
 			</Show>
@@ -642,8 +874,8 @@ export function App() {
 			{/* Scrollable chat history */}
 			<main ref={mainRef} class="flex-1 overflow-y-auto p-4">
 				<div class="max-w-2xl mx-auto space-y-4 w-full pb-40">
-					{/* Compacted context indicator */}
-					<Show when={isCompacted()}>
+					{/* Compacted context indicator (assistant only) */}
+					<Show when={isCompacted() && !isWorkerThread()}>
 						<div class="flex items-center gap-2 text-sm text-muted-foreground border border-border rounded-lg px-3 py-2 bg-muted/30">
 							<svg
 								class="w-4 h-4"
@@ -661,6 +893,7 @@ export function App() {
 							<span>Previous context has been compacted</span>
 						</div>
 					</Show>
+
 					<For each={events()}>
 						{(event) => (
 							<>
@@ -688,36 +921,38 @@ export function App() {
 								{event.type === "assistant" && (
 									<div class="prose prose-sm max-w-none group relative">
 										<Markdown content={event.content} />
-										<button
-											type="button"
-											class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full bg-background border border-border hover:bg-muted"
-											onClick={() => handlePlayTTS(event.id, event.content)}
-										>
-											<svg
-												class="w-4 h-4"
-												fill="none"
-												stroke="currentColor"
-												viewBox="0 0 24 24"
+										<Show when={!isWorkerThread()}>
+											<button
+												type="button"
+												class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full bg-background border border-border hover:bg-muted"
+												onClick={() => handlePlayTTS(event.id, event.content)}
 											>
-												{playingId() === event.id ? (
-													<rect
-														x="6"
-														y="6"
-														width="12"
-														height="12"
-														rx="2"
-														fill="currentColor"
-													/>
-												) : (
-													<path
-														stroke-linecap="round"
-														stroke-linejoin="round"
-														stroke-width="2"
-														d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-3.5v14l-5-3.5H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z"
-													/>
-												)}
-											</svg>
-										</button>
+												<svg
+													class="w-4 h-4"
+													fill="none"
+													stroke="currentColor"
+													viewBox="0 0 24 24"
+												>
+													{playingId() === event.id ? (
+														<rect
+															x="6"
+															y="6"
+															width="12"
+															height="12"
+															rx="2"
+															fill="currentColor"
+														/>
+													) : (
+														<path
+															stroke-linecap="round"
+															stroke-linejoin="round"
+															stroke-width="2"
+															d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-3.5v14l-5-3.5H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z"
+														/>
+													)}
+												</svg>
+											</button>
+										</Show>
 									</div>
 								)}
 
@@ -750,7 +985,7 @@ export function App() {
 					<Show when={isLoading() && !streamingContent()}>
 						<div class="flex items-center gap-2 text-sm text-muted-foreground">
 							<span class="inline-block w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
-							<span>Thinking...</span>
+							<span>{isWorkerThread() ? "Working..." : "Thinking..."}</span>
 						</div>
 					</Show>
 
@@ -765,8 +1000,8 @@ export function App() {
 
 			{/* Fixed floating bottom controls */}
 			<div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-3">
-				{/* Text input */}
-				<Show when={showTextInput()}>
+				{/* Text input - always show for workers, toggle for assistant */}
+				<Show when={showTextInput() || isWorkerThread()}>
 					<form
 						onSubmit={(e) => {
 							e.preventDefault();
@@ -774,28 +1009,38 @@ export function App() {
 						}}
 						class="flex gap-2 bg-muted border border-border rounded-full px-3 py-2 shadow-lg"
 					>
-						<ImagePickerButton
-							images={attachedImages}
-							setImages={setAttachedImages}
-							disabled={() => isLoading() || isRecording() || isTranscribing()}
-						/>
+						<Show when={!isWorkerThread()}>
+							<ImagePickerButton
+								images={attachedImages}
+								setImages={setAttachedImages}
+								disabled={() =>
+									isLoading() || isRecording() || isTranscribing()
+								}
+							/>
+						</Show>
 						<input
 							type="text"
 							value={input()}
 							onInput={(e) => setInput(e.currentTarget.value)}
-							placeholder="Type a message..."
-							disabled={isLoading() || isRecording() || isTranscribing()}
+							placeholder={
+								isWorkerThread() ? "Send to worker..." : "Type a message..."
+							}
+							disabled={
+								isWorkerThread()
+									? activeThread()?.status !== "running"
+									: isLoading() || isRecording() || isTranscribing()
+							}
 							class="input flex-1 min-w-[200px]"
 						/>
 						<button
 							type="submit"
 							disabled={
-								(!input().trim() && attachedImages().length === 0) ||
-								isLoading() ||
-								isRecording() ||
-								isTranscribing()
+								!input().trim() ||
+								(isWorkerThread()
+									? activeThread()?.status !== "running"
+									: isLoading() || isRecording() || isTranscribing())
 							}
-							class="px-3 py-1.5 rounded-full bg-foreground text-background disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+							class="px-3 py-1.5 rounded-full bg-foreground text-background disabled:opacity-50"
 						>
 							<svg
 								class="w-5 h-5"
@@ -814,46 +1059,51 @@ export function App() {
 					</form>
 				</Show>
 
-				{/* Image preview */}
-				<ImagePreview images={attachedImages} setImages={setAttachedImages} />
+				{/* Image preview (assistant only) */}
+				<Show when={!isWorkerThread()}>
+					<ImagePreview images={attachedImages} setImages={setAttachedImages} />
+				</Show>
 
-				{/* Buttons */}
-				<div class="flex items-center justify-center gap-4 bg-muted rounded-full px-3 py-2 border border-border shadow-lg">
-					{/* Options menu button */}
-					<OptionsMenuButton
-						menuRef={menuRef}
-						showMenu={showMenu()}
-						setShowMenu={setShowMenu}
-					>
-						<OptionsMenu
-							showTextInput={showTextInput()}
-							onToggleTextInput={() => {
-								setShowTextInput(!showTextInput());
-								setShowMenu(false);
-							}}
-							onCompact={handleCompact}
-							onClear={handleClear}
-							isCompacting={isCompacting()}
-							isClearing={isClearing()}
-							isLoading={isLoading()}
+				{/* Buttons - full controls for assistant, simplified for worker */}
+				<Show when={!isWorkerThread()}>
+					<div class="flex items-center justify-center gap-4 bg-muted rounded-full px-3 py-2 border border-border shadow-lg">
+						<OptionsMenuButton
+							menuRef={menuRef}
+							showMenu={showMenu()}
+							setShowMenu={setShowMenu}
+						>
+							<OptionsMenu
+								showTextInput={showTextInput()}
+								onToggleTextInput={() => {
+									setShowTextInput(!showTextInput());
+									setShowMenu(false);
+								}}
+								onCompact={handleCompact}
+								onClear={handleClear}
+								onSpawnWorker={() => {
+									setShowMenu(false);
+									setShowSpawnWorker(true);
+								}}
+								isCompacting={isCompacting()}
+								isClearing={isClearing()}
+								isLoading={isLoading()}
+							/>
+						</OptionsMenuButton>
+
+						<MicButton
+							status={status()}
+							audioLevels={audioLevels()}
+							disabled={isTranscribing()}
+							onClick={handleMicClick}
 						/>
-					</OptionsMenuButton>
 
-					{/* Mic button */}
-					<MicButton
-						status={status()}
-						audioLevels={audioLevels()}
-						disabled={isTranscribing()}
-						onClick={handleMicClick}
-					/>
-
-					{/* Git status button - tap for diff, hold for git panel */}
-					<GitStatusIndicator
-						gitStatus={gitStatus()}
-						onClick={() => setShowDiffModal(true)}
-						onLongPress={() => setShowGitPanel(true)}
-					/>
-				</div>
+						<GitStatusIndicator
+							gitStatus={gitStatus()}
+							onClick={() => setShowDiffModal(true)}
+							onLongPress={() => setShowGitPanel(true)}
+						/>
+					</div>
+				</Show>
 			</div>
 
 			{/* Git Diff Modal */}
@@ -865,40 +1115,29 @@ export function App() {
 				/>
 			</Show>
 
-			{/* Session Manager Modal */}
-			<Show when={showSessionModal()}>
-				<SessionManagerModal
-					onClose={() => setShowSessionModal(false)}
-					onSwitch={(
-						messages,
-						sessionId,
-						compacted,
-						firstPrompt,
-						newProjectPath,
-					) => {
-						localStorage.setItem("sessionId", sessionId);
-						if (newProjectPath) {
-							localStorage.setItem("projectPath", newProjectPath);
-							setProjectPath(newProjectPath);
-						}
-						setEvents(messages);
-						setIsCompacted(compacted);
-						setSessionName(firstPrompt || getSessionNameFromEvents(messages));
-						idCounter = messages.length;
-						setShowSessionModal(false);
-					}}
-					onNewSession={async (newProjectPath) => {
+			{/* Thread List */}
+			<Show when={showThreadList()}>
+				<ThreadListPanel
+					currentProjectPath={projectPath()}
+					currentSessionId={localStorage.getItem("sessionId")}
+					onSelectThread={handleSelectThread}
+					onNewSession={(path) => {
 						localStorage.removeItem("sessionId");
-						if (newProjectPath) {
-							localStorage.setItem("projectPath", newProjectPath);
-							setProjectPath(newProjectPath);
-						}
+						localStorage.setItem("projectPath", path);
+						setProjectPath(path);
 						setEvents([]);
 						setIsCompacted(false);
 						setSessionName("");
 						idCounter = 0;
-						setShowSessionModal(false);
+						setShowThreadList(false);
 					}}
+					onDeleteSession={handleDeleteSession}
+					onStopWorker={handleStopWorkerById}
+					onSpawnWorker={() => {
+						setShowThreadList(false);
+						setShowSpawnWorker(true);
+					}}
+					onClose={() => setShowThreadList(false)}
 				/>
 			</Show>
 
@@ -932,40 +1171,26 @@ export function App() {
 				/>
 			</Show>
 
-			{/* Worker List Panel */}
-			<Show when={projectPath() && !selectedWorker()}>
-				<WorkerListPanel
-					onSelectWorker={(worker) => setSelectedWorker(worker)}
-					onSpawnWorker={() => setShowSpawnWorker(true)}
-				/>
-			</Show>
-
-			{/* Worker View */}
-			<Show when={selectedWorker()}>
-				<WorkerView
-					worker={selectedWorker()!}
-					onClose={() => setSelectedWorker(null)}
-					onStop={async () => {
-						const worker = selectedWorker();
-						if (worker) {
-							await fetch(`/api/workers/${worker.sessionId}/stop`, {
-								method: "POST",
-							});
-							setSelectedWorker(null);
-						}
-					}}
-				/>
-			</Show>
-
 			{/* Spawn Worker Dialog */}
 			<Show when={showSpawnWorker()}>
 				<SpawnWorkerDialog
 					projectPath={projectPath()}
 					parentSession={localStorage.getItem("sessionId") || "assistant"}
 					onClose={() => setShowSpawnWorker(false)}
-					onSpawn={(worker) => {
+					onSpawn={(thread) => {
 						setShowSpawnWorker(false);
-						setSelectedWorker(worker);
+						setActiveThread(thread);
+						// Show initial task
+						setEvents([
+							{
+								type: "user",
+								id: "0",
+								content: thread.name,
+							},
+						]);
+						if (thread.status === "running") {
+							connectToWorkerStream(thread.id);
+						}
 					}}
 				/>
 			</Show>

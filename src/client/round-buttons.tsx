@@ -119,6 +119,7 @@ export function OptionsMenu(props: {
 	onToggleTextInput: () => void;
 	onCompact: () => void;
 	onClear: () => void;
+	onSpawnWorker: () => void;
 	isCompacting: boolean;
 	isClearing: boolean;
 	isLoading: boolean;
@@ -151,7 +152,7 @@ export function OptionsMenu(props: {
 			<button
 				type="button"
 				onClick={() => requestNotificationPermission()}
-				class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base rounded-b-xl flex items-center justify-between min-h-[48px]"
+				class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base flex items-center justify-between min-h-[48px]"
 			>
 				<span>Notifications</span>
 				<span
@@ -169,6 +170,13 @@ export function OptionsMenu(props: {
 							? "Blocked"
 							: "Off"}
 				</span>
+			</button>
+			<button
+				type="button"
+				onClick={props.onSpawnWorker}
+				class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base rounded-b-xl min-h-[48px]"
+			>
+				Spawn Worker
 			</button>
 		</div>
 	);

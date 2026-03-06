@@ -13,3 +13,24 @@ export type EventItem =
 	| { type: "assistant"; id: string; content: string }
 	| { type: "tools"; id: string; tools: Tool[] }
 	| { type: "error"; id: string; message: string };
+
+// Unified thread model - both assistant sessions and workers are threads
+export type ThreadStatus =
+	| "idle"
+	| "running"
+	| "completed"
+	| "error"
+	| "stopped";
+
+export type Thread = {
+	id: string;
+	type: "assistant" | "worker";
+	projectPath: string;
+	projectName: string;
+	status: ThreadStatus;
+	name: string; // First prompt for assistant, task for worker
+	startTime: number;
+	// Worker-specific
+	parentSession?: string;
+	pid?: number | null;
+};
