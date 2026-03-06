@@ -1,8 +1,8 @@
-// Worker list - shows background worker threads only
+// Thread list - shows all background threads (active and inactive)
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { Thread, ThreadStatus } from "./types";
 
-type WorkerInfo = {
+type ThreadInfo = {
 	sessionId: string;
 	type: "worker";
 	status: ThreadStatus;
@@ -13,24 +13,24 @@ type WorkerInfo = {
 	task: string;
 };
 
-export function WorkerListPanel(props: {
-	onSelectWorker: (thread: Thread) => void;
-	onStopWorker: (sessionId: string) => Promise<void>;
-	onSpawnWorker: () => void;
+export function ThreadListPanel(props: {
+	onSelectThread: (thread: Thread) => void;
+	onStopThread: (sessionId: string) => Promise<void>;
+	onSpawnThread: () => void;
 	onClose: () => void;
 }) {
-	const [workers, setWorkers] = createSignal<WorkerInfo[]>([]);
+	const [threads, setThreads] = createSignal<ThreadInfo[]>([]);
 	const [loading, setLoading] = createSignal(true);
 
 	let pollInterval: ReturnType<typeof setInterval> | null = null;
 
 	const loadData = async () => {
 		try {
-			const res = await fetch("/api/workers");
+			const res = await fetch("/api/threads");
 			const data = await res.json();
-			setWorkers(data.workers || []);
+			setThreads(data.threads || []);
 		} catch (err) {
-			console.error("Failed to load workers:", err);
+			console.error("Failed to load threads:", err);
 		} finally {
 			setLoading(false);
 		}
@@ -45,25 +45,25 @@ export function WorkerListPanel(props: {
 		if (pollInterval) clearInterval(pollInterval);
 	});
 
-	const handleSelectWorker = (worker: WorkerInfo) => {
+	const handleSelectThread = (thread: ThreadInfo) => {
 		const projectName =
-			worker.projectPath.split("/").pop() || worker.projectPath;
-		props.onSelectWorker({
-			id: worker.sessionId,
+			thread.projectPath.split("/").pop() || thread.projectPath;
+		props.onSelectThread({
+			id: thread.sessionId,
 			type: "worker",
-			projectPath: worker.projectPath,
+			projectPath: thread.projectPath,
 			projectName,
-			status: worker.status,
-			name: worker.task,
-			startTime: worker.startTime,
-			parentSession: worker.parentSession,
-			pid: worker.pid,
+			status: thread.status,
+			name: thread.task,
+			startTime: thread.startTime,
+			parentSession: thread.parentSession,
+			pid: thread.pid,
 		});
 	};
 
 	const handleStop = async (e: Event, sessionId: string) => {
 		e.stopPropagation();
-		await props.onStopWorker(sessionId);
+		await props.onStopThread(sessionId);
 		await loadData();
 	};
 
@@ -90,23 +90,15 @@ export function WorkerListPanel(props: {
 		}
 	};
 
+	const isActive = (status: ThreadStatus) =>
+		status === "running" || status === "idle";
+
 	const truncate = (text: string, len = 50) =>
 		text.length > len ? `${text.slice(0, len)}...` : text;
 
-	// Group workers by project
-	const workersByProject = () => {
-		const grouped: Record<string, WorkerInfo[]> = {};
-		for (const worker of workers()) {
-			const key = worker.projectPath;
-			if (!grouped[key]) grouped[key] = [];
-			grouped[key].push(worker);
-		}
-		return Object.entries(grouped).map(([path, workers]) => ({
-			path,
-			name: path.split("/").pop() || path,
-			workers,
-		}));
-	};
+	// Separate active and inactive threads
+	const activeThreads = () => threads().filter((t) => isActive(t.status));
+	const inactiveThreads = () => threads().filter((t) => !isActive(t.status));
 
 	return (
 		<div class="fixed inset-0 z-50 bg-background flex flex-col">
@@ -119,10 +111,10 @@ export function WorkerListPanel(props: {
 				>
 					Close
 				</button>
-				<h1 class="text-lg font-medium">Workers</h1>
+				<h1 class="text-lg font-medium">Threads</h1>
 				<button
 					type="button"
-					onClick={props.onSpawnWorker}
+					onClick={props.onSpawnThread}
 					class="h-11 px-5 text-base rounded-xl bg-foreground text-background"
 				>
 					New
@@ -139,74 +131,100 @@ export function WorkerListPanel(props: {
 
 				<Show when={!loading()}>
 					<Show
-						when={workers().length > 0}
+						when={threads().length > 0}
 						fallback={
 							<div class="text-center text-muted-foreground py-8">
-								<p class="mb-4">No workers running</p>
+								<p class="mb-4">No threads</p>
 								<p class="text-sm">
-									Workers are background tasks that run independently of the
+									Threads are background tasks that run independently of the
 									main assistant.
 								</p>
 							</div>
 						}
 					>
 						<div class="space-y-6 max-w-2xl mx-auto">
-							<For each={workersByProject()}>
-								{(project) => (
-									<div class="space-y-2">
-										{/* Project header */}
-										<div class="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
-											{project.name}
-										</div>
-
-										{/* Workers for this project */}
-										<For each={project.workers}>
-											{(worker) => (
-												<div
-													onClick={() => handleSelectWorker(worker)}
-													class="w-full flex items-center gap-3 p-4 rounded-xl border border-border active:bg-muted/30 text-left cursor-pointer"
-												>
-													<span
-														class={`w-2 h-2 rounded-full ${statusColor(worker.status)} ${worker.status === "running" ? "animate-pulse" : ""}`}
-													/>
-													<div class="flex-1 min-w-0">
-														<div class="font-medium truncate">
-															{truncate(worker.task)}
-														</div>
-														<div class="text-xs text-muted-foreground mt-1">
-															{worker.status} ·{" "}
-															{formatRuntime(worker.startTime)}
-														</div>
-													</div>
-													<Show when={worker.status === "running"}>
-														<button
-															type="button"
-															onClick={(e) => handleStop(e, worker.sessionId)}
-															class="p-2 rounded-lg bg-red-950 text-red-400"
-														>
-															<svg
-																class="w-4 h-4"
-																fill="none"
-																stroke="currentColor"
-																viewBox="0 0 24 24"
-															>
-																<rect
-																	x="6"
-																	y="6"
-																	width="12"
-																	height="12"
-																	rx="2"
-																	fill="currentColor"
-																/>
-															</svg>
-														</button>
-													</Show>
-												</div>
-											)}
-										</For>
+							{/* Active threads section */}
+							<Show when={activeThreads().length > 0}>
+								<div class="space-y-2">
+									<div class="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
+										Active
 									</div>
-								)}
-							</For>
+									<For each={activeThreads()}>
+										{(thread) => (
+											<div
+												onClick={() => handleSelectThread(thread)}
+												class="w-full flex items-center gap-3 p-4 rounded-xl border border-border active:bg-muted/30 text-left cursor-pointer"
+											>
+												<span
+													class={`w-2 h-2 rounded-full ${statusColor(thread.status)} ${thread.status === "running" ? "animate-pulse" : ""}`}
+												/>
+												<div class="flex-1 min-w-0">
+													<div class="font-medium truncate">
+														{truncate(thread.task)}
+													</div>
+													<div class="text-xs text-muted-foreground mt-1">
+														{thread.projectPath.split("/").pop()} ·{" "}
+														{formatRuntime(thread.startTime)}
+													</div>
+												</div>
+												<Show when={thread.status === "running"}>
+													<button
+														type="button"
+														onClick={(e) => handleStop(e, thread.sessionId)}
+														class="p-2 rounded-lg bg-red-950 text-red-400"
+													>
+														<svg
+															class="w-4 h-4"
+															fill="none"
+															stroke="currentColor"
+															viewBox="0 0 24 24"
+														>
+															<rect
+																x="6"
+																y="6"
+																width="12"
+																height="12"
+																rx="2"
+																fill="currentColor"
+															/>
+														</svg>
+													</button>
+												</Show>
+											</div>
+										)}
+									</For>
+								</div>
+							</Show>
+
+							{/* Inactive threads section */}
+							<Show when={inactiveThreads().length > 0}>
+								<div class="space-y-2">
+									<div class="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
+										Inactive
+									</div>
+									<For each={inactiveThreads()}>
+										{(thread) => (
+											<div
+												onClick={() => handleSelectThread(thread)}
+												class="w-full flex items-center gap-3 p-4 rounded-xl border border-border/50 bg-muted/20 text-left cursor-pointer opacity-70 hover:opacity-100 transition-opacity"
+											>
+												<span
+													class={`w-2 h-2 rounded-full ${statusColor(thread.status)}`}
+												/>
+												<div class="flex-1 min-w-0">
+													<div class="font-medium truncate">
+														{truncate(thread.task)}
+													</div>
+													<div class="text-xs text-muted-foreground mt-1">
+														{thread.projectPath.split("/").pop()} ·{" "}
+														{thread.status} · {formatRuntime(thread.startTime)}
+													</div>
+												</div>
+											</div>
+										)}
+									</For>
+								</div>
+							</Show>
 						</div>
 					</Show>
 				</Show>
@@ -215,8 +233,8 @@ export function WorkerListPanel(props: {
 	);
 }
 
-// Dialog for spawning a new worker
-export function SpawnWorkerDialog(props: {
+// Dialog for spawning a new thread
+export function SpawnThreadDialog(props: {
 	projectPath: string;
 	parentSession: string;
 	onClose: () => void;
@@ -231,7 +249,7 @@ export function SpawnWorkerDialog(props: {
 
 		setSpawning(true);
 		try {
-			const res = await fetch("/api/workers/spawn", {
+			const res = await fetch("/api/threads/spawn", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
@@ -256,7 +274,7 @@ export function SpawnWorkerDialog(props: {
 					pid: data.session.pid,
 				});
 			} else {
-				alert(data.error || "Failed to spawn worker");
+				alert(data.error || "Failed to spawn thread");
 			}
 		} catch (err) {
 			alert(String(err));
@@ -275,14 +293,14 @@ export function SpawnWorkerDialog(props: {
 			<div class="w-full bg-background border-t border-border rounded-t-2xl p-6 pb-8 safe-area-inset-bottom">
 				<div class="w-12 h-1 bg-muted-foreground/30 rounded-full mx-auto mb-6" />
 
-				<h3 class="text-xl font-medium mb-4">Spawn Worker</h3>
+				<h3 class="text-xl font-medium mb-4">New Thread</h3>
 
 				<div class="mb-4">
 					<label class="block text-sm text-muted-foreground mb-2">Task</label>
 					<textarea
 						value={task()}
 						onInput={(e) => setTask(e.currentTarget.value)}
-						placeholder="Describe what the worker should do..."
+						placeholder="Describe what the thread should do..."
 						class="w-full px-4 py-3 bg-muted border border-border rounded-xl text-base resize-none"
 						rows={4}
 						autofocus
@@ -307,7 +325,7 @@ export function SpawnWorkerDialog(props: {
 						disabled={!task().trim() || spawning()}
 						class="flex-1 h-14 text-base font-medium rounded-xl bg-foreground text-background active:opacity-80 disabled:opacity-50"
 					>
-						{spawning() ? "Starting..." : "Start Worker"}
+						{spawning() ? "Starting..." : "Start"}
 					</button>
 				</div>
 			</div>

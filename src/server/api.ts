@@ -28,7 +28,7 @@ import {
 import {
 	cancelSession,
 	clearSessionById,
-	getActiveWorkers,
+	getAllWorkers,
 	getSessionHistoryById,
 	getSessionsFromTranscripts,
 	getWorkerReports,
@@ -886,8 +886,8 @@ export const routes = {
 		},
 	},
 
-	// Spawn a new worker
-	"/api/workers/spawn": {
+	// Spawn a new thread
+	"/api/threads/spawn": {
 		POST: async (req: Request) => {
 			try {
 				const { projectPath, task, parentSession } = (await req.json()) as {
@@ -910,22 +910,22 @@ export const routes = {
 
 				return json({ session: result.session });
 			} catch (err) {
-				console.error("Failed to spawn worker:", err);
+				console.error("Failed to spawn thread:", err);
 				return error(String(err));
 			}
 		},
 	},
 
-	// List active workers
-	"/api/workers": {
+	// List all threads
+	"/api/threads": {
 		GET: () => {
-			const workers = getActiveWorkers();
-			return json({ workers });
+			const threads = getAllWorkers();
+			return json({ threads });
 		},
 	},
 
-	// Stop a worker
-	"/api/workers/:id/stop": {
+	// Stop a thread
+	"/api/threads/:id/stop": {
 		POST: (req: Request & { params: { id: string } }) => {
 			const { id } = req.params;
 			const stopped = stopWorker(id);
@@ -933,14 +933,14 @@ export const routes = {
 		},
 	},
 
-	// Stream worker output (SSE)
-	"/api/workers/:id/stream": {
+	// Stream thread output (SSE)
+	"/api/threads/:id/stream": {
 		GET: (req: Request & { params: { id: string } }) => {
 			const { id } = req.params;
 
 			if (!isWorkerRunning(id)) {
 				return json(
-					{ error: "Worker not found or not running" },
+					{ error: "Thread not found or not running" },
 					{ status: 404 },
 				);
 			}
@@ -978,8 +978,8 @@ export const routes = {
 		},
 	},
 
-	// Inject message into a running worker
-	"/api/workers/:id/inject": {
+	// Inject message into a running thread
+	"/api/threads/:id/inject": {
 		POST: async (req: Request & { params: { id: string } }) => {
 			try {
 				const { id } = req.params;
@@ -1002,8 +1002,8 @@ export const routes = {
 		},
 	},
 
-	// Get worker reports
-	"/api/workers/:id/reports": {
+	// Get thread reports
+	"/api/threads/:id/reports": {
 		GET: (req: Request & { params: { id: string } }) => {
 			const { id } = req.params;
 			const url = new URL(req.url);

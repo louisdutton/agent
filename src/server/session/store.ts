@@ -11,7 +11,7 @@ import {
 } from "./context";
 
 const STATE_FILE = join(homedir(), ".claude", "agent-state.json");
-const MAX_WORKERS = 5;
+const MAX_THREADS = 5;
 const WORKER_MAX_RUNTIME = 24 * 60 * 60 * 1000; // 24 hours
 
 // In-memory session store
@@ -41,17 +41,29 @@ export function getAllSessions(type?: SessionType): SessionContext[] {
 	return all.filter((s) => s.type === type);
 }
 
-// Get all active workers
-export function getActiveWorkers(): SessionContext[] {
+// Get all active threads (running or idle)
+export function getActiveThreads(): SessionContext[] {
 	return getAllSessions("worker").filter(
 		(s) => s.status === "running" || s.status === "idle",
 	);
 }
 
-// Check if we can spawn more workers
-export function canSpawnWorker(): boolean {
-	return getActiveWorkers().length < MAX_WORKERS;
+// Get all threads (any status)
+export function getAllThreads(): SessionContext[] {
+	return getAllSessions("worker");
 }
+
+// Check if we can spawn more threads
+export function canSpawnThread(): boolean {
+	return getActiveThreads().length < MAX_THREADS;
+}
+
+// Legacy aliases for compatibility
+export const getActiveWorkers = getActiveThreads;
+export const getAllWorkers = getAllThreads;
+export const canSpawnWorker = canSpawnThread;
+export const startWorker = startThread;
+export const cleanupStaleWorkers = cleanupStaleThreads;
 
 // Register a new session
 export function registerSession(ctx: SessionContext): void {
@@ -80,8 +92,8 @@ export function removeSession(sessionId: string): boolean {
 	return removed;
 }
 
-// Start a worker session
-export function startWorker(
+// Start a new thread
+export function startThread(
 	sessionId: string,
 	projectPath: string,
 	parentSession: string,
@@ -120,8 +132,8 @@ export function markSessionError(sessionId: string): void {
 	updateSessionStatus(sessionId, "error");
 }
 
-// Check for stale/timed out workers
-export function cleanupStaleWorkers(): void {
+// Check for stale/timed out threads
+export function cleanupStaleThreads(): void {
 	const now = Date.now();
 	for (const session of getAllSessions("worker")) {
 		const age = now - session.startTime;
@@ -177,8 +189,8 @@ export async function loadState(): Promise<void> {
 				assistantSession = data.assistantSession;
 			}
 
-			// Clean up stale workers
-			cleanupStaleWorkers();
+			// Clean up stale threads
+			cleanupStaleThreads();
 		}
 	} catch (err) {
 		console.error("Failed to load session state:", err);

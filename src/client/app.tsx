@@ -31,7 +31,7 @@ import {
 	OptionsMenuButton,
 	type VoiceStatus,
 } from "./round-buttons";
-import { SpawnWorkerDialog, WorkerListPanel } from "./thread-list";
+import { SpawnThreadDialog, ThreadListPanel } from "./thread-list";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread, Tool, ToolStatus } from "./types";
 import { connectionStatus, initWebSocket } from "./ws";
@@ -86,7 +86,7 @@ export function App() {
 	let menuRef: HTMLDivElement | undefined;
 	let idCounter = 0;
 	let abortController: AbortController | null = null;
-	let workerEventSource: EventSource | null = null;
+	let threadEventSource: EventSource | null = null;
 
 	const audioRefs: AudioRefs = createAudioRefs();
 	const audioState = {
@@ -106,7 +106,7 @@ export function App() {
 	};
 
 	// Derived state
-	const isWorkerThread = () => activeThread()?.type === "worker";
+	const isBackgroundThread = () => activeThread()?.type === "worker";
 
 	// Event handling helpers (shared between assistant and worker)
 	const addEvent = (event: EventItem) => {
@@ -361,9 +361,9 @@ export function App() {
 	};
 
 	// Connect to worker stream
-	const connectToWorkerStream = (workerId: string) => {
-		if (workerEventSource) {
-			workerEventSource.close();
+	const connectToThreadStream = (workerId: string) => {
+		if (threadEventSource) {
+			threadEventSource.close();
 		}
 
 		setEvents([]);
@@ -371,9 +371,9 @@ export function App() {
 		idCounter = 0;
 
 		const assistantContentRef = { value: "" };
-		workerEventSource = new EventSource(`/api/workers/${workerId}/stream`);
+		threadEventSource = new EventSource(`/api/threads/${workerId}/stream`);
 
-		workerEventSource.onmessage = (e) => {
+		threadEventSource.onmessage = (e) => {
 			try {
 				const parsed = JSON.parse(e.data);
 
@@ -390,7 +390,7 @@ export function App() {
 					}
 					markAllToolsComplete();
 					setIsLoading(false);
-					workerEventSource?.close();
+					threadEventSource?.close();
 					return;
 				}
 
@@ -400,18 +400,18 @@ export function App() {
 			}
 		};
 
-		workerEventSource.onerror = () => {
+		threadEventSource.onerror = () => {
 			setIsLoading(false);
-			workerEventSource?.close();
+			threadEventSource?.close();
 		};
 	};
 
 	// Handle thread selection
 	const handleSelectThread = async (thread: Thread) => {
 		// Clean up any existing worker connection
-		if (workerEventSource) {
-			workerEventSource.close();
-			workerEventSource = null;
+		if (threadEventSource) {
+			threadEventSource.close();
+			threadEventSource = null;
 		}
 
 		if (thread.type === "worker") {
@@ -429,7 +429,7 @@ export function App() {
 
 			// Connect to worker stream if running
 			if (thread.status === "running") {
-				connectToWorkerStream(thread.id);
+				connectToThreadStream(thread.id);
 			}
 		} else {
 			// Switch to assistant thread
@@ -444,9 +444,9 @@ export function App() {
 
 	// Return to assistant view
 	const returnToAssistant = () => {
-		if (workerEventSource) {
-			workerEventSource.close();
-			workerEventSource = null;
+		if (threadEventSource) {
+			threadEventSource.close();
+			threadEventSource = null;
 		}
 		setActiveThread(null);
 		loadHistory();
@@ -469,8 +469,8 @@ export function App() {
 	});
 
 	onCleanup(() => {
-		if (workerEventSource) {
-			workerEventSource.close();
+		if (threadEventSource) {
+			threadEventSource.close();
 		}
 	});
 
@@ -485,7 +485,7 @@ export function App() {
 
 	// Send message (assistant mode)
 	const sendMessage = async (directMessage?: string) => {
-		if (isWorkerThread()) {
+		if (isBackgroundThread()) {
 			return sendWorkerMessage(directMessage);
 		}
 
@@ -588,7 +588,7 @@ export function App() {
 		if (!directMessage) setInput("");
 
 		try {
-			const res = await fetch(`/api/workers/${thread.id}/inject`, {
+			const res = await fetch(`/api/threads/${thread.id}/inject`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ message: text }),
@@ -750,16 +750,16 @@ export function App() {
 		}
 	};
 
-	const handleStopWorker = async () => {
+	const handleStopThread = async () => {
 		const thread = activeThread();
 		if (thread?.type === "worker") {
-			await fetch(`/api/workers/${thread.id}/stop`, { method: "POST" });
+			await fetch(`/api/threads/${thread.id}/stop`, { method: "POST" });
 			setActiveThread({ ...thread, status: "stopped" });
 		}
 	};
 
-	const handleStopWorkerById = async (sessionId: string) => {
-		await fetch(`/api/workers/${sessionId}/stop`, { method: "POST" });
+	const handleStopThreadById = async (sessionId: string) => {
+		await fetch(`/api/threads/${sessionId}/stop`, { method: "POST" });
 	};
 
 	// Header display
@@ -779,7 +779,7 @@ export function App() {
 			const runtime = Math.floor((Date.now() - thread.startTime) / 1000);
 			const mins = Math.floor(runtime / 60);
 			const timeStr = mins > 0 ? `${mins}m` : `${runtime}s`;
-			return `${thread.projectName} · Worker · ${timeStr}`;
+			return `${thread.projectName} · Thread · ${timeStr}`;
 		}
 		return projectPath();
 	};
@@ -793,12 +793,14 @@ export function App() {
 						<button
 							type="button"
 							onClick={() =>
-								isWorkerThread() ? returnToAssistant() : setShowThreadList(true)
+								isBackgroundThread()
+									? returnToAssistant()
+									: setShowThreadList(true)
 							}
 							class="text-sm hover:text-foreground transition-colors text-left flex-1 overflow-hidden"
 						>
 							<div class="flex items-center gap-2">
-								<Show when={isWorkerThread()}>
+								<Show when={isBackgroundThread()}>
 									<svg
 										class="w-4 h-4 text-muted-foreground"
 										fill="none"
@@ -818,7 +820,7 @@ export function App() {
 								</span>
 							</div>
 							<div class="text-muted-foreground font-mono text-xs truncate flex items-center gap-1.5">
-								<Show when={!isWorkerThread()}>
+								<Show when={!isBackgroundThread()}>
 									<span
 										class={`w-1.5 h-1.5 rounded-full ${
 											connectionStatus() === "connected"
@@ -829,7 +831,7 @@ export function App() {
 										}`}
 									/>
 								</Show>
-								<Show when={isWorkerThread()}>
+								<Show when={isBackgroundThread()}>
 									<span
 										class={`w-1.5 h-1.5 rounded-full ${
 											activeThread()?.status === "running"
@@ -846,11 +848,13 @@ export function App() {
 							</div>
 						</button>
 						<Show
-							when={isWorkerThread() && activeThread()?.status === "running"}
+							when={
+								isBackgroundThread() && activeThread()?.status === "running"
+							}
 						>
 							<button
 								type="button"
-								onClick={handleStopWorker}
+								onClick={handleStopThread}
 								class="ml-2 px-3 py-1.5 text-sm rounded-lg bg-red-950 text-red-400"
 							>
 								Stop
@@ -864,7 +868,7 @@ export function App() {
 			<main ref={mainRef} class="flex-1 overflow-y-auto p-4">
 				<div class="max-w-2xl mx-auto space-y-4 w-full pb-40">
 					{/* Compacted context indicator (assistant only) */}
-					<Show when={isCompacted() && !isWorkerThread()}>
+					<Show when={isCompacted() && !isBackgroundThread()}>
 						<div class="flex items-center gap-2 text-sm text-muted-foreground border border-border rounded-lg px-3 py-2 bg-muted/30">
 							<svg
 								class="w-4 h-4"
@@ -910,7 +914,7 @@ export function App() {
 								{event.type === "assistant" && (
 									<div class="prose prose-sm max-w-none group relative">
 										<Markdown content={event.content} />
-										<Show when={!isWorkerThread()}>
+										<Show when={!isBackgroundThread()}>
 											<button
 												type="button"
 												class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full bg-background border border-border hover:bg-muted"
@@ -974,7 +978,7 @@ export function App() {
 					<Show when={isLoading() && !streamingContent()}>
 						<div class="flex items-center gap-2 text-sm text-muted-foreground">
 							<span class="inline-block w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
-							<span>{isWorkerThread() ? "Working..." : "Thinking..."}</span>
+							<span>{isBackgroundThread() ? "Working..." : "Thinking..."}</span>
 						</div>
 					</Show>
 
@@ -990,7 +994,7 @@ export function App() {
 			{/* Fixed floating bottom controls */}
 			<div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-3">
 				{/* Text input - always show for workers, toggle for assistant */}
-				<Show when={showTextInput() || isWorkerThread()}>
+				<Show when={showTextInput() || isBackgroundThread()}>
 					<form
 						onSubmit={(e) => {
 							e.preventDefault();
@@ -998,7 +1002,7 @@ export function App() {
 						}}
 						class="flex gap-2 bg-muted border border-border rounded-full px-3 py-2 shadow-lg"
 					>
-						<Show when={!isWorkerThread()}>
+						<Show when={!isBackgroundThread()}>
 							<ImagePickerButton
 								images={attachedImages}
 								setImages={setAttachedImages}
@@ -1012,10 +1016,10 @@ export function App() {
 							value={input()}
 							onInput={(e) => setInput(e.currentTarget.value)}
 							placeholder={
-								isWorkerThread() ? "Send to worker..." : "Type a message..."
+								isBackgroundThread() ? "Send to worker..." : "Type a message..."
 							}
 							disabled={
-								isWorkerThread()
+								isBackgroundThread()
 									? activeThread()?.status !== "running"
 									: isLoading() || isRecording() || isTranscribing()
 							}
@@ -1025,7 +1029,7 @@ export function App() {
 							type="submit"
 							disabled={
 								!input().trim() ||
-								(isWorkerThread()
+								(isBackgroundThread()
 									? activeThread()?.status !== "running"
 									: isLoading() || isRecording() || isTranscribing())
 							}
@@ -1049,12 +1053,12 @@ export function App() {
 				</Show>
 
 				{/* Image preview (assistant only) */}
-				<Show when={!isWorkerThread()}>
+				<Show when={!isBackgroundThread()}>
 					<ImagePreview images={attachedImages} setImages={setAttachedImages} />
 				</Show>
 
 				{/* Buttons - full controls for assistant, simplified for worker */}
-				<Show when={!isWorkerThread()}>
+				<Show when={!isBackgroundThread()}>
 					<div class="flex items-center justify-center gap-4 bg-muted rounded-full px-3 py-2 border border-border shadow-lg">
 						<OptionsMenuButton
 							menuRef={menuRef}
@@ -1104,12 +1108,12 @@ export function App() {
 				/>
 			</Show>
 
-			{/* Worker List */}
+			{/* Thread List */}
 			<Show when={showThreadList()}>
-				<WorkerListPanel
-					onSelectWorker={handleSelectThread}
-					onStopWorker={handleStopWorkerById}
-					onSpawnWorker={() => {
+				<ThreadListPanel
+					onSelectThread={handleSelectThread}
+					onStopThread={handleStopThreadById}
+					onSpawnThread={() => {
 						setShowThreadList(false);
 						setShowSpawnWorker(true);
 					}}
@@ -1147,9 +1151,9 @@ export function App() {
 				/>
 			</Show>
 
-			{/* Spawn Worker Dialog */}
+			{/* Spawn Thread Dialog */}
 			<Show when={showSpawnWorker()}>
-				<SpawnWorkerDialog
+				<SpawnThreadDialog
 					projectPath={projectPath()}
 					parentSession={localStorage.getItem("sessionId") || "assistant"}
 					onClose={() => setShowSpawnWorker(false)}
@@ -1165,7 +1169,7 @@ export function App() {
 							},
 						]);
 						if (thread.status === "running") {
-							connectToWorkerStream(thread.id);
+							connectToThreadStream(thread.id);
 						}
 					}}
 				/>
