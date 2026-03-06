@@ -29,6 +29,23 @@ import { ToolGroup } from "./tools";
 import type { EventItem, Tool, ToolStatus } from "./types";
 import { connectionStatus, initWebSocket } from "./ws";
 
+type WorkerSession = {
+	sessionId: string;
+	type: "worker";
+	status: "idle" | "running" | "error" | "completed" | "stopped";
+	projectPath: string;
+	pid: number | null;
+	startTime: number;
+	parentSession: string;
+	task: string;
+};
+
+// Helper to build URL with project query param
+function apiUrl(path: string, projectPath: string): string {
+	const separator = path.includes("?") ? "&" : "?";
+	return `${path}${separator}project=${encodeURIComponent(projectPath)}`;
+}
+
 export function App() {
 	const [events, setEvents] = createSignal<EventItem[]>([]);
 	const [input, setInput] = createSignal("");
@@ -41,7 +58,7 @@ export function App() {
 	const [isPlaying, setIsPlaying] = createSignal(false);
 	const [showMenu, setShowMenu] = createSignal(false);
 	const [showSessionModal, setShowSessionModal] = createSignal(false);
-	const [cwd, setCwd] = createSignal("");
+	const [projectPath, setProjectPath] = createSignal("");
 	const [isCompacting, setIsCompacting] = createSignal(false);
 	const [isClearing, setIsClearing] = createSignal(false);
 	const [isCompacted, setIsCompacted] = createSignal(false);
@@ -49,8 +66,8 @@ export function App() {
 	const [sessionName, setSessionName] = createSignal("");
 	const [attachedImages, setAttachedImages] = createSignal<string[]>([]);
 
-	// Git state
-	const gitStatus = useGitStatus();
+	// Git state - pass projectPath getter
+	const gitStatus = useGitStatus(projectPath);
 	const [showDiffModal, setShowDiffModal] = createSignal(false);
 	const [audioLevels, setAudioLevels] = createSignal<number[]>([0, 0, 0, 0]);
 
@@ -59,6 +76,11 @@ export function App() {
 	const [showFileViewer, setShowFileViewer] = createSignal(false);
 	const [fileViewerPath, setFileViewerPath] = createSignal("");
 	const [showGitPanel, setShowGitPanel] = createSignal(false);
+
+	// Worker state
+	const [selectedWorker, setSelectedWorker] =
+		createSignal<WorkerSession | null>(null);
+	const [showSpawnWorker, setShowSpawnWorker] = createSignal(false);
 
 	let mainRef: HTMLElement | undefined;
 	let menuRef: HTMLDivElement | undefined;
@@ -95,32 +117,39 @@ export function App() {
 		return "";
 	};
 
-	// Load chat history and cwd
+	// Load chat history
 	const loadHistory = async (sessionId?: string | null) => {
+		const currentProjectPath = projectPath();
+		if (!currentProjectPath) return;
+
 		try {
 			const storedSessionId = sessionId ?? localStorage.getItem("sessionId");
 			if (storedSessionId) {
 				const res = await fetch(
-					`/api/sessions/${encodeURIComponent(storedSessionId)}/history`,
+					apiUrl(
+						`/api/sessions/${encodeURIComponent(storedSessionId)}/history`,
+						currentProjectPath,
+					),
 				);
 				const data = await res.json();
 				const messages = data.messages?.length ? data.messages : [];
 				setEvents(messages);
-				setCwd(data.cwd || "");
 				setIsCompacted(data.isCompacted || false);
 				setSessionName(data.firstPrompt || getSessionNameFromEvents(messages));
 				idCounter = messages.length || 0;
 			} else {
-				// No session stored - fetch sessions list to get cwd and latest session
-				const res = await fetch("/api/sessions");
+				// No session stored - fetch sessions list to get latest session
+				const res = await fetch(apiUrl("/api/sessions", currentProjectPath));
 				const data = await res.json();
-				setCwd(data.cwd || "");
 
 				// If there's a latest session available, load it
 				if (data.latestSessionId) {
 					localStorage.setItem("sessionId", data.latestSessionId);
 					const historyRes = await fetch(
-						`/api/sessions/${encodeURIComponent(data.latestSessionId)}/history`,
+						apiUrl(
+							`/api/sessions/${encodeURIComponent(data.latestSessionId)}/history`,
+							currentProjectPath,
+						),
 					);
 					const historyData = await historyRes.json();
 					const messages = historyData.messages?.length
@@ -158,8 +187,18 @@ export function App() {
 		}
 	};
 
-	onMount(() => {
-		loadHistory();
+	onMount(async () => {
+		// Load projectPath from localStorage or fetch from server
+		let storedProjectPath = localStorage.getItem("projectPath");
+		if (!storedProjectPath) {
+			const res = await fetch("/api/info");
+			const info = await res.json();
+			storedProjectPath = info.cwd;
+		}
+		setProjectPath(storedProjectPath);
+		localStorage.setItem("projectPath", storedProjectPath);
+
+		await loadHistory();
 		initWebSocket();
 	});
 
@@ -239,7 +278,9 @@ export function App() {
 	const sendMessage = async (directMessage?: string) => {
 		const text = directMessage ?? input().trim();
 		const images = attachedImages();
-		if ((!text && images.length === 0) || isLoading()) return;
+		const currentProjectPath = projectPath();
+		if ((!text && images.length === 0) || isLoading() || !currentProjectPath)
+			return;
 
 		// Set session name from first message if not set
 		if (!sessionName() && text) {
@@ -262,7 +303,10 @@ export function App() {
 		try {
 			const sessionId = localStorage.getItem("sessionId") || "new";
 			const res = await fetch(
-				`/api/sessions/${encodeURIComponent(sessionId)}/messages`,
+				apiUrl(
+					`/api/sessions/${encodeURIComponent(sessionId)}/messages`,
+					currentProjectPath,
+				),
 				{
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
@@ -488,14 +532,18 @@ export function App() {
 	const handleCompact = async () => {
 		setShowMenu(false);
 		const sessionId = localStorage.getItem("sessionId");
-		if (!sessionId) {
+		const currentProjectPath = projectPath();
+		if (!sessionId || !currentProjectPath) {
 			alert("No active session to compact");
 			return;
 		}
 		setIsCompacting(true);
 		try {
 			const res = await fetch(
-				`/api/sessions/${encodeURIComponent(sessionId)}/compact`,
+				apiUrl(
+					`/api/sessions/${encodeURIComponent(sessionId)}/compact`,
+					currentProjectPath,
+				),
 				{
 					method: "POST",
 				},
@@ -520,7 +568,8 @@ export function App() {
 	const handleClear = async () => {
 		setShowMenu(false);
 		const sessionId = localStorage.getItem("sessionId");
-		if (!sessionId) {
+		const currentProjectPath = projectPath();
+		if (!sessionId || !currentProjectPath) {
 			alert("No active session to clear");
 			return;
 		}
@@ -530,7 +579,10 @@ export function App() {
 		setIsClearing(true);
 		try {
 			const res = await fetch(
-				`/api/sessions/${encodeURIComponent(sessionId)}`,
+				apiUrl(
+					`/api/sessions/${encodeURIComponent(sessionId)}`,
+					currentProjectPath,
+				),
 				{
 					method: "DELETE",
 				},
@@ -557,7 +609,7 @@ export function App() {
 	return (
 		<div class="h-dvh flex flex-col bg-background">
 			{/* Header */}
-			<Show when={cwd()}>
+			<Show when={projectPath()}>
 				<header class="flex-none px-4 py-2 border-b border-border z-20 bg-background">
 					<div class="max-w-2xl mx-auto">
 						<button
@@ -578,7 +630,7 @@ export function App() {
 												: "bg-red-500"
 									}`}
 								/>
-								{cwd()}
+								{projectPath()}
 							</div>
 						</button>
 					</div>
@@ -805,6 +857,7 @@ export function App() {
 			{/* Git Diff Modal */}
 			<Show when={showDiffModal()}>
 				<GitDiffModal
+					projectPath={projectPath()}
 					onClose={() => setShowDiffModal(false)}
 					onCommit={handleCommit}
 				/>
@@ -814,24 +867,35 @@ export function App() {
 			<Show when={showSessionModal()}>
 				<SessionManagerModal
 					onClose={() => setShowSessionModal(false)}
-					onSwitch={(messages, sessionId, compacted, firstPrompt, newCwd) => {
+					onSwitch={(
+						messages,
+						sessionId,
+						compacted,
+						firstPrompt,
+						newProjectPath,
+					) => {
 						localStorage.setItem("sessionId", sessionId);
+						if (newProjectPath) {
+							localStorage.setItem("projectPath", newProjectPath);
+							setProjectPath(newProjectPath);
+						}
 						setEvents(messages);
 						setIsCompacted(compacted);
 						setSessionName(firstPrompt || getSessionNameFromEvents(messages));
-						if (newCwd) setCwd(newCwd);
 						idCounter = messages.length;
 						setShowSessionModal(false);
 					}}
-					onNewSession={async () => {
+					onNewSession={async (newProjectPath) => {
 						localStorage.removeItem("sessionId");
+						if (newProjectPath) {
+							localStorage.setItem("projectPath", newProjectPath);
+							setProjectPath(newProjectPath);
+						}
 						setEvents([]);
 						setIsCompacted(false);
 						setSessionName("");
 						idCounter = 0;
 						setShowSessionModal(false);
-						// Fetch cwd without loading a session
-						await loadHistory(null);
 					}}
 				/>
 			</Show>
@@ -839,6 +903,7 @@ export function App() {
 			{/* File Browser Modal */}
 			<Show when={showFileBrowser()}>
 				<FileBrowserModal
+					projectPath={projectPath()}
 					onClose={() => setShowFileBrowser(false)}
 					onSelectFile={(path) => {
 						setShowFileBrowser(false);
@@ -851,6 +916,7 @@ export function App() {
 			{/* File Viewer Modal */}
 			<Show when={showFileViewer()}>
 				<FileViewerModal
+					projectPath={projectPath()}
 					filePath={fileViewerPath()}
 					onClose={() => setShowFileViewer(false)}
 				/>
@@ -858,7 +924,48 @@ export function App() {
 
 			{/* Git Panel */}
 			<Show when={showGitPanel()}>
-				<GitPanel onClose={() => setShowGitPanel(false)} />
+				<GitPanel
+					projectPath={projectPath()}
+					onClose={() => setShowGitPanel(false)}
+				/>
+			</Show>
+
+			{/* Worker List Panel */}
+			<Show when={projectPath() && !selectedWorker()}>
+				<WorkerListPanel
+					onSelectWorker={(worker) => setSelectedWorker(worker)}
+					onSpawnWorker={() => setShowSpawnWorker(true)}
+				/>
+			</Show>
+
+			{/* Worker View */}
+			<Show when={selectedWorker()}>
+				<WorkerView
+					worker={selectedWorker()!}
+					onClose={() => setSelectedWorker(null)}
+					onStop={async () => {
+						const worker = selectedWorker();
+						if (worker) {
+							await fetch(`/api/workers/${worker.sessionId}/stop`, {
+								method: "POST",
+							});
+							setSelectedWorker(null);
+						}
+					}}
+				/>
+			</Show>
+
+			{/* Spawn Worker Dialog */}
+			<Show when={showSpawnWorker()}>
+				<SpawnWorkerDialog
+					projectPath={projectPath()}
+					parentSession={localStorage.getItem("sessionId") || "assistant"}
+					onClose={() => setShowSpawnWorker(false)}
+					onSpawn={(worker) => {
+						setShowSpawnWorker(false);
+						setSelectedWorker(worker);
+					}}
+				/>
 			</Show>
 		</div>
 	);

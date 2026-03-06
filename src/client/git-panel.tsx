@@ -173,6 +173,7 @@ function CommitRow(props: {
 // Commit detail view with bottom action bar
 function CommitDetail(props: {
 	hash: string;
+	projectPath: string;
 	onClose: () => void;
 	onAction: (action: string, hash: string) => void;
 }) {
@@ -187,7 +188,9 @@ function CommitDetail(props: {
 
 	onMount(async () => {
 		try {
-			const res = await fetch(`/api/git/commits/${props.hash}`);
+			const res = await fetch(
+				gitApiUrl(`/api/git/commits/${props.hash}`, props.projectPath),
+			);
 			if (res.ok) {
 				const data = await res.json();
 				setCommit(data.commit);
@@ -531,6 +534,7 @@ function BranchRow(props: {
 
 // Branch list with bottom create button
 function BranchList(props: {
+	projectPath: string;
 	onSwitch: (branch: string) => void;
 	onMerge: (branch: string) => void;
 	onDelete: (branch: string) => void;
@@ -541,7 +545,9 @@ function BranchList(props: {
 
 	const loadBranches = async () => {
 		try {
-			const res = await fetch("/api/git/branches");
+			const res = await fetch(
+				gitApiUrl("/api/git/branches", props.projectPath),
+			);
 			if (res.ok) {
 				const data = await res.json();
 				setBranches(data.branches);
@@ -651,6 +657,7 @@ function StashRow(props: {
 
 // Stash list with bottom save button
 function StashList(props: {
+	projectPath: string;
 	onPop: (index: number) => void;
 	onApply: (index: number) => void;
 	onDrop: (index: number) => void;
@@ -661,7 +668,7 @@ function StashList(props: {
 
 	const loadStashes = async () => {
 		try {
-			const res = await fetch("/api/git/stashes");
+			const res = await fetch(gitApiUrl("/api/git/stashes", props.projectPath));
 			if (res.ok) {
 				const data = await res.json();
 				setStashes(data.stashes);
@@ -798,8 +805,14 @@ function CreateBranchDialog(props: {
 	);
 }
 
+// Helper to build URL with project query param
+function gitApiUrl(path: string, projectPath: string): string {
+	const separator = path.includes("?") ? "&" : "?";
+	return `${path}${separator}project=${encodeURIComponent(projectPath)}`;
+}
+
 // Main Git Panel component
-export function GitPanel(props: { onClose: () => void }) {
+export function GitPanel(props: { projectPath: string; onClose: () => void }) {
 	const [tab, setTab] = createSignal<Tab>("log");
 	const [commits, setCommits] = createSignal<GitCommit[]>([]);
 	const [currentBranch, setCurrentBranch] = createSignal("");
@@ -815,7 +828,7 @@ export function GitPanel(props: { onClose: () => void }) {
 	const loadCommits = async () => {
 		setLoading(true);
 		try {
-			const res = await fetch("/api/git/log");
+			const res = await fetch(gitApiUrl("/api/git/log", props.projectPath));
 			if (res.ok) {
 				const data = await res.json();
 				setCommits(data.commits);
@@ -839,7 +852,9 @@ export function GitPanel(props: { onClose: () => void }) {
 	const handlePull = async () => {
 		setActionLoading(true);
 		try {
-			const res = await fetch("/api/git/pull", { method: "POST" });
+			const res = await fetch(gitApiUrl("/api/git/pull", props.projectPath), {
+				method: "POST",
+			});
 			if (res.ok) {
 				showMsg("success", "Pulled successfully");
 				loadCommits();
@@ -859,7 +874,7 @@ export function GitPanel(props: { onClose: () => void }) {
 
 		setActionLoading(true);
 		try {
-			const res = await fetch("/api/git/push", {
+			const res = await fetch(gitApiUrl("/api/git/push", props.projectPath), {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ setUpstream: true }),
@@ -880,7 +895,9 @@ export function GitPanel(props: { onClose: () => void }) {
 	const handleFetch = async () => {
 		setActionLoading(true);
 		try {
-			const res = await fetch("/api/git/fetch", { method: "POST" });
+			const res = await fetch(gitApiUrl("/api/git/fetch", props.projectPath), {
+				method: "POST",
+			});
 			if (res.ok) {
 				showMsg("success", "Fetched successfully");
 				loadCommits();
@@ -920,7 +937,7 @@ export function GitPanel(props: { onClose: () => void }) {
 					return;
 			}
 
-			const res = await fetch(endpoint, {
+			const res = await fetch(gitApiUrl(endpoint, props.projectPath), {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(body),
@@ -944,11 +961,14 @@ export function GitPanel(props: { onClose: () => void }) {
 	const handleSwitchBranch = async (branch: string) => {
 		setActionLoading(true);
 		try {
-			const res = await fetch("/api/git/checkout", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ branch }),
-			});
+			const res = await fetch(
+				gitApiUrl("/api/git/checkout", props.projectPath),
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ branch }),
+				},
+			);
 			if (res.ok) {
 				showMsg("success", `Switched to ${branch}`);
 				loadCommits();
@@ -966,7 +986,7 @@ export function GitPanel(props: { onClose: () => void }) {
 	const handleMergeBranch = async (branch: string) => {
 		setActionLoading(true);
 		try {
-			const res = await fetch("/api/git/merge", {
+			const res = await fetch(gitApiUrl("/api/git/merge", props.projectPath), {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ branch }),
@@ -991,7 +1011,10 @@ export function GitPanel(props: { onClose: () => void }) {
 		setActionLoading(true);
 		try {
 			const res = await fetch(
-				`/api/git/branches/${encodeURIComponent(branch)}`,
+				gitApiUrl(
+					`/api/git/branches/${encodeURIComponent(branch)}`,
+					props.projectPath,
+				),
 				{ method: "DELETE" },
 			);
 			if (res.ok) {
@@ -1010,11 +1033,14 @@ export function GitPanel(props: { onClose: () => void }) {
 	const handleCreateBranch = async (name: string, startPoint?: string) => {
 		setActionLoading(true);
 		try {
-			const res = await fetch("/api/git/branches", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ name, startPoint }),
-			});
+			const res = await fetch(
+				gitApiUrl("/api/git/branches", props.projectPath),
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ name, startPoint }),
+				},
+			);
 			if (res.ok) {
 				showMsg("success", `Created ${name}`);
 				setShowCreateBranch(false);
@@ -1036,11 +1062,14 @@ export function GitPanel(props: { onClose: () => void }) {
 
 		setActionLoading(true);
 		try {
-			const res = await fetch("/api/git/stashes", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ message: msg || undefined }),
-			});
+			const res = await fetch(
+				gitApiUrl("/api/git/stashes", props.projectPath),
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ message: msg || undefined }),
+				},
+			);
 			if (res.ok) {
 				showMsg("success", "Changes stashed");
 			} else {
@@ -1060,11 +1089,14 @@ export function GitPanel(props: { onClose: () => void }) {
 	) => {
 		setActionLoading(true);
 		try {
-			const res = await fetch(`/api/git/stashes/${index}`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ action }),
-			});
+			const res = await fetch(
+				gitApiUrl(`/api/git/stashes/${index}`, props.projectPath),
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ action }),
+				},
+			);
 			if (res.ok) {
 				showMsg("success", `Stash ${action} completed`);
 			} else {
@@ -1128,6 +1160,7 @@ export function GitPanel(props: { onClose: () => void }) {
 				<Show when={selectedCommit()}>
 					<CommitDetail
 						hash={selectedCommit()!}
+						projectPath={props.projectPath}
 						onClose={() => setSelectedCommit(null)}
 						onAction={handleCommitAction}
 					/>
@@ -1159,6 +1192,7 @@ export function GitPanel(props: { onClose: () => void }) {
 				{/* Branches tab */}
 				<Show when={!selectedCommit() && tab() === "branches"}>
 					<BranchList
+						projectPath={props.projectPath}
 						onSwitch={handleSwitchBranch}
 						onMerge={handleMergeBranch}
 						onDelete={handleDeleteBranch}
@@ -1169,6 +1203,7 @@ export function GitPanel(props: { onClose: () => void }) {
 				{/* Stashes tab */}
 				<Show when={!selectedCommit() && tab() === "stashes"}>
 					<StashList
+						projectPath={props.projectPath}
 						onPop={(i) => handleStashAction("pop", i)}
 						onApply={(i) => handleStashAction("apply", i)}
 						onDrop={(i) => handleStashAction("drop", i)}

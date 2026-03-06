@@ -2,7 +2,7 @@ import { readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { compactSession, sendMessage } from "./claude";
-import { listProjects, PROJECTS_DIR } from "./files";
+import { listProjects } from "./files";
 import {
 	createBranch,
 	deleteBranch,
@@ -28,25 +28,55 @@ import {
 import {
 	cancelSession,
 	clearSessionById,
-	getCwd,
+	getActiveWorkers,
 	getSessionHistoryById,
 	getSessionsFromTranscripts,
+	getWorkerReports,
+	getWorkerReportsSince,
+	injectMessage,
 	isSessionActive,
-	setCwd,
+	isWorkerRunning,
+	spawnWorker,
+	stopWorker,
+	subscribeToWorker,
 } from "./session";
 import { corsHeaders, EMPTY, error, json } from "./util";
 
 const WHISPER_URL = process.env.WHISPER_URL || "http://localhost:9371";
 const KOKORO_URL = process.env.KOKORO_URL || "http://localhost:9372";
 
+// Helper to extract projectPath from request (required query param)
+function getProjectPath(req: Request): string | null {
+	const url = new URL(req.url);
+	return url.searchParams.get("project");
+}
+
+// Helper to require projectPath
+function requireProjectPath(req: Request): string {
+	const projectPath = getProjectPath(req);
+	if (!projectPath) {
+		throw new Error("project query parameter is required");
+	}
+	return projectPath;
+}
+
 // Declarative API routes
 export const routes = {
-	// List all sessions for current project
+	// Server info (no project required)
+	"/api/info": {
+		GET: () => {
+			return json({
+				cwd: process.cwd(),
+				version: "2.0.0",
+			});
+		},
+	},
+	// List all sessions for a project
 	"/api/sessions": {
-		GET: async () => {
+		GET: async (req: Request) => {
 			try {
-				const cwd = getCwd();
-				const allSessions = await getSessionsFromTranscripts();
+				const projectPath = requireProjectPath(req);
+				const allSessions = await getSessionsFromTranscripts(projectPath);
 				const sorted = allSessions
 					.filter((e) => !e.isSidechain)
 					.sort(
@@ -64,7 +94,7 @@ export const routes = {
 
 				return json({
 					sessions,
-					cwd,
+					projectPath,
 					latestSessionId: sorted[0]?.sessionId,
 				});
 			} catch (err) {
@@ -79,8 +109,7 @@ export const routes = {
 		DELETE: async (req: Request & { params: { sessionId: string } }) => {
 			try {
 				const { sessionId } = req.params;
-				const url = new URL(req.url);
-				const projectPath = url.searchParams.get("project") ?? getCwd();
+				const projectPath = requireProjectPath(req);
 
 				await clearSessionById(sessionId, projectPath);
 
@@ -95,11 +124,22 @@ export const routes = {
 	// Session history by ID
 	"/api/sessions/:sessionId/history": {
 		GET: async (req: Request & { params: { sessionId: string } }) => {
-			const { sessionId } = req.params;
-			const cwd = getCwd();
-			const { messages, isCompacted, firstPrompt } =
-				await getSessionHistoryById(sessionId);
-			return json({ messages, cwd, sessionId, isCompacted, firstPrompt });
+			try {
+				const { sessionId } = req.params;
+				const projectPath = requireProjectPath(req);
+				const { messages, isCompacted, firstPrompt } =
+					await getSessionHistoryById(sessionId, projectPath);
+				return json({
+					messages,
+					projectPath,
+					sessionId,
+					isCompacted,
+					firstPrompt,
+				});
+			} catch (err) {
+				console.error("Failed to get session history:", err);
+				return error(String(err));
+			}
 		},
 	},
 
@@ -116,6 +156,7 @@ export const routes = {
 	"/api/sessions/:sessionId/messages": {
 		POST: async (req: Request & { params: { sessionId: string } }) => {
 			const { sessionId } = req.params;
+			const projectPath = requireProjectPath(req);
 			const body = (await req.json()) as {
 				message: string;
 				images?: string[];
@@ -137,6 +178,7 @@ export const routes = {
 							for await (const line of sendMessage(
 								body.message,
 								resolvedSessionId,
+								projectPath,
 								body.images,
 							)) {
 								if (controllerClosed) break;
@@ -195,7 +237,8 @@ export const routes = {
 	"/api/sessions/:sessionId/compact": {
 		POST: async (req: Request & { params: { sessionId: string } }) => {
 			const { sessionId } = req.params;
-			const result = await compactSession(sessionId);
+			const projectPath = requireProjectPath(req);
+			const result = await compactSession(sessionId, projectPath);
 			if (result.success) {
 				return json({ ok: true });
 			}
@@ -292,11 +335,11 @@ export const routes = {
 
 	// Git status (for indicator)
 	"/api/git/status": {
-		GET: async () => {
+		GET: async (req: Request) => {
 			try {
-				const cwd = getCwd();
+				const projectPath = requireProjectPath(req);
 				const diffProc = Bun.spawn(["git", "diff", "--numstat"], {
-					cwd,
+					cwd: projectPath,
 					stdout: "pipe",
 					stderr: "pipe",
 				});
@@ -319,7 +362,7 @@ export const routes = {
 				const untrackedProc = Bun.spawn(
 					["git", "ls-files", "--others", "--exclude-standard"],
 					{
-						cwd,
+						cwd: projectPath,
 						stdout: "pipe",
 						stderr: "pipe",
 					},
@@ -336,7 +379,7 @@ export const routes = {
 				const lineCounts = await Promise.all(
 					untrackedFiles.map(async (filePath) => {
 						try {
-							const file = Bun.file(join(cwd, filePath));
+							const file = Bun.file(join(projectPath, filePath));
 							if (await file.exists()) {
 								const content = await file.text();
 								return content.split("\n").length;
@@ -364,9 +407,10 @@ export const routes = {
 
 	// Git diff (for modal)
 	"/api/git/diff": {
-		GET: async () => {
+		GET: async (req: Request) => {
 			try {
-				const files = await getGitFiles();
+				const projectPath = requireProjectPath(req);
+				const files = await getGitFiles(projectPath);
 				return json({ files });
 			} catch (err) {
 				console.error("Git diff error:", err);
@@ -379,22 +423,22 @@ export const routes = {
 	"/api/git/commit": {
 		POST: async (req: Request) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const { message } = (await req.json()) as { message: string };
 
 				if (!message?.trim()) {
 					return json({ error: "Commit message required" }, { status: 400 });
 				}
 
-				const cwd = getCwd();
 				const addProc = Bun.spawn(["git", "add", "-A"], {
-					cwd,
+					cwd: projectPath,
 					stdout: "pipe",
 					stderr: "pipe",
 				});
 				await addProc.exited;
 
 				const commitProc = Bun.spawn(["git", "commit", "-m", message.trim()], {
-					cwd,
+					cwd: projectPath,
 					stdout: "pipe",
 					stderr: "pipe",
 				});
@@ -421,14 +465,15 @@ export const routes = {
 	"/api/git/log": {
 		GET: async (req: Request) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const url = new URL(req.url);
 				const count = Number.parseInt(
 					url.searchParams.get("count") || "50",
 					10,
 				);
 				const branch = url.searchParams.get("branch") || undefined;
-				const commits = await getGitLog(count, branch);
-				const currentBranch = await getCurrentBranch();
+				const commits = await getGitLog(projectPath, count, branch);
+				const currentBranch = await getCurrentBranch(projectPath);
 				return json({ commits, currentBranch });
 			} catch (err) {
 				console.error("Git log error:", err);
@@ -441,8 +486,9 @@ export const routes = {
 	"/api/git/commits/:hash": {
 		GET: async (req: Request & { params: { hash: string } }) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const { hash } = req.params;
-				const details = await getCommitDetails(hash);
+				const details = await getCommitDetails(projectPath, hash);
 				return json(details);
 			} catch (err) {
 				console.error("Git commit details error:", err);
@@ -453,10 +499,11 @@ export const routes = {
 
 	// Git branches
 	"/api/git/branches": {
-		GET: async () => {
+		GET: async (req: Request) => {
 			try {
-				const branches = await getBranches();
-				const current = await getCurrentBranch();
+				const projectPath = requireProjectPath(req);
+				const branches = await getBranches(projectPath);
+				const current = await getCurrentBranch(projectPath);
 				return json({ branches, current });
 			} catch (err) {
 				console.error("Git branches error:", err);
@@ -465,6 +512,7 @@ export const routes = {
 		},
 		POST: async (req: Request) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const { name, startPoint } = (await req.json()) as {
 					name: string;
 					startPoint?: string;
@@ -472,7 +520,7 @@ export const routes = {
 				if (!name?.trim()) {
 					return json({ error: "Branch name required" }, { status: 400 });
 				}
-				await createBranch(name.trim(), startPoint);
+				await createBranch(projectPath, name.trim(), startPoint);
 				return json({ ok: true });
 			} catch (err) {
 				console.error("Git create branch error:", err);
@@ -485,10 +533,11 @@ export const routes = {
 	"/api/git/branches/:name": {
 		DELETE: async (req: Request & { params: { name: string } }) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const { name } = req.params;
 				const url = new URL(req.url);
 				const force = url.searchParams.get("force") === "true";
-				await deleteBranch(decodeURIComponent(name), force);
+				await deleteBranch(projectPath, decodeURIComponent(name), force);
 				return json({ ok: true });
 			} catch (err) {
 				console.error("Git delete branch error:", err);
@@ -501,11 +550,12 @@ export const routes = {
 	"/api/git/checkout": {
 		POST: async (req: Request) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const { branch } = (await req.json()) as { branch: string };
 				if (!branch?.trim()) {
 					return json({ error: "Branch name required" }, { status: 400 });
 				}
-				await switchBranch(branch.trim());
+				await switchBranch(projectPath, branch.trim());
 				return json({ ok: true });
 			} catch (err) {
 				console.error("Git checkout error:", err);
@@ -518,11 +568,12 @@ export const routes = {
 	"/api/git/merge": {
 		POST: async (req: Request) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const { branch } = (await req.json()) as { branch: string };
 				if (!branch?.trim()) {
 					return json({ error: "Branch name required" }, { status: 400 });
 				}
-				const result = await mergeBranch(branch.trim());
+				const result = await mergeBranch(projectPath, branch.trim());
 				return json({ ok: true, output: result });
 			} catch (err) {
 				console.error("Git merge error:", err);
@@ -533,9 +584,10 @@ export const routes = {
 
 	// Git stashes
 	"/api/git/stashes": {
-		GET: async () => {
+		GET: async (req: Request) => {
 			try {
-				const stashes = await getStashes();
+				const projectPath = requireProjectPath(req);
+				const stashes = await getStashes(projectPath);
 				return json({ stashes });
 			} catch (err) {
 				console.error("Git stashes error:", err);
@@ -544,8 +596,9 @@ export const routes = {
 		},
 		POST: async (req: Request) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const { message } = (await req.json()) as { message?: string };
-				await stashSave(message);
+				await stashSave(projectPath, message);
 				return json({ ok: true });
 			} catch (err) {
 				console.error("Git stash save error:", err);
@@ -558,17 +611,18 @@ export const routes = {
 	"/api/git/stashes/:index": {
 		POST: async (req: Request & { params: { index: string } }) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const index = Number.parseInt(req.params.index, 10);
 				const { action } = (await req.json()) as {
 					action: "pop" | "apply" | "drop";
 				};
 
 				if (action === "pop") {
-					await stashPop(index);
+					await stashPop(projectPath, index);
 				} else if (action === "apply") {
-					await stashApply(index);
+					await stashApply(projectPath, index);
 				} else if (action === "drop") {
-					await stashDrop(index);
+					await stashDrop(projectPath, index);
 				} else {
 					return json({ error: "Invalid action" }, { status: 400 });
 				}
@@ -583,9 +637,10 @@ export const routes = {
 
 	// Git pull
 	"/api/git/pull": {
-		POST: async () => {
+		POST: async (req: Request) => {
 			try {
-				const result = await gitPull();
+				const projectPath = requireProjectPath(req);
+				const result = await gitPull(projectPath);
 				return json({ ok: true, output: result });
 			} catch (err) {
 				console.error("Git pull error:", err);
@@ -598,11 +653,12 @@ export const routes = {
 	"/api/git/push": {
 		POST: async (req: Request) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const { force, setUpstream } = (await req.json()) as {
 					force?: boolean;
 					setUpstream?: boolean;
 				};
-				const result = await gitPush(force, setUpstream);
+				const result = await gitPush(projectPath, force, setUpstream);
 				return json({ ok: true, output: result });
 			} catch (err) {
 				console.error("Git push error:", err);
@@ -613,9 +669,10 @@ export const routes = {
 
 	// Git fetch
 	"/api/git/fetch": {
-		POST: async () => {
+		POST: async (req: Request) => {
 			try {
-				const result = await gitFetch();
+				const projectPath = requireProjectPath(req);
+				const result = await gitFetch(projectPath);
 				return json({ ok: true, output: result });
 			} catch (err) {
 				console.error("Git fetch error:", err);
@@ -628,6 +685,7 @@ export const routes = {
 	"/api/git/reset": {
 		POST: async (req: Request) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const { hash, mode } = (await req.json()) as {
 					hash: string;
 					mode?: "soft" | "mixed" | "hard";
@@ -635,7 +693,7 @@ export const routes = {
 				if (!hash?.trim()) {
 					return json({ error: "Commit hash required" }, { status: 400 });
 				}
-				await gitReset(hash.trim(), mode || "mixed");
+				await gitReset(projectPath, hash.trim(), mode || "mixed");
 				return json({ ok: true });
 			} catch (err) {
 				console.error("Git reset error:", err);
@@ -648,11 +706,12 @@ export const routes = {
 	"/api/git/cherry-pick": {
 		POST: async (req: Request) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const { hash } = (await req.json()) as { hash: string };
 				if (!hash?.trim()) {
 					return json({ error: "Commit hash required" }, { status: 400 });
 				}
-				const result = await gitCherryPick(hash.trim());
+				const result = await gitCherryPick(projectPath, hash.trim());
 				return json({ ok: true, output: result });
 			} catch (err) {
 				console.error("Git cherry-pick error:", err);
@@ -665,11 +724,12 @@ export const routes = {
 	"/api/git/revert": {
 		POST: async (req: Request) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const { hash } = (await req.json()) as { hash: string };
 				if (!hash?.trim()) {
 					return json({ error: "Commit hash required" }, { status: 400 });
 				}
-				const result = await gitRevert(hash.trim());
+				const result = await gitRevert(projectPath, hash.trim());
 				return json({ ok: true, output: result });
 			} catch (err) {
 				console.error("Git revert error:", err);
@@ -682,10 +742,12 @@ export const routes = {
 	"/api/files": {
 		GET: async (req: Request) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const url = new URL(req.url);
 				const relativePath = url.searchParams.get("path") || "";
-				const cwd = getCwd();
-				const fullPath = relativePath ? join(cwd, relativePath) : cwd;
+				const fullPath = relativePath
+					? join(projectPath, relativePath)
+					: projectPath;
 
 				const entries = await readdir(fullPath, { withFileTypes: true });
 
@@ -703,7 +765,7 @@ export const routes = {
 					const checkIgnoreProc = Bun.spawn(
 						["git", "check-ignore", "--stdin"],
 						{
-							cwd,
+							cwd: projectPath,
 							stdin: "pipe",
 							stdout: "pipe",
 							stderr: "pipe",
@@ -752,14 +814,14 @@ export const routes = {
 	"/api/file/*": {
 		GET: async (req: Request) => {
 			try {
+				const projectPath = requireProjectPath(req);
 				const url = new URL(req.url);
 				const encodedPath = url.pathname.slice("/api/file/".length);
 				const filePath = decodeURIComponent(encodedPath);
-				const cwd = getCwd();
 
 				const fullPath = filePath.startsWith("/")
 					? filePath
-					: join(cwd, filePath);
+					: join(projectPath, filePath);
 				const resolvedPath = (await Bun.file(fullPath).exists())
 					? fullPath
 					: null;
@@ -768,7 +830,7 @@ export const routes = {
 					return json({ error: "File not found" }, { status: 404 });
 				}
 
-				if (!fullPath.startsWith(cwd) && !filePath.startsWith("/")) {
+				if (!fullPath.startsWith(projectPath) && !filePath.startsWith("/")) {
 					return json({ error: "Access denied" }, { status: 403 });
 				}
 
@@ -787,16 +849,10 @@ export const routes = {
 	"/api/projects": {
 		GET: async () => {
 			try {
-				const currentCwd = getCwd();
-				const currentProject = currentCwd.startsWith(PROJECTS_DIR)
-					? currentCwd.replace(`${PROJECTS_DIR}/`, "")
-					: currentCwd.split("/").pop();
-
 				const projects = await listProjects();
 
 				return json({
 					projects,
-					currentProject,
 				});
 			} catch (err) {
 				console.error("Failed to list projects:", err);
@@ -805,8 +861,8 @@ export const routes = {
 		},
 	},
 
-	// Switch to a different project (just updates cwd)
-	"/api/projects/switch": {
+	// Validate that a project path exists (replaces switch endpoint)
+	"/api/projects/validate": {
 		POST: async (req: Request) => {
 			try {
 				const { project } = (await req.json()) as { project: string };
@@ -822,13 +878,145 @@ export const routes = {
 					return json({ error: "Project not found" }, { status: 404 });
 				}
 
-				setCwd(projectPath);
-
-				return json({ ok: true, cwd: projectPath });
+				return json({ ok: true, projectPath });
 			} catch (err) {
-				console.error("Failed to switch project:", err);
+				console.error("Failed to validate project:", err);
 				return error(String(err));
 			}
+		},
+	},
+
+	// Spawn a new worker
+	"/api/workers/spawn": {
+		POST: async (req: Request) => {
+			try {
+				const { projectPath, task, parentSession } = (await req.json()) as {
+					projectPath: string;
+					task: string;
+					parentSession: string;
+				};
+
+				if (!projectPath || !task || !parentSession) {
+					return json(
+						{ error: "projectPath, task, and parentSession are required" },
+						{ status: 400 },
+					);
+				}
+
+				const result = await spawnWorker(projectPath, task, parentSession);
+				if (result.error) {
+					return json({ error: result.error }, { status: 400 });
+				}
+
+				return json({ session: result.session });
+			} catch (err) {
+				console.error("Failed to spawn worker:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// List active workers
+	"/api/workers": {
+		GET: () => {
+			const workers = getActiveWorkers();
+			return json({ workers });
+		},
+	},
+
+	// Stop a worker
+	"/api/workers/:id/stop": {
+		POST: (req: Request & { params: { id: string } }) => {
+			const { id } = req.params;
+			const stopped = stopWorker(id);
+			return json({ stopped });
+		},
+	},
+
+	// Stream worker output (SSE)
+	"/api/workers/:id/stream": {
+		GET: (req: Request & { params: { id: string } }) => {
+			const { id } = req.params;
+
+			if (!isWorkerRunning(id)) {
+				return json(
+					{ error: "Worker not found or not running" },
+					{ status: 404 },
+				);
+			}
+
+			const encoder = new TextEncoder();
+			let unsubscribe: () => void;
+
+			const stream = new ReadableStream({
+				start(controller) {
+					unsubscribe = subscribeToWorker(id, (event) => {
+						if (event.type === "done" || event.type === "error") {
+							controller.enqueue(
+								encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+							);
+							controller.close();
+						} else {
+							controller.enqueue(
+								encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+							);
+						}
+					});
+				},
+				cancel() {
+					if (unsubscribe) unsubscribe();
+				},
+			});
+
+			return new Response(stream, {
+				headers: {
+					...corsHeaders,
+					"Content-Type": "text/event-stream",
+					"Cache-Control": "no-cache",
+				},
+			});
+		},
+	},
+
+	// Inject message into a running worker
+	"/api/workers/:id/inject": {
+		POST: async (req: Request & { params: { id: string } }) => {
+			try {
+				const { id } = req.params;
+				const { message } = (await req.json()) as { message: string };
+
+				if (!message) {
+					return json({ error: "message is required" }, { status: 400 });
+				}
+
+				const result = await injectMessage(id, message);
+				if (!result.success) {
+					return json({ error: result.error }, { status: 400 });
+				}
+
+				return json({ ok: true });
+			} catch (err) {
+				console.error("Failed to inject message:", err);
+				return error(String(err));
+			}
+		},
+	},
+
+	// Get worker reports
+	"/api/workers/:id/reports": {
+		GET: (req: Request & { params: { id: string } }) => {
+			const { id } = req.params;
+			const url = new URL(req.url);
+			const sinceParam = url.searchParams.get("since");
+
+			if (sinceParam) {
+				const since = Number.parseInt(sinceParam, 10);
+				const reports = getWorkerReportsSince(id, since);
+				return json({ reports });
+			}
+
+			const reports = getWorkerReports(id);
+			return json({ reports });
 		},
 	},
 

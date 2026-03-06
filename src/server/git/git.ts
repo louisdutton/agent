@@ -1,5 +1,4 @@
 import { $ } from "bun";
-import { getCwd } from "../session";
 
 // Git diff types
 type DiffLineType = "context" | "addition" | "deletion";
@@ -54,9 +53,8 @@ export type CommitFile = {
 	deletions: number;
 };
 
-export async function getGitFiles() {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function getGitFiles(projectPath: string) {
+	$.cwd(projectPath);
 
 	await $`git add -N .`; // include untracked files
 	const diff = await $`git diff`.text();
@@ -126,11 +124,11 @@ export function parseDiff(rawDiff: string): DiffFile[] {
 
 // Get commit log with graph info
 export async function getGitLog(
+	projectPath: string,
 	count = 50,
 	branch?: string,
 ): Promise<GitCommit[]> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+	$.cwd(projectPath);
 
 	// Custom format: hash, short hash, author, email, date, relative date, subject, body, refs, parents
 	const format =
@@ -166,17 +164,15 @@ export async function getGitLog(
 }
 
 // Get current branch name
-export async function getCurrentBranch(): Promise<string> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function getCurrentBranch(projectPath: string): Promise<string> {
+	$.cwd(projectPath);
 	const branch = await $`git rev-parse --abbrev-ref HEAD`.text();
 	return branch.trim();
 }
 
 // Get all branches
-export async function getBranches(): Promise<GitBranch[]> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function getBranches(projectPath: string): Promise<GitBranch[]> {
+	$.cwd(projectPath);
 
 	// Format: refname, objectname:short, upstream, upstream:track
 	const format =
@@ -235,19 +231,21 @@ export async function getBranches(): Promise<GitBranch[]> {
 }
 
 // Switch to branch
-export async function switchBranch(branchName: string): Promise<void> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function switchBranch(
+	projectPath: string,
+	branchName: string,
+): Promise<void> {
+	$.cwd(projectPath);
 	await $`git checkout ${branchName}`;
 }
 
 // Create new branch
 export async function createBranch(
+	projectPath: string,
 	branchName: string,
 	startPoint?: string,
 ): Promise<void> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+	$.cwd(projectPath);
 	if (startPoint) {
 		await $`git checkout -b ${branchName} ${startPoint}`;
 	} else {
@@ -257,11 +255,11 @@ export async function createBranch(
 
 // Delete branch
 export async function deleteBranch(
+	projectPath: string,
 	branchName: string,
 	force = false,
 ): Promise<void> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+	$.cwd(projectPath);
 	if (force) {
 		await $`git branch -D ${branchName}`;
 	} else {
@@ -270,19 +268,21 @@ export async function deleteBranch(
 }
 
 // Merge branch
-export async function mergeBranch(branchName: string): Promise<string> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function mergeBranch(
+	projectPath: string,
+	branchName: string,
+): Promise<string> {
+	$.cwd(projectPath);
 	const result = await $`git merge ${branchName}`.text();
 	return result;
 }
 
 // Get commit details with diff
 export async function getCommitDetails(
+	projectPath: string,
 	hash: string,
 ): Promise<{ commit: GitCommit; files: CommitFile[]; diff: DiffFile[] }> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+	$.cwd(projectPath);
 
 	// Get commit info
 	const format = "%H%x00%h%x00%an%x00%ae%x00%aI%x00%ar%x00%s%x00%b%x00%D%x00%P";
@@ -334,9 +334,8 @@ export async function getCommitDetails(
 }
 
 // Get stash list
-export async function getStashes(): Promise<GitStash[]> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function getStashes(projectPath: string): Promise<GitStash[]> {
+	$.cwd(projectPath);
 
 	const output = await $`git stash list --format=%gd%x00%s%x00%ar`.text();
 	const stashes: GitStash[] = [];
@@ -361,9 +360,11 @@ export async function getStashes(): Promise<GitStash[]> {
 }
 
 // Stash changes
-export async function stashSave(message?: string): Promise<void> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function stashSave(
+	projectPath: string,
+	message?: string,
+): Promise<void> {
+	$.cwd(projectPath);
 	if (message) {
 		await $`git stash push -m ${message}`;
 	} else {
@@ -372,45 +373,47 @@ export async function stashSave(message?: string): Promise<void> {
 }
 
 // Pop stash
-export async function stashPop(index = 0): Promise<void> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function stashPop(projectPath: string, index = 0): Promise<void> {
+	$.cwd(projectPath);
 	await $`git stash pop stash@{${index}}`;
 }
 
 // Apply stash (without removing)
-export async function stashApply(index = 0): Promise<void> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function stashApply(
+	projectPath: string,
+	index = 0,
+): Promise<void> {
+	$.cwd(projectPath);
 	await $`git stash apply stash@{${index}}`;
 }
 
 // Drop stash
-export async function stashDrop(index: number): Promise<void> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function stashDrop(
+	projectPath: string,
+	index: number,
+): Promise<void> {
+	$.cwd(projectPath);
 	await $`git stash drop stash@{${index}}`;
 }
 
 // Pull from remote
-export async function gitPull(): Promise<string> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function gitPull(projectPath: string): Promise<string> {
+	$.cwd(projectPath);
 	const result = await $`git pull`.text();
 	return result;
 }
 
 // Push to remote
 export async function gitPush(
+	projectPath: string,
 	force = false,
 	setUpstream = false,
 ): Promise<string> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+	$.cwd(projectPath);
 	const args = ["push"];
 	if (force) args.push("--force-with-lease");
 	if (setUpstream) {
-		const branch = await getCurrentBranch();
+		const branch = await getCurrentBranch(projectPath);
 		args.push("-u", "origin", branch);
 	}
 	const result = await $`git ${args}`.text();
@@ -418,35 +421,38 @@ export async function gitPush(
 }
 
 // Fetch from remote
-export async function gitFetch(): Promise<string> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function gitFetch(projectPath: string): Promise<string> {
+	$.cwd(projectPath);
 	const result = await $`git fetch --all --prune`.text();
 	return result;
 }
 
 // Reset to commit
 export async function gitReset(
+	projectPath: string,
 	hash: string,
 	mode: "soft" | "mixed" | "hard" = "mixed",
 ): Promise<void> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+	$.cwd(projectPath);
 	await $`git reset --${mode} ${hash}`;
 }
 
 // Cherry-pick commit
-export async function gitCherryPick(hash: string): Promise<string> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function gitCherryPick(
+	projectPath: string,
+	hash: string,
+): Promise<string> {
+	$.cwd(projectPath);
 	const result = await $`git cherry-pick ${hash}`.text();
 	return result;
 }
 
 // Revert commit
-export async function gitRevert(hash: string): Promise<string> {
-	const cwd = getCwd();
-	$.cwd(cwd);
+export async function gitRevert(
+	projectPath: string,
+	hash: string,
+): Promise<string> {
+	$.cwd(projectPath);
 	const result = await $`git revert --no-edit ${hash}`.text();
 	return result;
 }

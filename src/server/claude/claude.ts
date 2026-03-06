@@ -1,5 +1,5 @@
 import { type Subprocess, spawn } from "bun";
-import { endSession, getCwd, startSession } from "../session";
+import { endSession, startSession } from "../session";
 import type {
 	ContentBlock,
 	ImageBlock,
@@ -104,9 +104,8 @@ async function spawnClaudeProcess(
 async function sendSlashCommand(
 	command: string,
 	sessionId: string,
+	projectPath: string,
 ): Promise<{ success: boolean; error?: string }> {
-	const cwd = getCwd();
-
 	console.debug(`Sending ${command} to session: ${sessionId}`);
 
 	try {
@@ -123,7 +122,7 @@ async function sendSlashCommand(
 			command,
 		];
 
-		const proc = await spawnClaudeProcess(args, cwd);
+		const proc = await spawnClaudeProcess(args, projectPath);
 
 		// Close stdin immediately since we're passing the command as an argument
 		proc.stdin.end();
@@ -148,8 +147,9 @@ async function sendSlashCommand(
 // Compact a session's context
 export async function compactSession(
 	sessionId: string,
+	projectPath: string,
 ): Promise<{ success: boolean; error?: string }> {
-	return sendSlashCommand("/compact", sessionId);
+	return sendSlashCommand("/compact", sessionId, projectPath);
 }
 
 // Generator that yields session_id when available
@@ -157,14 +157,13 @@ export async function compactSession(
 export async function* sendMessage(
 	message: string,
 	sessionId: string | null,
+	projectPath: string,
 	images?: string[],
 ): AsyncGenerator<string> {
 	console.debug(
 		`Sending: ${message.slice(0, 50)}...`,
 		images?.length ? `(${images.length} images)` : "",
 	);
-
-	const cwd = getCwd();
 
 	// Track the actual session ID (may be assigned by Claude for new sessions)
 	let actualSessionId = sessionId;
@@ -200,7 +199,7 @@ export async function* sendMessage(
 			args.push(message);
 		}
 
-		const proc = await spawnClaudeProcess(args, cwd);
+		const proc = await spawnClaudeProcess(args, projectPath);
 
 		// Track session with PID for 1:1 process mapping
 		if (sessionId) {

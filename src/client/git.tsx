@@ -208,13 +208,17 @@ function DiffFileView(props: { file: DiffFile }) {
 	);
 }
 
-export function useGitStatus() {
+export function useGitStatus(projectPath: () => string) {
 	const [gitStatus, setGitStatus] = createSignal<GitStatus | null>(null);
 
 	onMount(() => {
 		const fetchGitStatus = async () => {
+			const path = projectPath();
+			if (!path) return;
 			try {
-				const res = await fetch(`/api/git/status`);
+				const res = await fetch(
+					`/api/git/status?project=${encodeURIComponent(path)}`,
+				);
 				if (res.ok) {
 					const data = await res.json();
 					setGitStatus(data);
@@ -307,6 +311,7 @@ export function GitStatusIndicator(props: {
 }
 
 export function GitDiffModal(props: {
+	projectPath: string;
 	onClose: () => void;
 	onCommit: () => void;
 }) {
@@ -315,7 +320,7 @@ export function GitDiffModal(props: {
 
 	onMount(() => {
 		setDiffLoading(true);
-		fetch(`/api/git/diff`)
+		fetch(`/api/git/diff?project=${encodeURIComponent(props.projectPath)}`)
 			.then((res) => (res.ok ? res.json() : null))
 			.then((data) => {
 				if (data) setDiffData(data.files);
@@ -381,6 +386,7 @@ export function GitDiffModal(props: {
 }
 
 export function FileViewerModal(props: {
+	projectPath: string;
 	filePath: string;
 	onClose: () => void;
 }) {
@@ -401,7 +407,9 @@ export function FileViewerModal(props: {
 			setLoading(true);
 			setError(null);
 			setContent(null);
-			fetch(`/api/file/${encodeURIComponent(props.filePath)}`)
+			fetch(
+				`/api/file/${encodeURIComponent(props.filePath)}?project=${encodeURIComponent(props.projectPath)}`,
+			)
 				.then((res) => {
 					if (!res.ok) {
 						throw new Error(
@@ -577,6 +585,7 @@ export function InlineDiffView(props: {
 }
 
 export function FileBrowserModal(props: {
+	projectPath: string;
 	onClose: () => void;
 	onSelectFile: (path: string) => void;
 }) {
@@ -589,7 +598,9 @@ export function FileBrowserModal(props: {
 		setLoading(true);
 		setError(null);
 		try {
-			const res = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
+			const res = await fetch(
+				`/api/files?path=${encodeURIComponent(path)}&project=${encodeURIComponent(props.projectPath)}`,
+			);
 			if (!res.ok) {
 				throw new Error("Failed to load directory");
 			}

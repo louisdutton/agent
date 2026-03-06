@@ -17,34 +17,23 @@ export type Message =
 	| { type: "assistant"; id: string; content: string }
 	| { type: "tools"; id: string; tools: Tool[] };
 
-// Simplified state - only track cwd and per-session contexts
-// Claude Code filesystem is the source of truth for session data
-let cwd: string = process.cwd();
-
 // Per-session state for concurrent session support
-type SessionContext = {
+// Tracks running Claude processes by session ID
+type ActiveProcess = {
 	pid: number;
 	startTime: number;
 };
 
-const activeSessions = new Map<string, SessionContext>();
-
-export function getCwd(): string {
-	return cwd;
-}
-
-export function setCwd(dir: string): void {
-	cwd = dir;
-}
+const activeProcesses = new Map<string, ActiveProcess>();
 
 // Get all active session IDs
 export function getActiveSessions(): string[] {
-	return Array.from(activeSessions.keys());
+	return Array.from(activeProcesses.keys());
 }
 
 // Start tracking a session with its process PID
 export function startSession(sessionId: string, pid: number): void {
-	activeSessions.set(sessionId, {
+	activeProcesses.set(sessionId, {
 		pid,
 		startTime: Date.now(),
 	});
@@ -52,9 +41,9 @@ export function startSession(sessionId: string, pid: number): void {
 
 // Stop tracking a session (does not kill the process - use cancelSession for that)
 export function endSession(sessionId: string): boolean {
-	const ctx = activeSessions.get(sessionId);
+	const ctx = activeProcesses.get(sessionId);
 	if (ctx) {
-		activeSessions.delete(sessionId);
+		activeProcesses.delete(sessionId);
 		return true;
 	}
 	return false;
@@ -62,14 +51,14 @@ export function endSession(sessionId: string): boolean {
 
 // Cancel a session by killing its process
 export function cancelSession(sessionId: string): boolean {
-	const ctx = activeSessions.get(sessionId);
+	const ctx = activeProcesses.get(sessionId);
 	if (ctx) {
 		try {
 			process.kill(ctx.pid);
 		} catch {
 			// Process may have already exited
 		}
-		activeSessions.delete(sessionId);
+		activeProcesses.delete(sessionId);
 		return true;
 	}
 	return false;
@@ -77,17 +66,17 @@ export function cancelSession(sessionId: string): boolean {
 
 // Check if a specific session has an active request
 export function isSessionActive(sessionId: string): boolean {
-	return activeSessions.has(sessionId);
+	return activeProcesses.has(sessionId);
 }
 
 // Clear session by deleting its transcript file directly
+// projectPath is required - no fallback to global cwd
 export async function clearSessionById(
 	sessionId: string,
-	projectPath?: string,
+	projectPath: string,
 ): Promise<void> {
 	try {
-		const targetCwd = projectPath ?? cwd;
-		const projectFolder = targetCwd.replace(/[/.]/g, "-");
+		const projectFolder = projectPath.replace(/[/.]/g, "-");
 		const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 		const transcriptPath = join(claudeDir, `${sessionId}.jsonl`);
 
@@ -105,11 +94,11 @@ export async function clearSessionById(
 }
 
 // Scan project directory for session transcript files
+// projectPath is required - no fallback to global cwd
 export async function getSessionsFromTranscripts(
-	projectPath?: string,
+	projectPath: string,
 ): Promise<SessionEntry[]> {
-	const targetCwd = projectPath ?? getCwd();
-	const projectFolder = targetCwd.replace(/[/.]/g, "-");
+	const projectFolder = projectPath.replace(/[/.]/g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 
 	try {
@@ -130,16 +119,16 @@ export async function getSessionsFromTranscripts(
 }
 
 // Get session history by specific session ID and project path
+// projectPath is required - no fallback to global cwd
 export async function getSessionHistoryById(
 	sessionId: string,
-	projectPath?: string,
+	projectPath: string,
 ): Promise<{
 	messages: Message[];
 	isCompacted: boolean;
 	firstPrompt?: string;
 }> {
-	const targetCwd = projectPath ?? getCwd();
-	const projectFolder = targetCwd.replace(/[/.]/g, "-");
+	const projectFolder = projectPath.replace(/[/.]/g, "-");
 	const claudeDir = join(homedir(), ".claude", "projects", projectFolder);
 
 	// Look for transcript file directly by sessionId

@@ -33,9 +33,9 @@ export function SessionManagerModal(props: {
 		sessionId: string,
 		isCompacted: boolean,
 		firstPrompt?: string,
-		cwd?: string,
+		projectPath?: string,
 	) => void;
-	onNewSession: () => void;
+	onNewSession: (projectPath?: string) => void;
 }) {
 	const [projects, setProjects] = createSignal<ProjectWithSessions[]>([]);
 	const [currentProject, setCurrentProject] = createSignal<string>("");
@@ -66,27 +66,18 @@ export function SessionManagerModal(props: {
 		}
 	};
 
-	const switchSession = async (sessionId: string, projectName: string) => {
+	const switchSession = async (
+		sessionId: string,
+		projectName: string,
+		projectPath: string,
+	) => {
 		setSwitching(sessionId);
 		try {
-			// If switching to a session in a different project, switch project first
-			if (projectName !== currentProject()) {
-				const switchRes = await fetch("/api/projects/switch", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ project: projectName }),
-				});
-				const switchData = await switchRes.json();
-				if (!switchData.ok) {
-					alert(switchData.error || "Failed to switch project");
-					return;
-				}
-				setCurrentProject(projectName);
-			}
+			setCurrentProject(projectName);
 
-			// Fetch session history directly (stateless)
+			// Fetch session history directly (stateless) with project path
 			const res = await fetch(
-				`/api/sessions/${encodeURIComponent(sessionId)}/history`,
+				`/api/sessions/${encodeURIComponent(sessionId)}/history?project=${encodeURIComponent(projectPath)}`,
 			);
 			const data = await res.json();
 			setActiveSessionId(sessionId);
@@ -95,7 +86,7 @@ export function SessionManagerModal(props: {
 				sessionId,
 				data.isCompacted || false,
 				data.firstPrompt,
-				data.cwd,
+				projectPath,
 			);
 		} catch (err) {
 			console.error("Failed to switch session:", err);
@@ -105,23 +96,12 @@ export function SessionManagerModal(props: {
 		}
 	};
 
-	const startNewSession = async (projectName: string) => {
+	const startNewSession = async (projectName: string, projectPath: string) => {
 		setStarting(projectName);
 		try {
-			// Switch to the project first
-			const switchRes = await fetch("/api/projects/switch", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ project: projectName }),
-			});
-			const switchData = await switchRes.json();
-			if (!switchData.ok) {
-				alert(switchData.error || "Failed to switch project");
-				return;
-			}
 			setCurrentProject(projectName);
 			setActiveSessionId(null); // New session has no ID yet
-			props.onNewSession();
+			props.onNewSession(projectPath);
 		} catch (err) {
 			console.error("Failed to start session:", err);
 			alert("Failed to start session");
@@ -264,7 +244,9 @@ export function SessionManagerModal(props: {
 									{(project) => (
 										<button
 											type="button"
-											onClick={() => startNewSession(project.name)}
+											onClick={() =>
+												startNewSession(project.name, project.path)
+											}
 											disabled={starting() === project.name}
 											class="w-full p-4 rounded-xl border border-border active:bg-muted/30 transition-colors text-left disabled:opacity-50 min-h-[72px]"
 										>
@@ -325,6 +307,7 @@ export function SessionManagerModal(props: {
 																			switchSession(
 																				session.sessionId,
 																				project.name,
+																				project.path,
 																			);
 																		}
 																	}}
