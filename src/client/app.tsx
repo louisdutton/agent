@@ -31,7 +31,7 @@ import {
 	OptionsMenuButton,
 	type VoiceStatus,
 } from "./round-buttons";
-import { SpawnWorkerDialog, ThreadListPanel } from "./thread-list";
+import { SpawnWorkerDialog, WorkerListPanel } from "./thread-list";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread, Tool, ToolStatus } from "./types";
 import { connectionStatus, initWebSocket } from "./ws";
@@ -758,17 +758,6 @@ export function App() {
 		}
 	};
 
-	const handleDeleteSession = async (sessionId: string, path: string) => {
-		const res = await fetch(
-			`/api/sessions/${sessionId}?project=${encodeURIComponent(path)}`,
-			{ method: "DELETE" },
-		);
-		const data = await res.json();
-		if (!data.ok) {
-			throw new Error(data.error || "Failed to delete");
-		}
-	};
-
 	const handleStopWorkerById = async (sessionId: string) => {
 		await fetch(`/api/workers/${sessionId}/stop`, { method: "POST" });
 	};
@@ -781,7 +770,7 @@ export function App() {
 				? `${thread.name.slice(0, 40)}...`
 				: thread.name;
 		}
-		return sessionName() || "New Thread";
+		return sessionName() || "Assistant";
 	};
 
 	const headerSubtitle = () => {
@@ -1115,23 +1104,10 @@ export function App() {
 				/>
 			</Show>
 
-			{/* Thread List */}
+			{/* Worker List */}
 			<Show when={showThreadList()}>
-				<ThreadListPanel
-					currentProjectPath={projectPath()}
-					currentSessionId={localStorage.getItem("sessionId")}
-					onSelectThread={handleSelectThread}
-					onNewSession={(path) => {
-						localStorage.removeItem("sessionId");
-						localStorage.setItem("projectPath", path);
-						setProjectPath(path);
-						setEvents([]);
-						setIsCompacted(false);
-						setSessionName("");
-						idCounter = 0;
-						setShowThreadList(false);
-					}}
-					onDeleteSession={handleDeleteSession}
+				<WorkerListPanel
+					onSelectWorker={handleSelectThread}
 					onStopWorker={handleStopWorkerById}
 					onSpawnWorker={() => {
 						setShowThreadList(false);
