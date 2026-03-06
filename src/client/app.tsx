@@ -27,6 +27,8 @@ import {
 import { SessionManagerModal } from "./session-manager";
 import { ToolGroup } from "./tools";
 import type { EventItem, Tool, ToolStatus } from "./types";
+import { SpawnWorkerDialog, WorkerListPanel } from "./worker-list";
+import { WorkerView } from "./worker";
 import { connectionStatus, initWebSocket } from "./ws";
 
 type WorkerSession = {
