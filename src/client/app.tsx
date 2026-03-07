@@ -15,6 +15,11 @@ import {
 	stopRecording,
 } from "./audio";
 import {
+	createEventHandlers,
+	getSessionNameFromEvents,
+	processStreamEvent,
+} from "./events";
+import {
 	FileBrowserModal,
 	FileViewerModal,
 	GitDiffModal,
@@ -24,7 +29,6 @@ import {
 import { GitPanel } from "./git-panel";
 import { ImagePickerButton, ImagePreview } from "./image-attachment";
 import { Markdown } from "./markdown";
-import { notifyClaudeError, notifyClaudeFinished } from "./notifications";
 import {
 	MicButton,
 	OptionsMenu,
@@ -32,29 +36,32 @@ import {
 	ThreadsButton,
 	type VoiceStatus,
 } from "./round-buttons";
+import { apiUrl, navigate, useLocation } from "./router";
 import { ThreadListPanel } from "./thread-list";
 import { ToolGroup } from "./tools";
-import type { EventItem, Thread, Tool, ToolStatus } from "./types";
+import type { EventItem, Thread } from "./types";
 import { initWebSocket } from "./ws";
 
-// Helper to build URL with project query param
-function apiUrl(path: string, projectPath: string): string {
-	const separator = path.includes("?") ? "&" : "?";
-	return `${path}${separator}project=${encodeURIComponent(projectPath)}`;
-}
-
 export function App() {
+	// URL-based routing state (single source of truth)
+	const location = useLocation();
+	const [defaultProject, setDefaultProject] = createSignal("");
+
+	// Derived from URL
+	const sessionId = () => location().sessionId;
+	const projectPath = () => location().project || defaultProject();
+	const isInThread = () => location().sessionId !== null;
+
 	// Core state
 	const [events, setEvents] = createSignal<EventItem[]>([]);
 	const [input, setInput] = createSignal("");
 	const [isLoading, setIsLoading] = createSignal(false);
 	const [streamingContent, setStreamingContent] = createSignal("");
-	const [projectPath, setProjectPath] = createSignal("");
 	const [sessionName, setSessionName] = createSignal("");
 	const [isCompacted, setIsCompacted] = createSignal(false);
 
-	// Thread state - null means viewing the main assistant
-	const [activeThread, setActiveThread] = createSignal<Thread | null>(null);
+	// Thread state for workers (not URL-based since they're transient)
+	const [activeWorker, setActiveWorker] = createSignal<Thread | null>(null);
 	const [showThreadList, setShowThreadList] = createSignal(false);
 
 	// UI state
@@ -84,9 +91,16 @@ export function App() {
 
 	let mainRef: HTMLElement | undefined;
 	let menuRef: HTMLDivElement | undefined;
-	let idCounter = 0;
 	let abortController: AbortController | null = null;
 	let threadEventSource: EventSource | null = null;
+
+	const idCounter = { value: 0 };
+	const eventHandlers = createEventHandlers(
+		setEvents,
+		setStreamingContent,
+		projectPath,
+		idCounter,
+	);
 
 	const audioRefs: AudioRefs = createAudioRefs();
 	const audioState = {
@@ -106,258 +120,33 @@ export function App() {
 	};
 
 	// Derived state
-	const isBackgroundThread = () => activeThread()?.type === "worker";
-	const isInThread = () => activeThread() !== null;
+	const isBackgroundThread = () => activeWorker() !== null;
 
-	// Event handling helpers (shared between assistant and worker)
-	const addEvent = (event: EventItem) => {
-		setEvents((prev) => [...prev, event]);
-	};
-
-	const addOrUpdateToolGroup = (tool: Tool) => {
-		setEvents((prev) => {
-			const last = prev[prev.length - 1];
-			if (last?.type === "tools") {
-				return [
-					...prev.slice(0, -1),
-					{ ...last, tools: [...last.tools, tool] },
-				];
-			}
-			return [
-				...prev,
-				{ type: "tools", id: String(++idCounter), tools: [tool] },
-			];
-		});
-	};
-
-	const updateToolStatus = (
-		toolUseId: string,
-		status: ToolStatus,
-		resultImages?: string[],
-	) => {
-		setEvents((prev) =>
-			prev.map((e) => {
-				if (e.type === "tools") {
-					return {
-						...e,
-						tools: e.tools.map((t) =>
-							t.toolUseId === toolUseId
-								? { ...t, status, resultImages: resultImages ?? t.resultImages }
-								: t,
-						),
-					};
-				}
-				return e;
-			}),
-		);
-	};
-
-	const markAllToolsComplete = () => {
-		setEvents((prev) =>
-			prev.map((e) => {
-				if (e.type === "tools") {
-					return {
-						...e,
-						tools: e.tools.map((t) =>
-							t.status === "running"
-								? { ...t, status: "complete" as ToolStatus }
-								: t,
-						),
-					};
-				}
-				return e;
-			}),
-		);
-	};
-
-	const getSessionNameFromEvents = (messages: EventItem[]) => {
-		const firstUser = messages.find((m) => m.type === "user");
-		if (firstUser && firstUser.type === "user") {
-			const content = firstUser.content;
-			return content.length > 50 ? `${content.slice(0, 50)}...` : content;
-		}
-		return "";
-	};
-
-	// Process streaming data (shared format for both assistant and worker)
-	const processStreamEvent = (
-		parsed: Record<string, unknown>,
-		assistantContentRef: { value: string },
-	) => {
-		// Handle streaming text
-		if (parsed.type === "stream_event" && parsed.event) {
-			const event = parsed.event as Record<string, unknown>;
-			if (
-				event.type === "content_block_delta" &&
-				(event.delta as Record<string, unknown>)?.type === "text_delta"
-			) {
-				assistantContentRef.value += (
-					event.delta as Record<string, string>
-				).text;
-				setStreamingContent(assistantContentRef.value);
-			}
-		}
-
-		// Skip replayed messages
-		if (parsed.isReplay) return;
-
-		// Handle assistant messages with tool uses
-		if (parsed.type === "assistant" && parsed.message) {
-			const message = parsed.message as { content?: unknown[] };
-			if (assistantContentRef.value) {
-				addEvent({
-					type: "assistant",
-					id: String(++idCounter),
-					content: assistantContentRef.value,
-				});
-				assistantContentRef.value = "";
-				setStreamingContent("");
-			}
-
-			if (Array.isArray(message.content)) {
-				for (const block of message.content) {
-					const b = block as Record<string, unknown>;
-					if (b.type === "tool_use") {
-						addOrUpdateToolGroup({
-							toolUseId: b.id as string,
-							name: b.name as string,
-							input: (b.input as Record<string, unknown>) || {},
-							status: "running",
-						});
-					}
-				}
-			}
-		}
-
-		// Handle tool results
-		if (parsed.type === "user") {
-			const message = parsed.message as { content?: unknown[] };
-			if (Array.isArray(message?.content)) {
-				for (const block of message.content) {
-					const b = block as Record<string, unknown>;
-					if (b.type === "tool_result" && b.tool_use_id) {
-						const resultImages: string[] = [];
-						if (Array.isArray(b.content)) {
-							for (const resultBlock of b.content) {
-								const rb = resultBlock as Record<string, unknown>;
-								if (rb.type === "image") {
-									const source = rb.source as Record<string, string>;
-									if (source?.type === "base64") {
-										resultImages.push(
-											`data:${source.media_type};base64,${source.data}`,
-										);
-									}
-								}
-							}
-						}
-						updateToolStatus(
-							b.tool_use_id as string,
-							b.is_error ? "error" : "complete",
-							resultImages.length > 0 ? resultImages : undefined,
-						);
-					}
-				}
-			}
-		}
-
-		// Handle result
-		if (parsed.type === "result") {
-			if (parsed.session_id) {
-				localStorage.setItem("sessionId", parsed.session_id as string);
-			}
-
-			if (assistantContentRef.value) {
-				addEvent({
-					type: "assistant",
-					id: String(++idCounter),
-					content: assistantContentRef.value,
-				});
-				assistantContentRef.value = "";
-				setStreamingContent("");
-			}
-
-			markAllToolsComplete();
-
-			if (parsed.subtype !== "success") {
-				const errors = parsed.errors as string[] | undefined;
-				const errorMsg = errors?.join(", ") || (parsed.subtype as string);
-				addEvent({
-					type: "error",
-					id: String(++idCounter),
-					message: errorMsg,
-				});
-				notifyClaudeError(errorMsg);
-			} else {
-				notifyClaudeFinished(assistantContentRef.value);
-			}
-		}
-	};
-
-	// Load assistant session history
-	const loadHistory = async (sessionId?: string | null) => {
-		const currentProjectPath = projectPath();
-		if (!currentProjectPath) return;
-
+	// Load session history from API
+	const loadHistory = async (sid: string, project: string) => {
 		try {
-			const storedSessionId = sessionId ?? localStorage.getItem("sessionId");
-			if (storedSessionId) {
-				const res = await fetch(
-					apiUrl(
-						`/api/sessions/${encodeURIComponent(storedSessionId)}/history`,
-						currentProjectPath,
-					),
-				);
-				const data = await res.json();
-				const messages = data.messages?.length ? data.messages : [];
-				setEvents(messages);
-				setIsCompacted(data.isCompacted || false);
-				setSessionName(data.firstPrompt || getSessionNameFromEvents(messages));
-				idCounter = messages.length || 0;
-			} else {
-				const res = await fetch(apiUrl("/api/sessions", currentProjectPath));
-				const data = await res.json();
-
-				if (data.latestSessionId) {
-					localStorage.setItem("sessionId", data.latestSessionId);
-					const historyRes = await fetch(
-						apiUrl(
-							`/api/sessions/${encodeURIComponent(data.latestSessionId)}/history`,
-							currentProjectPath,
-						),
-					);
-					const historyData = await historyRes.json();
-					const messages = historyData.messages?.length
-						? historyData.messages
-						: [];
-					setEvents(messages);
-					setIsCompacted(historyData.isCompacted || false);
-					setSessionName(
-						historyData.firstPrompt || getSessionNameFromEvents(messages),
-					);
-					idCounter = messages.length || 0;
-				} else {
-					setEvents([]);
-					setIsCompacted(false);
-					setSessionName("");
-					idCounter = 0;
-				}
-			}
+			const res = await fetch(
+				apiUrl(`/api/sessions/${encodeURIComponent(sid)}/history`, project),
+			);
+			const data = await res.json();
+			const messages = data.messages?.length ? data.messages : [];
+			setEvents(messages);
+			setIsCompacted(data.isCompacted || false);
+			setSessionName(data.firstPrompt || getSessionNameFromEvents(messages));
+			idCounter.value = messages.length || 0;
 
 			// Check if backend is busy
-			const currentSession = localStorage.getItem("sessionId");
-			if (currentSession) {
-				const statusRes = await fetch(
-					`/api/sessions/${encodeURIComponent(currentSession)}/status`,
-				);
-				const statusData = await statusRes.json();
-				if (statusData.busy) {
-					setIsLoading(true);
-				}
+			const statusRes = await fetch(
+				`/api/sessions/${encodeURIComponent(sid)}/status`,
+			);
+			const statusData = await statusRes.json();
+			if (statusData.busy) {
+				setIsLoading(true);
 			}
 		} catch (err) {
 			console.error("Failed to load history:", err);
 			setEvents([]);
-			idCounter = 0;
+			idCounter.value = 0;
 		}
 	};
 
@@ -369,7 +158,7 @@ export function App() {
 
 		setEvents([]);
 		setIsLoading(true);
-		idCounter = 0;
+		idCounter.value = 0;
 
 		const assistantContentRef = { value: "" };
 		threadEventSource = new EventSource(`/api/threads/${workerId}/stream`);
@@ -381,21 +170,21 @@ export function App() {
 				// Handle stream completion
 				if (parsed.type === "done" || parsed.type === "error") {
 					if (assistantContentRef.value) {
-						addEvent({
+						eventHandlers.addEvent({
 							type: "assistant",
-							id: String(++idCounter),
+							id: eventHandlers.getNextId(),
 							content: assistantContentRef.value,
 						});
 						assistantContentRef.value = "";
 						setStreamingContent("");
 					}
-					markAllToolsComplete();
+					eventHandlers.markAllToolsComplete();
 					setIsLoading(false);
 					threadEventSource?.close();
 					return;
 				}
 
-				processStreamEvent(parsed, assistantContentRef);
+				processStreamEvent(parsed, assistantContentRef, eventHandlers);
 			} catch {
 				// Skip invalid JSON
 			}
@@ -407,7 +196,7 @@ export function App() {
 		};
 	};
 
-	// Handle thread selection
+	// Handle thread selection from thread list
 	const handleSelectThread = async (thread: Thread) => {
 		// Clean up any existing worker connection
 		if (threadEventSource) {
@@ -415,12 +204,11 @@ export function App() {
 			threadEventSource = null;
 		}
 
-		// Set active thread (both types)
-		setActiveThread(thread);
 		setShowThreadList(false);
 
 		if (thread.type === "worker") {
-			// Show initial task as user message
+			// Workers are transient - store in state, not URL
+			setActiveWorker(thread);
 			setEvents([
 				{
 					type: "user",
@@ -429,49 +217,53 @@ export function App() {
 				},
 			]);
 
-			// Connect to worker stream if running
 			if (thread.status === "running") {
 				connectToThreadStream(thread.id);
 			}
+			// Clear URL for worker threads
+			navigate(null, null);
 		} else {
-			// Load thread history
-			localStorage.setItem("sessionId", thread.id);
-			localStorage.setItem("projectPath", thread.projectPath);
-			setProjectPath(thread.projectPath);
-			await loadHistory(thread.id);
+			// Session threads - navigate via URL (this triggers the effect below)
+			setActiveWorker(null);
+			navigate(thread.id, thread.projectPath);
 		}
 	};
 
-	// Return to main assistant view (no project context)
-	const returnToAssistant = () => {
+	// Return to main view (thread list)
+	const returnToMain = () => {
 		if (threadEventSource) {
 			threadEventSource.close();
 			threadEventSource = null;
 		}
-		setActiveThread(null);
-		// Clear thread-specific state
-		localStorage.removeItem("sessionId");
+		setActiveWorker(null);
 		setEvents([]);
 		setSessionName("");
 		setIsCompacted(false);
+		navigate(null, null);
 	};
 
-	onMount(async () => {
-		// Get default project path for API calls
-		let storedProjectPath = localStorage.getItem("projectPath");
-		if (!storedProjectPath) {
-			const res = await fetch("/api/info");
-			const info = await res.json();
-			storedProjectPath = info.cwd;
-		}
-		setProjectPath(storedProjectPath || "");
-		if (storedProjectPath) {
-			localStorage.setItem("projectPath", storedProjectPath);
-		}
+	// Reactive effect: when URL changes, load the appropriate session
+	createEffect(() => {
+		const sid = sessionId();
+		const project = projectPath();
 
-		// Start fresh in main assistant view (no thread loaded)
-		localStorage.removeItem("sessionId");
-		setEvents([]);
+		if (sid && project && !activeWorker()) {
+			loadHistory(sid, project);
+		} else if (!sid && !activeWorker()) {
+			// No session in URL and not viewing a worker - clear state
+			setEvents([]);
+			setSessionName("");
+			setIsCompacted(false);
+			idCounter.value = 0;
+		}
+	});
+
+	onMount(async () => {
+		// Get default project path for when URL has no project
+		const res = await fetch("/api/info");
+		const info = await res.json();
+		setDefaultProject(info.cwd || "");
+
 		initWebSocket();
 	});
 
@@ -506,9 +298,9 @@ export function App() {
 			setSessionName(text.length > 50 ? `${text.slice(0, 50)}...` : text);
 		}
 
-		addEvent({
+		eventHandlers.addEvent({
 			type: "user",
-			id: String(++idCounter),
+			id: eventHandlers.getNextId(),
 			content: text,
 			images: images.length > 0 ? images : undefined,
 		});
@@ -520,10 +312,10 @@ export function App() {
 		abortController = new AbortController();
 
 		try {
-			const sessionId = localStorage.getItem("sessionId") || "new";
+			const currentSessionId = sessionId() || "new";
 			const res = await fetch(
 				apiUrl(
-					`/api/sessions/${encodeURIComponent(sessionId)}/messages`,
+					`/api/sessions/${encodeURIComponent(currentSessionId)}/messages`,
 					currentProjectPath,
 				),
 				{
@@ -554,7 +346,7 @@ export function App() {
 
 						try {
 							const parsed = JSON.parse(data);
-							processStreamEvent(parsed, assistantContentRef);
+							processStreamEvent(parsed, assistantContentRef, eventHandlers);
 						} catch {
 							// Skip invalid JSON
 						}
@@ -563,17 +355,17 @@ export function App() {
 			}
 
 			if (assistantContentRef.value && streamingContent()) {
-				addEvent({
+				eventHandlers.addEvent({
 					type: "assistant",
-					id: String(++idCounter),
+					id: eventHandlers.getNextId(),
 					content: assistantContentRef.value,
 				});
 			}
 		} catch (err) {
 			if (!(err instanceof DOMException && err.name === "AbortError")) {
-				addEvent({
+				eventHandlers.addEvent({
 					type: "error",
-					id: String(++idCounter),
+					id: eventHandlers.getNextId(),
 					message: String(err),
 				});
 			}
@@ -586,8 +378,8 @@ export function App() {
 
 	// Send message to worker (inject)
 	const sendWorkerMessage = async (directMessage?: string) => {
-		const thread = activeThread();
-		if (!thread || thread.type !== "worker") return;
+		const worker = activeWorker();
+		if (!worker || worker.type !== "worker") return;
 
 		const text = directMessage ?? input().trim();
 		if (!text || isLoading()) return;
@@ -595,16 +387,16 @@ export function App() {
 		if (!directMessage) setInput("");
 
 		try {
-			const res = await fetch(`/api/threads/${thread.id}/inject`, {
+			const res = await fetch(`/api/threads/${worker.id}/inject`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ message: text }),
 			});
 			const data = await res.json();
 			if (data.ok) {
-				addEvent({
+				eventHandlers.addEvent({
 					type: "user",
-					id: String(++idCounter),
+					id: eventHandlers.getNextId(),
 					content: text,
 				});
 			} else {
@@ -631,12 +423,13 @@ export function App() {
 			if (abortController) {
 				abortController.abort();
 			}
-			const sessionId = localStorage.getItem("sessionId");
-			if (sessionId) {
+			const currentSessionId = sessionId();
+			if (currentSessionId) {
 				try {
-					await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/cancel`, {
-						method: "POST",
-					});
+					await fetch(
+						`/api/sessions/${encodeURIComponent(currentSessionId)}/cancel`,
+						{ method: "POST" },
+					);
 				} catch {
 					// Ignore
 				}
@@ -688,9 +481,9 @@ export function App() {
 
 	const handleCompact = async () => {
 		setShowMenu(false);
-		const sessionId = localStorage.getItem("sessionId");
+		const currentSessionId = sessionId();
 		const currentProjectPath = projectPath();
-		if (!sessionId || !currentProjectPath) {
+		if (!currentSessionId || !currentProjectPath) {
 			alert("No active session to compact");
 			return;
 		}
@@ -698,7 +491,7 @@ export function App() {
 		try {
 			const res = await fetch(
 				apiUrl(
-					`/api/sessions/${encodeURIComponent(sessionId)}/compact`,
+					`/api/sessions/${encodeURIComponent(currentSessionId)}/compact`,
 					currentProjectPath,
 				),
 				{ method: "POST" },
@@ -707,7 +500,7 @@ export function App() {
 			if (data.ok) {
 				setEvents([]);
 				setIsCompacted(true);
-				idCounter = 0;
+				idCounter.value = 0;
 			} else {
 				alert(data.error || "Failed to compact session");
 			}
@@ -721,9 +514,9 @@ export function App() {
 
 	const handleClear = async () => {
 		setShowMenu(false);
-		const sessionId = localStorage.getItem("sessionId");
+		const currentSessionId = sessionId();
 		const currentProjectPath = projectPath();
-		if (!sessionId || !currentProjectPath) {
+		if (!currentSessionId || !currentProjectPath) {
 			alert("No active session to clear");
 			return;
 		}
@@ -734,18 +527,14 @@ export function App() {
 		try {
 			const res = await fetch(
 				apiUrl(
-					`/api/sessions/${encodeURIComponent(sessionId)}`,
+					`/api/sessions/${encodeURIComponent(currentSessionId)}`,
 					currentProjectPath,
 				),
 				{ method: "DELETE" },
 			);
 			const data = await res.json();
 			if (data.ok) {
-				setEvents([]);
-				setIsCompacted(false);
-				setSessionName("");
-				localStorage.removeItem("sessionId");
-				idCounter = 0;
+				navigate(null, null);
 			} else {
 				alert(data.error || "Failed to delete session");
 			}
@@ -758,41 +547,48 @@ export function App() {
 	};
 
 	const handleStopThread = async () => {
-		const thread = activeThread();
-		if (thread?.type === "worker") {
-			await fetch(`/api/threads/${thread.id}/stop`, { method: "POST" });
-			setActiveThread({ ...thread, status: "stopped" });
+		const worker = activeWorker();
+		if (worker?.type === "worker") {
+			await fetch(`/api/threads/${worker.id}/stop`, { method: "POST" });
+			setActiveWorker({ ...worker, status: "stopped" });
 		}
 	};
 
 	// Header display
 	const headerTitle = () => {
-		const thread = activeThread();
-		if (thread) {
-			return thread.name.length > 40
-				? `${thread.name.slice(0, 40)}...`
-				: thread.name;
+		const worker = activeWorker();
+		if (worker) {
+			return worker.name.length > 40
+				? `${worker.name.slice(0, 40)}...`
+				: worker.name;
 		}
-		return "Assistant";
+		// For session threads, use sessionName
+		const name = sessionName();
+		if (name) {
+			return name.length > 40 ? `${name.slice(0, 40)}...` : name;
+		}
+		return "Thread";
 	};
 
 	const headerSubtitle = () => {
-		const thread = activeThread();
-		if (thread) {
-			return thread.projectName;
+		const worker = activeWorker();
+		if (worker) {
+			return worker.projectName;
 		}
-		return null; // No subtitle for main assistant
+		// For session threads, extract project name from path
+		const project = projectPath();
+		return project ? project.split("/").pop() : null;
 	};
 
 	return (
 		<div class="h-dvh flex flex-col bg-background">
-			{/* Header - only shown when in a thread */}
-			<Show when={isInThread()}>
+			{/* Header - shown when in a thread (URL has session) or viewing a worker */}
+			<Show when={isInThread() || isBackgroundThread()}>
 				<header class="flex-none px-4 py-2 border-b border-border z-20 bg-background">
 					<div class="max-w-2xl mx-auto flex items-center justify-between">
 						<button
 							type="button"
-							onClick={returnToAssistant}
+							onClick={returnToMain}
 							class="text-sm hover:text-foreground transition-colors text-left flex-1 overflow-hidden"
 						>
 							<div class="flex items-center gap-2">
@@ -817,11 +613,11 @@ export function App() {
 								<Show when={isBackgroundThread()}>
 									<span
 										class={`w-1.5 h-1.5 rounded-full ${
-											activeThread()?.status === "running"
+											activeWorker()?.status === "running"
 												? "bg-green-500 animate-pulse"
-												: activeThread()?.status === "completed"
+												: activeWorker()?.status === "completed"
 													? "bg-blue-500"
-													: activeThread()?.status === "error"
+													: activeWorker()?.status === "error"
 														? "bg-red-500"
 														: "bg-muted-foreground"
 										}`}
@@ -832,7 +628,7 @@ export function App() {
 						</button>
 						<Show
 							when={
-								isBackgroundThread() && activeThread()?.status === "running"
+								isBackgroundThread() && activeWorker()?.status === "running"
 							}
 						>
 							<button
@@ -1003,7 +799,7 @@ export function App() {
 							}
 							disabled={
 								isBackgroundThread()
-									? activeThread()?.status !== "running"
+									? activeWorker()?.status !== "running"
 									: isLoading() || isRecording() || isTranscribing()
 							}
 							class="input flex-1 min-w-[200px]"
@@ -1013,7 +809,7 @@ export function App() {
 							disabled={
 								!input().trim() ||
 								(isBackgroundThread()
-									? activeThread()?.status !== "running"
+									? activeWorker()?.status !== "running"
 									: isLoading() || isRecording() || isTranscribing())
 							}
 							class="px-3 py-1.5 rounded-full bg-foreground text-background disabled:opacity-50"
@@ -1069,7 +865,7 @@ export function App() {
 							onClick={handleMicClick}
 						/>
 
-						{/* Threads button (main assistant) or Git indicator (in thread) */}
+						{/* Threads button (main view) or Git indicator (in thread) */}
 						<Show
 							when={isInThread()}
 							fallback={
@@ -1098,16 +894,13 @@ export function App() {
 			{/* Thread List */}
 			<Show when={showThreadList()}>
 				<ThreadListPanel
-					currentSessionId={localStorage.getItem("sessionId")}
+					currentSessionId={sessionId()}
 					onSelectThread={handleSelectThread}
 					onNewThread={(path) => {
-						localStorage.removeItem("sessionId");
-						localStorage.setItem("projectPath", path);
-						setProjectPath(path);
-						setEvents([]);
-						setIsCompacted(false);
-						setSessionName("");
+						// Navigate to new thread (no session yet, just project)
 						setShowThreadList(false);
+						setDefaultProject(path);
+						navigate(null, null);
 					}}
 					onClose={() => setShowThreadList(false)}
 				/>
