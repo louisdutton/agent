@@ -36,6 +36,10 @@ export function ThreadListPanel(props: {
 	const [projects, setProjects] = createSignal<ProjectWithSessions[]>([]);
 	const [loading, setLoading] = createSignal(true);
 	const [showProjectPicker, setShowProjectPicker] = createSignal(false);
+	const [deleting, setDeleting] = createSignal<string | null>(null);
+	const [confirmDelete, setConfirmDelete] = createSignal<ThreadItem | null>(
+		null,
+	);
 
 	const loadData = async () => {
 		try {
@@ -103,6 +107,32 @@ export function ThreadListPanel(props: {
 
 	const truncate = (text: string, len = 50) =>
 		text.length > len ? `${text.slice(0, len)}...` : text;
+
+	const handleDeleteClick = (e: Event, thread: ThreadItem) => {
+		e.stopPropagation();
+		setConfirmDelete(thread);
+	};
+
+	const handleConfirmDelete = async () => {
+		const thread = confirmDelete();
+		if (!thread || deleting()) return;
+
+		setDeleting(thread.id);
+		setConfirmDelete(null);
+		try {
+			const res = await fetch(
+				`/api/sessions/${thread.id}?project=${encodeURIComponent(thread.projectPath)}`,
+				{ method: "DELETE" },
+			);
+			if (res.ok) {
+				setThreads(threads().filter((t) => t.id !== thread.id));
+			}
+		} catch (err) {
+			console.error("Failed to delete thread:", err);
+		} finally {
+			setDeleting(null);
+		}
+	};
 
 	return (
 		<div class="fixed inset-0 z-50 bg-background flex flex-col">
@@ -210,6 +240,17 @@ export function ThreadListPanel(props: {
 														current
 													</span>
 												</Show>
+												<Show when={!isCurrent}>
+													<button
+														type="button"
+														onClick={(e) => handleDeleteClick(e, thread)}
+														disabled={deleting() === thread.id}
+														class="h-10 w-10 flex items-center justify-center rounded-lg text-muted-foreground active:bg-red-500/20 active:text-red-500"
+														title="Delete thread"
+													>
+														{deleting() === thread.id ? "..." : "×"}
+													</button>
+												</Show>
 											</div>
 										);
 									}}
@@ -219,6 +260,40 @@ export function ThreadListPanel(props: {
 					</Show>
 				</Show>
 			</div>
+
+			{/* Delete confirmation dialog */}
+			<Show when={confirmDelete()}>
+				<div
+					class="fixed inset-0 z-60 bg-black/50 flex items-center justify-center p-4"
+					onClick={() => setConfirmDelete(null)}
+				>
+					<div
+						class="bg-background rounded-2xl p-6 max-w-sm w-full border border-border"
+						onClick={(e) => e.stopPropagation()}
+					>
+						<h2 class="text-lg font-medium mb-2">Delete thread?</h2>
+						<p class="text-sm text-muted-foreground mb-6">
+							This will permanently delete this thread and its history.
+						</p>
+						<div class="flex gap-3">
+							<button
+								type="button"
+								onClick={() => setConfirmDelete(null)}
+								class="flex-1 h-12 rounded-xl border border-border active:bg-muted"
+							>
+								Cancel
+							</button>
+							<button
+								type="button"
+								onClick={handleConfirmDelete}
+								class="flex-1 h-12 rounded-xl bg-red-500 text-white active:bg-red-600"
+							>
+								Delete
+							</button>
+						</div>
+					</div>
+				</div>
+			</Show>
 		</div>
 	);
 }
