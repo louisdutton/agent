@@ -29,12 +29,13 @@ import {
 	MicButton,
 	OptionsMenu,
 	OptionsMenuButton,
+	ThreadsButton,
 	type VoiceStatus,
 } from "./round-buttons";
 import { ThreadListPanel } from "./thread-list";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread, Tool, ToolStatus } from "./types";
-import { connectionStatus, initWebSocket } from "./ws";
+import { initWebSocket } from "./ws";
 
 // Helper to build URL with project query param
 function apiUrl(path: string, projectPath: string): string {
@@ -106,6 +107,7 @@ export function App() {
 
 	// Derived state
 	const isBackgroundThread = () => activeThread()?.type === "worker";
+	const isInThread = () => activeThread() !== null;
 
 	// Event handling helpers (shared between assistant and worker)
 	const addEvent = (event: EventItem) => {
@@ -413,10 +415,11 @@ export function App() {
 			threadEventSource = null;
 		}
 
-		if (thread.type === "worker") {
-			setActiveThread(thread);
-			setShowThreadList(false);
+		// Set active thread (both types)
+		setActiveThread(thread);
+		setShowThreadList(false);
 
+		if (thread.type === "worker") {
 			// Show initial task as user message
 			setEvents([
 				{
@@ -431,27 +434,30 @@ export function App() {
 				connectToThreadStream(thread.id);
 			}
 		} else {
-			// Switch to assistant thread
-			setActiveThread(null);
+			// Load thread history
 			localStorage.setItem("sessionId", thread.id);
 			localStorage.setItem("projectPath", thread.projectPath);
 			setProjectPath(thread.projectPath);
 			await loadHistory(thread.id);
-			setShowThreadList(false);
 		}
 	};
 
-	// Return to assistant view
+	// Return to main assistant view (no project context)
 	const returnToAssistant = () => {
 		if (threadEventSource) {
 			threadEventSource.close();
 			threadEventSource = null;
 		}
 		setActiveThread(null);
-		loadHistory();
+		// Clear thread-specific state
+		localStorage.removeItem("sessionId");
+		setEvents([]);
+		setSessionName("");
+		setIsCompacted(false);
 	};
 
 	onMount(async () => {
+		// Get default project path for API calls
 		let storedProjectPath = localStorage.getItem("projectPath");
 		if (!storedProjectPath) {
 			const res = await fetch("/api/info");
@@ -463,7 +469,9 @@ export function App() {
 			localStorage.setItem("projectPath", storedProjectPath);
 		}
 
-		await loadHistory();
+		// Start fresh in main assistant view (no thread loaded)
+		localStorage.removeItem("sessionId");
+		setEvents([]);
 		initWebSocket();
 	});
 
@@ -765,67 +773,47 @@ export function App() {
 				? `${thread.name.slice(0, 40)}...`
 				: thread.name;
 		}
-		return sessionName() || "Assistant";
+		return "Assistant";
 	};
 
 	const headerSubtitle = () => {
 		const thread = activeThread();
 		if (thread) {
-			const runtime = Math.floor((Date.now() - thread.startTime) / 1000);
-			const mins = Math.floor(runtime / 60);
-			const timeStr = mins > 0 ? `${mins}m` : `${runtime}s`;
-			return `${thread.projectName} · Thread · ${timeStr}`;
+			return thread.projectName;
 		}
-		return projectPath();
+		return null; // No subtitle for main assistant
 	};
 
 	return (
 		<div class="h-dvh flex flex-col bg-background">
-			{/* Header */}
-			<Show when={projectPath()}>
+			{/* Header - only shown when in a thread */}
+			<Show when={isInThread()}>
 				<header class="flex-none px-4 py-2 border-b border-border z-20 bg-background">
 					<div class="max-w-2xl mx-auto flex items-center justify-between">
 						<button
 							type="button"
-							onClick={() =>
-								isBackgroundThread()
-									? returnToAssistant()
-									: setShowThreadList(true)
-							}
+							onClick={returnToAssistant}
 							class="text-sm hover:text-foreground transition-colors text-left flex-1 overflow-hidden"
 						>
 							<div class="flex items-center gap-2">
-								<Show when={isBackgroundThread()}>
-									<svg
-										class="w-4 h-4 text-muted-foreground"
-										fill="none"
-										stroke="currentColor"
-										viewBox="0 0 24 24"
-									>
-										<path
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											stroke-width="2"
-											d="M15 19l-7-7 7-7"
-										/>
-									</svg>
-								</Show>
+								<svg
+									class="w-4 h-4 text-muted-foreground"
+									fill="none"
+									stroke="currentColor"
+									viewBox="0 0 24 24"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="2"
+										d="M15 19l-7-7 7-7"
+									/>
+								</svg>
 								<span class="text-foreground font-medium truncate">
 									{headerTitle()}
 								</span>
 							</div>
 							<div class="text-muted-foreground font-mono text-xs truncate flex items-center gap-1.5">
-								<Show when={!isBackgroundThread()}>
-									<span
-										class={`w-1.5 h-1.5 rounded-full ${
-											connectionStatus() === "connected"
-												? "bg-green-500"
-												: connectionStatus() === "connecting"
-													? "bg-yellow-500"
-													: "bg-red-500"
-										}`}
-									/>
-								</Show>
 								<Show when={isBackgroundThread()}>
 									<span
 										class={`w-1.5 h-1.5 rounded-full ${
@@ -1081,11 +1069,19 @@ export function App() {
 							onClick={handleMicClick}
 						/>
 
-						<GitStatusIndicator
-							gitStatus={gitStatus()}
-							onClick={() => setShowDiffModal(true)}
-							onLongPress={() => setShowGitPanel(true)}
-						/>
+						{/* Threads button (main assistant) or Git indicator (in thread) */}
+						<Show
+							when={isInThread()}
+							fallback={
+								<ThreadsButton onClick={() => setShowThreadList(true)} />
+							}
+						>
+							<GitStatusIndicator
+								gitStatus={gitStatus()}
+								onClick={() => setShowDiffModal(true)}
+								onLongPress={() => setShowGitPanel(true)}
+							/>
+						</Show>
 					</div>
 				</Show>
 			</div>
