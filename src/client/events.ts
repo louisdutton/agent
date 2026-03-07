@@ -196,7 +196,11 @@ export function processStreamEvent(
 	// Handle result - update URL with new session ID
 	if (parsed.type === "result") {
 		if (parsed.session_id) {
-			navigate(parsed.session_id as string, projectPath());
+			navigate({
+				type: "session",
+				project: projectPath(),
+				sessionId: parsed.session_id as string,
+			});
 		}
 
 		if (assistantContentRef.value) {

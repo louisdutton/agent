@@ -36,7 +36,7 @@ import {
 	ThreadsButton,
 	type VoiceStatus,
 } from "./round-buttons";
-import { apiUrl, navigate, useLocation } from "./router";
+import { apiUrl, navigate, useLocation, type ViewType } from "./router";
 import { ThreadListPanel } from "./thread-list";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread } from "./types";
@@ -47,10 +47,35 @@ export function App() {
 	const location = useLocation();
 	const [defaultProject, setDefaultProject] = createSignal("");
 
-	// Derived from URL
-	const sessionId = () => location().sessionId;
-	const projectPath = () => location().project || defaultProject();
-	const isInThread = () => location().sessionId !== null;
+	// Unified view derivation from URL (only URL params, not defaultProject)
+	const view = (): ViewType => {
+		const loc = location();
+		// If URL has task, we're viewing a task
+		if (loc.taskId) {
+			return { type: "task", taskId: loc.taskId };
+		}
+		// If URL has project (with or without session), we're in a session
+		if (loc.project) {
+			return {
+				type: "session",
+				project: loc.project,
+				sessionId: loc.sessionId,
+			};
+		}
+		return { type: "home" };
+	};
+
+	// Convenience accessors - not in home view
+	const isInThread = () => view().type !== "home";
+	const sessionId = () => {
+		const v = view();
+		return v.type === "session" ? v.sessionId : null;
+	};
+	// projectPath falls back to defaultProject for API calls
+	const projectPath = () => {
+		const v = view();
+		return v.type === "session" ? v.project : defaultProject();
+	};
 
 	// Core state
 	const [events, setEvents] = createSignal<EventItem[]>([]);
@@ -60,8 +85,8 @@ export function App() {
 	const [sessionName, setSessionName] = createSignal("");
 	const [isCompacted, setIsCompacted] = createSignal(false);
 
-	// Thread state for workers (not URL-based since they're transient)
-	const [activeWorker, setActiveWorker] = createSignal<Thread | null>(null);
+	// Task state (for background workers)
+	const [activeTask, setActiveTask] = createSignal<Thread | null>(null);
 	const [showThreadList, setShowThreadList] = createSignal(false);
 
 	// UI state
@@ -120,7 +145,7 @@ export function App() {
 	};
 
 	// Derived state
-	const isBackgroundThread = () => activeWorker() !== null;
+	const isBackgroundThread = () => activeTask() !== null;
 
 	// Load session history from API
 	const loadHistory = async (sid: string, project: string) => {
@@ -208,7 +233,7 @@ export function App() {
 
 		if (thread.type === "worker") {
 			// Workers are transient - store in state, not URL
-			setActiveWorker(thread);
+			setActiveTask(thread);
 			setEvents([
 				{
 					type: "user",
@@ -220,12 +245,16 @@ export function App() {
 			if (thread.status === "running") {
 				connectToThreadStream(thread.id);
 			}
-			// Clear URL for worker threads
-			navigate(null, null);
+			// Workers now have URL state too
+			navigate({ type: "task", taskId: thread.id });
 		} else {
 			// Session threads - navigate via URL (this triggers the effect below)
-			setActiveWorker(null);
-			navigate(thread.id, thread.projectPath);
+			setActiveTask(null);
+			navigate({
+				type: "session",
+				project: thread.projectPath,
+				sessionId: thread.id,
+			});
 		}
 	};
 
@@ -235,11 +264,11 @@ export function App() {
 			threadEventSource.close();
 			threadEventSource = null;
 		}
-		setActiveWorker(null);
+		setActiveTask(null);
 		setEvents([]);
 		setSessionName("");
 		setIsCompacted(false);
-		navigate(null, null);
+		navigate({ type: "home" });
 	};
 
 	// Reactive effect: when URL changes, load the appropriate session
@@ -247,9 +276,9 @@ export function App() {
 		const sid = sessionId();
 		const project = projectPath();
 
-		if (sid && project && !activeWorker()) {
+		if (sid && project && !activeTask()) {
 			loadHistory(sid, project);
-		} else if (!sid && !activeWorker()) {
+		} else if (!sid && !activeTask()) {
 			// No session in URL and not viewing a worker - clear state
 			setEvents([]);
 			setSessionName("");
@@ -378,7 +407,7 @@ export function App() {
 
 	// Send message to worker (inject)
 	const sendWorkerMessage = async (directMessage?: string) => {
-		const worker = activeWorker();
+		const worker = activeTask();
 		if (!worker || worker.type !== "worker") return;
 
 		const text = directMessage ?? input().trim();
@@ -534,7 +563,8 @@ export function App() {
 			);
 			const data = await res.json();
 			if (data.ok) {
-				navigate(null, null);
+				// Clear session but keep project - ready for new thread
+				navigate({ type: "session", project: currentProjectPath });
 			} else {
 				alert(data.error || "Failed to delete session");
 			}
@@ -547,16 +577,16 @@ export function App() {
 	};
 
 	const handleStopThread = async () => {
-		const worker = activeWorker();
+		const worker = activeTask();
 		if (worker?.type === "worker") {
 			await fetch(`/api/threads/${worker.id}/stop`, { method: "POST" });
-			setActiveWorker({ ...worker, status: "stopped" });
+			setActiveTask({ ...worker, status: "stopped" });
 		}
 	};
 
 	// Header display
 	const headerTitle = () => {
-		const worker = activeWorker();
+		const worker = activeTask();
 		if (worker) {
 			return worker.name.length > 40
 				? `${worker.name.slice(0, 40)}...`
@@ -571,7 +601,7 @@ export function App() {
 	};
 
 	const headerSubtitle = () => {
-		const worker = activeWorker();
+		const worker = activeTask();
 		if (worker) {
 			return worker.projectName;
 		}
@@ -613,11 +643,11 @@ export function App() {
 								<Show when={isBackgroundThread()}>
 									<span
 										class={`w-1.5 h-1.5 rounded-full ${
-											activeWorker()?.status === "running"
+											activeTask()?.status === "running"
 												? "bg-green-500 animate-pulse"
-												: activeWorker()?.status === "completed"
+												: activeTask()?.status === "completed"
 													? "bg-blue-500"
-													: activeWorker()?.status === "error"
+													: activeTask()?.status === "error"
 														? "bg-red-500"
 														: "bg-muted-foreground"
 										}`}
@@ -627,9 +657,7 @@ export function App() {
 							</div>
 						</button>
 						<Show
-							when={
-								isBackgroundThread() && activeWorker()?.status === "running"
-							}
+							when={isBackgroundThread() && activeTask()?.status === "running"}
 						>
 							<button
 								type="button"
@@ -799,7 +827,7 @@ export function App() {
 							}
 							disabled={
 								isBackgroundThread()
-									? activeWorker()?.status !== "running"
+									? activeTask()?.status !== "running"
 									: isLoading() || isRecording() || isTranscribing()
 							}
 							class="input flex-1 min-w-[200px]"
@@ -809,7 +837,7 @@ export function App() {
 							disabled={
 								!input().trim() ||
 								(isBackgroundThread()
-									? activeWorker()?.status !== "running"
+									? activeTask()?.status !== "running"
 									: isLoading() || isRecording() || isTranscribing())
 							}
 							class="px-3 py-1.5 rounded-full bg-foreground text-background disabled:opacity-50"
@@ -897,10 +925,9 @@ export function App() {
 					currentSessionId={sessionId()}
 					onSelectThread={handleSelectThread}
 					onNewThread={(path) => {
-						// Navigate to new thread (no session yet, just project)
+						// Navigate to new thread (no session yet, just project in URL)
 						setShowThreadList(false);
-						setDefaultProject(path);
-						navigate(null, null);
+						navigate({ type: "session", project: path });
 					}}
 					onClose={() => setShowThreadList(false)}
 				/>
