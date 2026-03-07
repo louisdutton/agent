@@ -31,7 +31,7 @@ import {
 	OptionsMenuButton,
 	type VoiceStatus,
 } from "./round-buttons";
-import { SpawnThreadDialog, ThreadListPanel } from "./thread-list";
+import { ThreadListPanel } from "./thread-list";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread, Tool, ToolStatus } from "./types";
 import { connectionStatus, initWebSocket } from "./ws";
@@ -52,10 +52,9 @@ export function App() {
 	const [sessionName, setSessionName] = createSignal("");
 	const [isCompacted, setIsCompacted] = createSignal(false);
 
-	// Thread state - null means viewing the main assistant thread
+	// Thread state - null means viewing the main assistant
 	const [activeThread, setActiveThread] = createSignal<Thread | null>(null);
 	const [showThreadList, setShowThreadList] = createSignal(false);
-	const [showSpawnWorker, setShowSpawnWorker] = createSignal(false);
 
 	// UI state
 	const [showMenu, setShowMenu] = createSignal(false);
@@ -758,10 +757,6 @@ export function App() {
 		}
 	};
 
-	const handleStopThreadById = async (sessionId: string) => {
-		await fetch(`/api/threads/${sessionId}/stop`, { method: "POST" });
-	};
-
 	// Header display
 	const headerTitle = () => {
 		const thread = activeThread();
@@ -1073,10 +1068,6 @@ export function App() {
 								}}
 								onCompact={handleCompact}
 								onClear={handleClear}
-								onSpawnWorker={() => {
-									setShowMenu(false);
-									setShowSpawnWorker(true);
-								}}
 								isCompacting={isCompacting()}
 								isClearing={isClearing()}
 								isLoading={isLoading()}
@@ -1111,13 +1102,16 @@ export function App() {
 			{/* Thread List */}
 			<Show when={showThreadList()}>
 				<ThreadListPanel
-					projectPath={projectPath()}
 					currentSessionId={localStorage.getItem("sessionId")}
 					onSelectThread={handleSelectThread}
-					onStopThread={handleStopThreadById}
-					onSpawnThread={() => {
+					onNewThread={(path) => {
+						localStorage.removeItem("sessionId");
+						localStorage.setItem("projectPath", path);
+						setProjectPath(path);
+						setEvents([]);
+						setIsCompacted(false);
+						setSessionName("");
 						setShowThreadList(false);
-						setShowSpawnWorker(true);
 					}}
 					onClose={() => setShowThreadList(false)}
 				/>
@@ -1150,30 +1144,6 @@ export function App() {
 				<GitPanel
 					projectPath={projectPath()}
 					onClose={() => setShowGitPanel(false)}
-				/>
-			</Show>
-
-			{/* Spawn Thread Dialog */}
-			<Show when={showSpawnWorker()}>
-				<SpawnThreadDialog
-					projectPath={projectPath()}
-					parentSession={localStorage.getItem("sessionId") || "assistant"}
-					onClose={() => setShowSpawnWorker(false)}
-					onSpawn={(thread) => {
-						setShowSpawnWorker(false);
-						setActiveThread(thread);
-						// Show initial task
-						setEvents([
-							{
-								type: "user",
-								id: "0",
-								content: thread.name,
-							},
-						]);
-						if (thread.status === "running") {
-							connectToThreadStream(thread.id);
-						}
-					}}
 				/>
 			</Show>
 		</div>
