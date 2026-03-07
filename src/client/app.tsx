@@ -1111,6 +1111,8 @@ export function App() {
 			{/* Thread List */}
 			<Show when={showThreadList()}>
 				<ThreadListPanel
+					projectPath={projectPath()}
+					currentSessionId={localStorage.getItem("sessionId")}
 					onSelectThread={handleSelectThread}
 					onStopThread={handleStopThreadById}
 					onSpawnThread={() => {
