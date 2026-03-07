@@ -1,28 +1,28 @@
 // URL-based routing - single source of truth
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal } from "solid-js";
 
 export type LocationParams = {
 	sessionId: string | null;
 	project: string | null;
 };
 
-export function useLocation() {
-	const getParams = (): LocationParams => {
-		const url = new URL(window.location.href);
-		return {
-			sessionId: url.searchParams.get("session"),
-			project: url.searchParams.get("project"),
-		};
+function getParams(): LocationParams {
+	const url = new URL(window.location.href);
+	return {
+		sessionId: url.searchParams.get("session"),
+		project: url.searchParams.get("project"),
 	};
+}
 
-	const [location, setLocation] = createSignal(getParams());
+// Global location signal - shared across all useLocation calls
+const [location, setLocation] = createSignal(getParams());
 
-	onMount(() => {
-		const handlePopState = () => setLocation(getParams());
-		window.addEventListener("popstate", handlePopState);
-		onCleanup(() => window.removeEventListener("popstate", handlePopState));
-	});
+// Set up listener once at module load
+if (typeof window !== "undefined") {
+	window.addEventListener("popstate", () => setLocation(getParams()));
+}
 
+export function useLocation() {
 	return location;
 }
 
