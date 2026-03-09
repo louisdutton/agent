@@ -103,7 +103,7 @@ export function getSessionNameFromEvents(messages: EventItem[]): string {
 	return "";
 }
 
-// Process streaming data (shared format for both assistant and worker)
+// Process streaming data (shared format for both assistant and thread)
 export function processStreamEvent(
 	parsed: Record<string, unknown>,
 	assistantContentRef: { value: string },

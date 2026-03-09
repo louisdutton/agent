@@ -37,7 +37,7 @@ import {
 	ThreadsButton,
 	type VoiceStatus,
 } from "./round-buttons";
-import { apiUrl, navigate, useLocation, type ViewType } from "./router";
+import { navigate, useLocation, type ViewType } from "./router";
 import { ThreadListPanel } from "./thread-list";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread } from "./types";
@@ -86,7 +86,7 @@ export function App() {
 	const [sessionName, setSessionName] = createSignal("");
 	const [isCompacted, setIsCompacted] = createSignal(false);
 
-	// Task state (for background workers)
+	// Task state (for background threads)
 	const [activeTask, setActiveTask] = createSignal<Thread | null>(null);
 	const [showThreadList, setShowThreadList] = createSignal(false);
 
@@ -150,22 +150,20 @@ export function App() {
 	// Load session history from API
 	const loadHistory = async (sid: string, project: string) => {
 		try {
-			const res = await fetch(
-				apiUrl(`/api/sessions/${encodeURIComponent(sid)}/history`, project),
-			);
-			const data = await res.json();
-			const messages = data.messages?.length ? data.messages : [];
+			const { data } = await api.sessions({ sessionId: sid }).history.get({
+				query: { project },
+			});
+			const messages = data?.messages?.length ? data.messages : [];
 			setEvents(messages);
-			setIsCompacted(data.isCompacted || false);
-			setSessionName(data.firstPrompt || getSessionNameFromEvents(messages));
+			setIsCompacted(data?.isCompacted || false);
+			setSessionName(data?.firstPrompt || getSessionNameFromEvents(messages));
 			idCounter.value = messages.length || 0;
 
 			// Check if backend is busy - if so, connect to stream
-			const statusRes = await fetch(
-				`/api/sessions/${encodeURIComponent(sid)}/status`,
-			);
-			const statusData = await statusRes.json();
-			if (statusData.busy) {
+			const { data: statusData } = await api
+				.sessions({ sessionId: sid })
+				.status.get();
+			if (statusData?.busy) {
 				connectToSessionStream(sid);
 			}
 		} catch (err) {
@@ -254,17 +252,17 @@ export function App() {
 		await consumeStream(data as AsyncIterable<string>);
 	};
 
-	// Connect to a worker stream (with event replay)
-	const connectToWorkerStream = async (workerId: string) => {
+	// Connect to a thread stream (with event replay)
+	const connectToThreadStream = async (threadId: string) => {
 		streamAbort?.abort();
 		streamAbort = new AbortController();
 
-		const { data, error } = await api.threads({ id: workerId }).stream.get({
+		const { data, error } = await api.threads({ id: threadId }).stream.get({
 			fetch: { signal: streamAbort.signal },
 		});
 
 		if (error || !data || typeof data === "string") {
-			console.error("Failed to connect to worker stream:", error);
+			console.error("Failed to connect to thread stream:", error);
 			setIsLoading(false);
 			return;
 		}
@@ -279,8 +277,8 @@ export function App() {
 
 		setShowThreadList(false);
 
-		if (thread.type === "worker") {
-			// Workers are transient - store in state, not URL
+		if (thread.type === "thread") {
+			// Background threads are transient - store in state, not URL
 			setActiveTask(thread);
 			setEvents([
 				{
@@ -291,7 +289,7 @@ export function App() {
 			]);
 
 			// Always connect to stream - it will replay buffered events
-			connectToWorkerStream(thread.id);
+			connectToThreadStream(thread.id);
 			navigate({ type: "task", taskId: thread.id });
 		} else {
 			// Session threads - navigate via URL (this triggers the effect below)
@@ -322,7 +320,7 @@ export function App() {
 		if (sid && project && !activeTask()) {
 			loadHistory(sid, project);
 		} else if (!sid && !activeTask()) {
-			// No session in URL and not viewing a worker - clear state
+			// No session in URL and not viewing a thread - clear state
 			setEvents([]);
 			setSessionName("");
 			setIsCompacted(false);
@@ -332,9 +330,8 @@ export function App() {
 
 	onMount(async () => {
 		// Get default project path for when URL has no project
-		const res = await fetch("/api/info");
-		const info = await res.json();
-		setDefaultProject(info.cwd || "");
+		const { data } = await api.info.get();
+		setDefaultProject(data?.cwd || "");
 
 		initWebSocket();
 	});
@@ -355,7 +352,7 @@ export function App() {
 	// Send message (assistant mode)
 	const sendMessage = async (directMessage?: string) => {
 		if (isBackgroundThread()) {
-			return sendWorkerMessage(directMessage);
+			return sendThreadMessage(directMessage);
 		}
 
 		const text = directMessage ?? input().trim();
@@ -383,54 +380,21 @@ export function App() {
 
 		try {
 			const currentSessionId = sessionId() || "new";
-			const res = await fetch(
-				apiUrl(
-					`/api/sessions/${encodeURIComponent(currentSessionId)}/messages`,
-					currentProjectPath,
-				),
-				{
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ message: text, images }),
-					signal: abortController.signal,
-				},
-			);
+			const { data, error } = await api
+				.sessions({ sessionId: currentSessionId })
+				.messages.post(
+					{ message: text, images },
+					{
+						query: { project: currentProjectPath },
+						fetch: { signal: abortController.signal },
+					},
+				);
 
-			const reader = res.body?.getReader();
-			if (!reader) return;
-
-			const decoder = new TextDecoder();
-			const assistantContentRef = { value: "" };
-
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-
-				const chunk = decoder.decode(value);
-				const lines = chunk.split("\n");
-
-				for (const line of lines) {
-					if (line.startsWith("data: ")) {
-						const data = line.slice(6);
-						if (data === "[DONE]") continue;
-
-						try {
-							const parsed = JSON.parse(data);
-							processStreamEvent(parsed, assistantContentRef, eventHandlers);
-						} catch {
-							// Skip invalid JSON
-						}
-					}
-				}
+			if (error || !data || typeof data === "string") {
+				throw new Error("Failed to send message");
 			}
 
-			if (assistantContentRef.value && streamingContent()) {
-				eventHandlers.addEvent({
-					type: "assistant",
-					id: eventHandlers.getNextId(),
-					content: assistantContentRef.value,
-				});
-			}
+			await consumeStream(data as AsyncIterable<string>);
 		} catch (err) {
 			if (!(err instanceof DOMException && err.name === "AbortError")) {
 				eventHandlers.addEvent({
@@ -440,41 +404,34 @@ export function App() {
 				});
 			}
 		} finally {
-			setIsLoading(false);
-			setStreamingContent("");
 			abortController = null;
 		}
 	};
 
-	// Send message to worker (inject)
-	const sendWorkerMessage = async (directMessage?: string) => {
-		const worker = activeTask();
-		if (!worker || worker.type !== "worker") return;
+	// Send message to thread (inject)
+	const sendThreadMessage = async (directMessage?: string) => {
+		const thread = activeTask();
+		if (!thread || thread.type !== "thread") return;
 
 		const text = directMessage ?? input().trim();
 		if (!text || isLoading()) return;
 
 		if (!directMessage) setInput("");
 
-		try {
-			const res = await fetch(`/api/threads/${worker.id}/inject`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ message: text }),
-			});
-			const data = await res.json();
-			if (data.ok) {
-				eventHandlers.addEvent({
-					type: "user",
-					id: eventHandlers.getNextId(),
-					content: text,
-				});
-			} else {
-				alert(data.error || "Failed to send message");
-			}
-		} catch (err) {
-			alert(String(err));
+		const { data, error } = await api
+			.threads({ id: thread.id })
+			.inject.post({ message: text });
+
+		if (error || !data?.ok) {
+			alert(error?.value || "Failed to send message");
+			return;
 		}
+
+		eventHandlers.addEvent({
+			type: "user",
+			id: eventHandlers.getNextId(),
+			content: text,
+		});
 	};
 
 	// Voice status
@@ -496,10 +453,7 @@ export function App() {
 			const currentSessionId = sessionId();
 			if (currentSessionId) {
 				try {
-					await fetch(
-						`/api/sessions/${encodeURIComponent(currentSessionId)}/cancel`,
-						{ method: "POST" },
-					);
+					await api.sessions({ sessionId: currentSessionId }).cancel.post();
 				} catch {
 					// Ignore
 				}
@@ -568,28 +522,21 @@ export function App() {
 			return;
 		}
 		setIsCompacting(true);
-		try {
-			const res = await fetch(
-				apiUrl(
-					`/api/sessions/${encodeURIComponent(currentSessionId)}/compact`,
-					currentProjectPath,
-				),
-				{ method: "POST" },
-			);
-			const data = await res.json();
-			if (data.ok) {
-				setEvents([]);
-				setIsCompacted(true);
-				idCounter.value = 0;
-			} else {
-				alert(data.error || "Failed to compact session");
-			}
-		} catch (err) {
-			console.error("Compact failed:", err);
-			alert("Failed to compact session");
-		} finally {
-			setIsCompacting(false);
+
+		const { data, error } = await api
+			.sessions({ sessionId: currentSessionId })
+			.compact.post({}, { query: { project: currentProjectPath } });
+
+		setIsCompacting(false);
+
+		if (error || !data?.ok) {
+			alert(error?.value || "Failed to compact session");
+			return;
 		}
+
+		setEvents([]);
+		setIsCompacted(true);
+		idCounter.value = 0;
 	};
 
 	const handleClear = () => {
@@ -604,20 +551,20 @@ export function App() {
 	};
 
 	const handleStopThread = async () => {
-		const worker = activeTask();
-		if (worker?.type === "worker") {
-			await fetch(`/api/threads/${worker.id}/stop`, { method: "POST" });
-			setActiveTask({ ...worker, status: "stopped" });
+		const thread = activeTask();
+		if (thread?.type === "thread") {
+			await api.threads({ id: thread.id }).stop.post();
+			setActiveTask({ ...thread, status: "stopped" });
 		}
 	};
 
 	// Header display
 	const headerTitle = () => {
-		const worker = activeTask();
-		if (worker) {
-			return worker.name.length > 40
-				? `${worker.name.slice(0, 40)}...`
-				: worker.name;
+		const thread = activeTask();
+		if (thread) {
+			return thread.name.length > 40
+				? `${thread.name.slice(0, 40)}...`
+				: thread.name;
 		}
 		// For session threads, use sessionName
 		const name = sessionName();
@@ -628,9 +575,9 @@ export function App() {
 	};
 
 	const headerSubtitle = () => {
-		const worker = activeTask();
-		if (worker) {
-			return worker.projectName;
+		const thread = activeTask();
+		if (thread) {
+			return thread.projectName;
 		}
 		// For session threads, extract project name from path
 		const project = projectPath();
@@ -639,7 +586,7 @@ export function App() {
 
 	return (
 		<div class="h-dvh flex flex-col bg-background">
-			{/* Header - shown when in a thread (URL has session) or viewing a worker */}
+			{/* Header - shown when in a thread (URL has session) or viewing a thread */}
 			<Show when={isInThread() || isBackgroundThread()}>
 				<header class="flex-none px-4 py-2 border-b border-border z-20 bg-background">
 					<div class="max-w-2xl mx-auto flex items-center justify-between">
@@ -827,7 +774,7 @@ export function App() {
 
 			{/* Fixed floating bottom controls */}
 			<div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-3">
-				{/* Text input - always show for workers, toggle for assistant */}
+				{/* Text input - always show for threads, toggle for assistant */}
 				<Show when={showTextInput() || isBackgroundThread()}>
 					<form
 						onSubmit={(e) => {
@@ -850,7 +797,7 @@ export function App() {
 							value={input()}
 							onInput={(e) => setInput(e.currentTarget.value)}
 							placeholder={
-								isBackgroundThread() ? "Send to worker..." : "Type a message..."
+								isBackgroundThread() ? "Send to thread..." : "Type a message..."
 							}
 							disabled={
 								isBackgroundThread()
@@ -891,7 +838,7 @@ export function App() {
 					<ImagePreview images={attachedImages} setImages={setAttachedImages} />
 				</Show>
 
-				{/* Buttons - full controls for assistant, simplified for worker */}
+				{/* Buttons - full controls for assistant, simplified for thread */}
 				<Show when={!isBackgroundThread()}>
 					<div class="flex items-center justify-center gap-4 bg-muted rounded-full px-3 py-2 border border-border shadow-lg">
 						<OptionsMenuButton

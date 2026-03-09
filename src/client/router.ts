@@ -71,9 +71,3 @@ export function navigate(params: NavigateParams) {
 	window.history.pushState({}, "", url.toString());
 	window.dispatchEvent(new PopStateEvent("popstate"));
 }
-
-// Helper to build URL with project query param
-export function apiUrl(path: string, projectPath: string): string {
-	const separator = path.includes("?") ? "&" : "?";
-	return `${path}${separator}project=${encodeURIComponent(projectPath)}`;
-}

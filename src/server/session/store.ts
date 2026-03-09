@@ -1,10 +1,10 @@
-// Session store - replaces global cwd and manages all sessions
+// Session store - manages all sessions
 
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
 	createAssistantSession,
-	createWorkerSession,
+	createThreadSession,
 	type SessionContext,
 	type SessionStatus,
 	type SessionType,
@@ -12,7 +12,7 @@ import {
 
 const STATE_FILE = join(homedir(), ".claude", "agent-state.json");
 const MAX_THREADS = 5;
-const WORKER_MAX_RUNTIME = 24 * 60 * 60 * 1000; // 24 hours
+const THREAD_MAX_RUNTIME = 24 * 60 * 60 * 1000; // 24 hours
 
 // In-memory session store
 const sessions = new Map<string, SessionContext>();
@@ -43,27 +43,20 @@ export function getAllSessions(type?: SessionType): SessionContext[] {
 
 // Get all active threads (running or idle)
 export function getActiveThreads(): SessionContext[] {
-	return getAllSessions("worker").filter(
+	return getAllSessions("thread").filter(
 		(s) => s.status === "running" || s.status === "idle",
 	);
 }
 
 // Get all threads (any status)
 export function getAllThreads(): SessionContext[] {
-	return getAllSessions("worker");
+	return getAllSessions("thread");
 }
 
 // Check if we can spawn more threads
 export function canSpawnThread(): boolean {
 	return getActiveThreads().length < MAX_THREADS;
 }
-
-// Legacy aliases for compatibility
-export const getActiveWorkers = getActiveThreads;
-export const getAllWorkers = getAllThreads;
-export const canSpawnWorker = canSpawnThread;
-export const startWorker = startThread;
-export const cleanupStaleWorkers = cleanupStaleThreads;
 
 // Register a new session
 export function registerSession(ctx: SessionContext): void {
@@ -99,9 +92,9 @@ export function startThread(
 	parentSession: string,
 	task: string,
 ): SessionContext | null {
-	if (!canSpawnWorker()) return null;
+	if (!canSpawnThread()) return null;
 
-	const ctx = createWorkerSession(sessionId, projectPath, parentSession, task);
+	const ctx = createThreadSession(sessionId, projectPath, parentSession, task);
 	ctx.status = "running";
 	registerSession(ctx);
 	return ctx;
@@ -135,11 +128,11 @@ export function markSessionError(sessionId: string): void {
 // Check for stale/timed out threads
 export function cleanupStaleThreads(): void {
 	const now = Date.now();
-	for (const session of getAllSessions("worker")) {
+	for (const session of getAllSessions("thread")) {
 		const age = now - session.startTime;
 
 		// Check max runtime
-		if (age > WORKER_MAX_RUNTIME) {
+		if (age > THREAD_MAX_RUNTIME) {
 			markSessionError(session.sessionId);
 			continue;
 		}

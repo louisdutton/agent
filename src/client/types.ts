@@ -24,7 +24,7 @@ export type ThreadStatus =
 
 export type Thread = {
 	id: string;
-	type: "assistant" | "worker"; // worker = background thread
+	type: "assistant" | "thread"; // thread = background task
 	projectPath: string;
 	projectName: string;
 	status: ThreadStatus;

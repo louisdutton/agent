@@ -1,56 +1,32 @@
 import { Elysia, t } from "elysia";
 import {
-	getAllWorkers,
-	getWorkerStatus,
-	injectMessage,
-	spawnWorker,
-	stopWorker,
-	subscribeToWorker,
-	type WorkerEvent,
-	workerExists,
+	getAllThreads,
+	getThreadStatus,
+	injectThreadMessage,
+	spawnThread,
+	stopThread,
+	subscribeToThread,
+	type ThreadEvent,
+	threadExists,
 } from "../session";
+import { subscriptionToGenerator } from "../util";
 
-/** Convert callback-based subscription to async generator with replay */
-async function* workerEvents(workerId: string): AsyncGenerator<WorkerEvent> {
-	const queue: WorkerEvent[] = [];
-	let resolve: (() => void) | null = null;
-	let done = false;
-
-	const unsubscribe = subscribeToWorker(
-		workerId,
-		(event) => {
-			queue.push(event);
-			if (event.type === "done" || event.type === "error") {
-				done = true;
-			}
-			resolve?.();
-		},
-		{ replay: true },
+const threadEvents = (threadId: string) =>
+	subscriptionToGenerator<ThreadEvent>(
+		(cb, opts) => subscribeToThread(threadId, cb, opts),
+		(e) => e.type === "done" || e.type === "error",
 	);
-
-	try {
-		while (!done || queue.length > 0) {
-			if (queue.length > 0) {
-				yield queue.shift()!;
-			} else {
-				await new Promise<void>((r) => (resolve = r));
-			}
-		}
-	} finally {
-		unsubscribe();
-	}
-}
 
 export const threadsRoutes = new Elysia({ prefix: "/threads" })
 	.get("/", () => {
-		const threads = getAllWorkers();
+		const threads = getAllThreads();
 		return { threads };
 	})
 
 	.post(
 		"/spawn",
 		async ({ body }) => {
-			const result = await spawnWorker(
+			const result = await spawnThread(
 				body.projectPath,
 				body.task,
 				body.parentSession,
@@ -70,12 +46,12 @@ export const threadsRoutes = new Elysia({ prefix: "/threads" })
 	)
 
 	.post("/:id/stop", ({ params }) => {
-		const stopped = stopWorker(params.id);
+		const stopped = stopThread(params.id);
 		return { stopped };
 	})
 
 	.get("/:id/status", ({ params }) => {
-		const status = getWorkerStatus(params.id);
+		const status = getThreadStatus(params.id);
 		if (!status) {
 			return { exists: false, status: null };
 		}
@@ -83,15 +59,13 @@ export const threadsRoutes = new Elysia({ prefix: "/threads" })
 	})
 
 	.get("/:id/stream", async function* ({ params, status }) {
-		// Check if worker exists (running or completed with buffer)
-		if (!workerExists(params.id)) {
+		if (!threadExists(params.id)) {
 			return status(404, "Thread not found");
 		}
 
-		// Yield heartbeat immediately to confirm connection
-		yield `data: ${JSON.stringify({ type: "connected", workerId: params.id })}\n\n`;
+		yield `data: ${JSON.stringify({ type: "connected", threadId: params.id })}\n\n`;
 
-		for await (const event of workerEvents(params.id)) {
+		for await (const event of threadEvents(params.id)) {
 			yield `data: ${JSON.stringify(event)}\n\n`;
 		}
 	})
@@ -99,7 +73,7 @@ export const threadsRoutes = new Elysia({ prefix: "/threads" })
 	.post(
 		"/:id/inject",
 		async ({ params, body }) => {
-			const result = await injectMessage(params.id, body.message);
+			const result = await injectThreadMessage(params.id, body.message);
 			if (!result.success) {
 				return { error: result.error };
 			}

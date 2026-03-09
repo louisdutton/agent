@@ -1,6 +1,6 @@
-// Session context types and helpers for assistant/worker architecture
+// Session context types and helpers for assistant/thread architecture
 
-export type SessionType = "assistant" | "worker";
+export type SessionType = "assistant" | "thread";
 
 export type SessionStatus =
 	| "idle"
@@ -13,10 +13,10 @@ export type SessionContext = {
 	sessionId: string;
 	type: SessionType;
 	status: SessionStatus;
-	projectPath: string | null; // null for assistant, required for workers
+	projectPath: string | null; // null for assistant, required for threads
 	pid: number | null;
 	startTime: number;
-	// Worker-specific fields
+	// Thread-specific fields
 	parentSession?: string; // ID of spawning assistant session
 	task?: string; // Initial task prompt
 };
@@ -33,8 +33,8 @@ export function createAssistantSession(sessionId: string): SessionContext {
 	};
 }
 
-// Create a new worker session context
-export function createWorkerSession(
+// Create a new thread session context
+export function createThreadSession(
 	sessionId: string,
 	projectPath: string,
 	parentSession: string,
@@ -42,7 +42,7 @@ export function createWorkerSession(
 ): SessionContext {
 	return {
 		sessionId,
-		type: "worker",
+		type: "thread",
 		status: "idle",
 		projectPath,
 		pid: null,

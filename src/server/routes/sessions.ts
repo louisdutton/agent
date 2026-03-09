@@ -9,43 +9,15 @@ import {
 	type SessionEvent,
 	subscribeToSession,
 } from "../session";
+import { subscriptionToGenerator } from "../util";
 
 const projectQuery = t.Object({ project: t.String() });
 
-/** Convert callback-based subscription to async generator */
-async function* sessionEvents(sessionId: string): AsyncGenerator<SessionEvent> {
-	const queue: SessionEvent[] = [];
-	let resolve: (() => void) | null = null;
-	let done = false;
-
-	const unsubscribe = subscribeToSession(
-		sessionId,
-		(event) => {
-			queue.push(event);
-			if (
-				event.type === "done" ||
-				event.type === "error" ||
-				event.type === "cancelled"
-			) {
-				done = true;
-			}
-			resolve?.();
-		},
-		{ replay: true },
+const sessionEvents = (sessionId: string) =>
+	subscriptionToGenerator<SessionEvent>(
+		(cb, opts) => subscribeToSession(sessionId, cb, opts),
+		(e) => e.type === "done" || e.type === "error" || e.type === "cancelled",
 	);
-
-	try {
-		while (!done || queue.length > 0) {
-			if (queue.length > 0) {
-				yield queue.shift()!;
-			} else {
-				await new Promise<void>((r) => (resolve = r));
-			}
-		}
-	} finally {
-		unsubscribe();
-	}
-}
 
 export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 	.get(
