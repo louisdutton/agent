@@ -535,9 +535,32 @@ export function InlineDiffView(props: {
 		return computeDiff(oldLines, newLines);
 	});
 
+	// Calculate minimum leading whitespace (as tab count, treating spaces as partial tabs)
+	const minIndent = createMemo(() => {
+		const lines = diffLines();
+		let min = Number.POSITIVE_INFINITY;
+		for (const line of lines) {
+			if (!line.content.trim()) continue; // skip blank lines
+			const match = line.content.match(/^(\t*)/);
+			if (match) {
+				min = Math.min(min, match[1].length);
+			}
+		}
+		return min === Number.POSITIVE_INFINITY ? 0 : min;
+	});
+
+	// Trimmed lines for display
+	const trimmedLines = createMemo(() => {
+		const indent = minIndent();
+		return diffLines().map((line) => ({
+			...line,
+			content: line.content.replace(new RegExp(`^\\t{0,${indent}}`), ""),
+		}));
+	});
+
 	// Highlight all lines together
 	const highlightedLines = createMemo(() => {
-		const code = diffLines()
+		const code = trimmedLines()
 			.map((l) => l.content)
 			.join("\n");
 		return highlightCodeSync(code, lang());
@@ -546,10 +569,10 @@ export function InlineDiffView(props: {
 	return (
 		<div class="border border-border rounded-lg overflow-hidden mt-2 overflow-x-auto max-h-64 overflow-y-auto">
 			<div class="min-w-max font-mono text-xs">
-				<For each={diffLines()}>
+				<For each={trimmedLines()}>
 					{(line, index) => (
 						<div
-							class={`flex ${
+							class={`${
 								line.type === "addition"
 									? "bg-green-950"
 									: line.type === "deletion"
@@ -557,21 +580,6 @@ export function InlineDiffView(props: {
 										: ""
 							}`}
 						>
-							<span
-								class={`w-5 shrink-0 text-center select-none ${
-									line.type === "addition"
-										? "text-green-500"
-										: line.type === "deletion"
-											? "text-red-500"
-											: "text-muted-foreground"
-								}`}
-							>
-								{line.type === "addition"
-									? "+"
-									: line.type === "deletion"
-										? "-"
-										: " "}
-							</span>
 							<pre
 								class="px-2 whitespace-pre hljs"
 								innerHTML={highlightedLines()?.[index()] || line.content || " "}
