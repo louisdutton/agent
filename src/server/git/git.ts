@@ -1,4 +1,5 @@
 import { $ } from "bun";
+import { prompt } from "../anthropic";
 
 // Git diff types
 type DiffLineType = "context" | "addition" | "deletion";
@@ -455,4 +456,46 @@ export async function gitRevert(
 	$.cwd(projectPath);
 	const result = await $`git revert --no-edit ${hash}`.text();
 	return result;
+}
+
+// Auto-commit: get diff, generate message with fast model, commit
+export async function autoCommit(
+	projectPath: string,
+): Promise<{ ok: boolean; message?: string; error?: string }> {
+	$.cwd(projectPath);
+
+	// Get the diff
+	await $`git add -N .`;
+	const diff = await $`git diff`.text();
+
+	if (!diff.trim()) {
+		return { ok: false, error: "No changes to commit" };
+	}
+
+	// Truncate diff if too long (keep under 8k tokens ~32k chars)
+	const maxDiffLen = 32000;
+	const truncatedDiff =
+		diff.length > maxDiffLen
+			? `${diff.slice(0, maxDiffLen)}\n... (truncated)`
+			: diff;
+
+	// Generate commit message using Haiku
+	const result = await prompt(
+		`Generate a concise git commit message for these changes. Focus on the "what" and "why", not the "how". Use conventional commit format (type: description). No quotes, no markdown, just the message.
+
+${truncatedDiff}`,
+	);
+
+	if (!result.ok) {
+		return { ok: false, error: result.error };
+	}
+
+	// Stage all changes and commit
+	await $`git add -A`;
+	try {
+		await $`git commit -m ${result.text}`;
+		return { ok: true, message: result.text };
+	} catch (err) {
+		return { ok: false, error: String(err) };
+	}
 }

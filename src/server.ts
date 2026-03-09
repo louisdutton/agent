@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { parseArgs } from "util";
-import app from "./index.html";
-import { apiFallback, routes } from "./server/api";
+import html from "./index.html";
+import { app as elysiaApp } from "./server/app";
 
 const { values } = parseArgs({
 	args: Bun.argv.slice(2),
@@ -26,8 +26,7 @@ const server = Bun.serve({
 	development: { console: true },
 
 	routes: {
-		"/": app,
-		...routes,
+		"/": html,
 		// Serve SW from root so it can control the whole site
 		"/sw.js": () =>
 			new Response(Bun.file("./public/sw.js"), {
@@ -66,7 +65,8 @@ const server = Bun.serve({
 		},
 	},
 
-	fetch: apiFallback,
+	// Use Elysia's fetch handler for API routes
+	fetch: elysiaApp.fetch,
 });
 
 console.info(`Server running at ${server.url}`);

@@ -144,6 +144,7 @@ export function OptionsMenu(props: {
 	onToggleTextInput: () => void;
 	onCompact: () => void;
 	onClear: () => void;
+	onBrowseFiles?: () => void;
 	isCompacting: boolean;
 	isClearing: boolean;
 	isLoading: boolean;
@@ -157,6 +158,15 @@ export function OptionsMenu(props: {
 			>
 				{props.showTextInput ? "Hide Text Input" : "Show Text Input"}
 			</button>
+			<Show when={props.onBrowseFiles}>
+				<button
+					type="button"
+					onClick={props.onBrowseFiles}
+					class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base min-h-[48px]"
+				>
+					Browse Files
+				</button>
+			</Show>
 			<button
 				type="button"
 				onClick={props.onCompact}

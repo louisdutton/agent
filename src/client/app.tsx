@@ -6,6 +6,7 @@ import {
 	onMount,
 	Show,
 } from "solid-js";
+import { api } from "./api";
 import {
 	type AudioRefs,
 	createAudioRefs,
@@ -503,9 +504,19 @@ export function App() {
 		}
 	});
 
-	const handleCommit = () => {
+	const handleCommit = async () => {
 		setShowDiffModal(false);
-		sendMessage("Commit the current changes");
+		const currentProjectPath = projectPath();
+		if (!currentProjectPath) return;
+
+		const { data, error } = await api.git.commit.post(
+			{},
+			{ query: { project: currentProjectPath } },
+		);
+		if (error || !data?.ok) {
+			alert(error?.value || "Commit failed");
+		}
+		// Git status will refresh on next poll
 	};
 
 	const handleCompact = async () => {
@@ -876,6 +887,10 @@ export function App() {
 								showTextInput={showTextInput()}
 								onToggleTextInput={() => {
 									setShowTextInput(!showTextInput());
+									setShowMenu(false);
+								}}
+								onBrowseFiles={() => {
+									setShowFileBrowser(true);
 									setShowMenu(false);
 								}}
 								onCompact={handleCompact}
