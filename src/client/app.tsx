@@ -94,7 +94,7 @@ export function App() {
 	const [showMenu, setShowMenu] = createSignal(false);
 	const [showTextInput, setShowTextInput] = createSignal(false);
 	const [isCompacting, setIsCompacting] = createSignal(false);
-	const [isClearing, setIsClearing] = createSignal(false);
+	const [isClearing] = createSignal(false);
 	const [attachedImages, setAttachedImages] = createSignal<string[]>([]);
 
 	// Audio state
@@ -552,39 +552,15 @@ export function App() {
 		}
 	};
 
-	const handleClear = async () => {
+	const handleClear = () => {
 		setShowMenu(false);
-		const currentSessionId = sessionId();
-		const currentProjectPath = projectPath();
-		if (!currentSessionId || !currentProjectPath) {
-			alert("No active session to clear");
-			return;
-		}
-		if (!confirm("Delete this thread? This cannot be undone.")) {
-			return;
-		}
-		setIsClearing(true);
-		try {
-			const res = await fetch(
-				apiUrl(
-					`/api/sessions/${encodeURIComponent(currentSessionId)}`,
-					currentProjectPath,
-				),
-				{ method: "DELETE" },
-			);
-			const data = await res.json();
-			if (data.ok) {
-				// Clear session but keep project - ready for new thread
-				navigate({ type: "session", project: currentProjectPath });
-			} else {
-				alert(data.error || "Failed to delete session");
-			}
-		} catch (err) {
-			console.error("Delete failed:", err);
-			alert("Failed to delete session");
-		} finally {
-			setIsClearing(false);
-		}
+		// Clear UI and start fresh session (no session ID = new session on next message)
+		setEvents([]);
+		setStreamingContent("");
+		setSessionName("");
+		setIsCompacted(false);
+		const project = projectPath() || defaultProject();
+		navigate({ type: "session", project });
 	};
 
 	const handleStopThread = async () => {
