@@ -62,15 +62,15 @@ export const filesRoutes = new Elysia()
 
 	.get(
 		"/file/*",
-		async ({ params, query }) => {
-			const filePath = (params as { "*": string })["*"];
+		async ({ params, query, status }) => {
+			const filePath = params["*"];
 			const fullPath = filePath.startsWith("/")
 				? filePath
 				: join(query.project, filePath);
 
 			const file = Bun.file(fullPath);
 			if (!(await file.exists())) {
-				return { error: "File not found" };
+				return status(404, "File not found");
 			}
 
 			const content = await file.text();

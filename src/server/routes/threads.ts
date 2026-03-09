@@ -70,9 +70,9 @@ export const threadsRoutes = new Elysia({ prefix: "/threads" })
 		return { stopped };
 	})
 
-	.get("/:id/stream", async function* ({ params, error }) {
+	.get("/:id/stream", async function* ({ params, status }) {
 		if (!isWorkerRunning(params.id)) {
-			return error(404, { error: "Thread not found" });
+			return status(404, "Thread not found");
 		}
 
 		for await (const event of workerEvents(params.id)) {
