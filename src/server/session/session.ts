@@ -17,33 +17,98 @@ export type Message =
 	| { type: "assistant"; id: string; content: string }
 	| { type: "tools"; id: string; tools: Tool[] };
 
+// Session event for streaming
+export type SessionEvent = { type: string; [key: string]: unknown };
+
 // Per-session state for concurrent session support
-// Tracks running Claude processes by session ID
-type ActiveProcess = {
+type ActiveSession = {
 	pid: number;
 	startTime: number;
+	subscribers: Set<(event: SessionEvent) => void>;
+	eventBuffer: SessionEvent[];
 };
 
-const activeProcesses = new Map<string, ActiveProcess>();
+const activeSessions = new Map<string, ActiveSession>();
+const MAX_BUFFER_SIZE = 500;
 
 // Get all active session IDs
-export function getActiveSessions(): string[] {
-	return Array.from(activeProcesses.keys());
+export function getActiveSessionIds(): string[] {
+	return Array.from(activeSessions.keys());
 }
 
 // Start tracking a session with its process PID
 export function startSession(sessionId: string, pid: number): void {
-	activeProcesses.set(sessionId, {
+	activeSessions.set(sessionId, {
 		pid,
 		startTime: Date.now(),
+		subscribers: new Set(),
+		eventBuffer: [],
 	});
+}
+
+// Emit an event to session subscribers and buffer it
+export function emitSessionEvent(sessionId: string, event: SessionEvent): void {
+	const session = activeSessions.get(sessionId);
+	if (!session) return;
+
+	// Buffer event
+	if (session.eventBuffer.length >= MAX_BUFFER_SIZE) {
+		session.eventBuffer.shift();
+	}
+	session.eventBuffer.push(event);
+
+	// Notify subscribers
+	for (const callback of session.subscribers) {
+		try {
+			callback(event);
+		} catch (err) {
+			console.error("Session subscriber error:", err);
+		}
+	}
+}
+
+// Subscribe to session events with optional replay
+export function subscribeToSession(
+	sessionId: string,
+	callback: (event: SessionEvent) => void,
+	options: { replay?: boolean } = {},
+): () => void {
+	const session = activeSessions.get(sessionId);
+	if (!session) {
+		callback({ type: "error", error: "Session not active" });
+		return () => {};
+	}
+
+	// Replay buffered events if requested
+	if (options.replay !== false) {
+		for (const event of session.eventBuffer) {
+			try {
+				callback(event);
+			} catch (err) {
+				console.error("Replay callback error:", err);
+			}
+		}
+	}
+
+	session.subscribers.add(callback);
+	return () => {
+		session.subscribers.delete(callback);
+	};
 }
 
 // Stop tracking a session (does not kill the process - use cancelSession for that)
 export function endSession(sessionId: string): boolean {
-	const ctx = activeProcesses.get(sessionId);
-	if (ctx) {
-		activeProcesses.delete(sessionId);
+	const session = activeSessions.get(sessionId);
+	if (session) {
+		// Notify subscribers of completion
+		for (const callback of session.subscribers) {
+			try {
+				callback({ type: "done" });
+			} catch {
+				// Ignore errors on cleanup
+			}
+		}
+		activeSessions.delete(sessionId);
 		return true;
 	}
 	return false;
@@ -51,14 +116,22 @@ export function endSession(sessionId: string): boolean {
 
 // Cancel a session by killing its process
 export function cancelSession(sessionId: string): boolean {
-	const ctx = activeProcesses.get(sessionId);
-	if (ctx) {
+	const session = activeSessions.get(sessionId);
+	if (session) {
 		try {
-			process.kill(ctx.pid);
+			process.kill(session.pid);
 		} catch {
 			// Process may have already exited
 		}
-		activeProcesses.delete(sessionId);
+		// Notify subscribers
+		for (const callback of session.subscribers) {
+			try {
+				callback({ type: "cancelled" });
+			} catch {
+				// Ignore
+			}
+		}
+		activeSessions.delete(sessionId);
 		return true;
 	}
 	return false;
@@ -66,7 +139,7 @@ export function cancelSession(sessionId: string): boolean {
 
 // Check if a specific session has an active request
 export function isSessionActive(sessionId: string): boolean {
-	return activeProcesses.has(sessionId);
+	return activeSessions.has(sessionId);
 }
 
 // Clear session by deleting its transcript file directly

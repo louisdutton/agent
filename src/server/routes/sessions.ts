@@ -6,9 +6,46 @@ import {
 	getSessionHistoryById,
 	getSessionsFromTranscripts,
 	isSessionActive,
+	type SessionEvent,
+	subscribeToSession,
 } from "../session";
 
 const projectQuery = t.Object({ project: t.String() });
+
+/** Convert callback-based subscription to async generator */
+async function* sessionEvents(sessionId: string): AsyncGenerator<SessionEvent> {
+	const queue: SessionEvent[] = [];
+	let resolve: (() => void) | null = null;
+	let done = false;
+
+	const unsubscribe = subscribeToSession(
+		sessionId,
+		(event) => {
+			queue.push(event);
+			if (
+				event.type === "done" ||
+				event.type === "error" ||
+				event.type === "cancelled"
+			) {
+				done = true;
+			}
+			resolve?.();
+		},
+		{ replay: true },
+	);
+
+	try {
+		while (!done || queue.length > 0) {
+			if (queue.length > 0) {
+				yield queue.shift()!;
+			} else {
+				await new Promise<void>((r) => (resolve = r));
+			}
+		}
+	} finally {
+		unsubscribe();
+	}
+}
 
 export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 	.get(
@@ -50,6 +87,20 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 	.get("/:sessionId/status", ({ params }) => ({
 		busy: isSessionActive(params.sessionId),
 	}))
+
+	// Stream endpoint for reconnecting to active sessions
+	.get("/:sessionId/stream", async function* ({ params, status }) {
+		if (!isSessionActive(params.sessionId)) {
+			return status(404, "Session not active");
+		}
+
+		// Confirm connection
+		yield `data: ${JSON.stringify({ type: "connected", sessionId: params.sessionId })}\n\n`;
+
+		for await (const event of sessionEvents(params.sessionId)) {
+			yield `data: ${JSON.stringify(event)}\n\n`;
+		}
+	})
 
 	.delete(
 		"/:sessionId",

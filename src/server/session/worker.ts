@@ -13,21 +13,49 @@ import {
 	startWorker as registerWorker,
 } from "./store";
 
-// Active worker processes (keyed by sessionId)
-const workerProcesses = new Map<
-	string,
-	{
-		proc: Subprocess<"pipe", "pipe", "pipe">;
-		subscribers: Set<
-			(event: SDKMessage | { type: "done" | "error"; error?: string }) => void
-		>;
-	}
->();
+// Event types for worker streams
+export type WorkerEvent =
+	| SDKMessage
+	| { type: "done" }
+	| { type: "error"; error: string };
+
+// Worker state with event buffer for replay
+type WorkerState = {
+	proc: Subprocess<"pipe", "pipe", "pipe"> | null;
+	subscribers: Set<(event: WorkerEvent) => void>;
+	eventBuffer: WorkerEvent[];
+	status: "running" | "completed" | "error" | "stopped";
+	maxBufferSize: number;
+};
+
+// Active workers (keyed by sessionId)
+const workers = new Map<string, WorkerState>();
 
 // Check if a directory has a flake.nix
 async function hasFlake(dir: string): Promise<boolean> {
 	const file = Bun.file(`${dir}/flake.nix`);
 	return file.exists();
+}
+
+// Emit event to all subscribers and buffer it
+function emitEvent(sessionId: string, event: WorkerEvent): void {
+	const worker = workers.get(sessionId);
+	if (!worker) return;
+
+	// Add to buffer (with size limit)
+	if (worker.eventBuffer.length >= worker.maxBufferSize) {
+		worker.eventBuffer.shift();
+	}
+	worker.eventBuffer.push(event);
+
+	// Notify all subscribers
+	for (const callback of worker.subscribers) {
+		try {
+			callback(event);
+		} catch (err) {
+			console.error("Subscriber callback error:", err);
+		}
+	}
 }
 
 // Spawn a new worker session
@@ -39,22 +67,27 @@ export async function spawnWorker(
 	| { session: SessionContext; error?: undefined }
 	| { session?: undefined; error: string }
 > {
-	// Check rate limit
 	if (!canSpawnWorker()) {
 		return { error: "Maximum number of workers reached" };
 	}
 
-	// Generate unique session ID
 	const sessionId = `worker-${randomUUID().slice(0, 8)}`;
-
-	// Register worker in store
 	const session = registerWorker(sessionId, projectPath, parentSession, task);
 	if (!session) {
 		return { error: "Failed to register worker" };
 	}
 
+	// Initialize worker state with buffer
+	const workerState: WorkerState = {
+		proc: null,
+		subscribers: new Set(),
+		eventBuffer: [],
+		status: "running",
+		maxBufferSize: 1000,
+	};
+	workers.set(sessionId, workerState);
+
 	try {
-		// Determine whether to use nix develop
 		const useNix = await hasFlake(projectPath);
 		const command = useNix
 			? [
@@ -92,34 +125,28 @@ export async function spawnWorker(
 			stderr: "pipe",
 		});
 
-		// Close stdin since we pass the task as an argument
 		proc.stdin.end();
-
-		// Update session with PID
+		workerState.proc = proc;
 		markSessionRunning(sessionId, proc.pid);
 
-		// Store process and create subscriber set
-		workerProcesses.set(sessionId, {
-			proc,
-			subscribers: new Set(),
-		});
-
-		// Start reading output in background
+		// Start processing output
 		processWorkerOutput(sessionId);
 
 		return { session };
 	} catch (err) {
+		workerState.status = "error";
 		markSessionError(sessionId);
+		emitEvent(sessionId, { type: "error", error: String(err) });
 		return { error: String(err) };
 	}
 }
 
-// Process worker output and notify subscribers
+// Process worker output and emit events
 async function processWorkerOutput(sessionId: string): Promise<void> {
-	const worker = workerProcesses.get(sessionId);
-	if (!worker) return;
+	const worker = workers.get(sessionId);
+	if (!worker?.proc) return;
 
-	const { proc, subscribers } = worker;
+	const { proc } = worker;
 	const decoder = new TextDecoder();
 	const reader = proc.stdout.getReader();
 	let buffer = "";
@@ -131,15 +158,10 @@ async function processWorkerOutput(sessionId: string): Promise<void> {
 
 			buffer += decoder.decode(value, { stream: true });
 
-			// Parse complete JSON lines
 			const result = Bun.JSONL.parseChunk(buffer);
 			for (const event of result.values as SDKMessage[]) {
-				for (const callback of subscribers) {
-					callback(event);
-				}
+				emitEvent(sessionId, event);
 			}
-
-			// Keep unparsed remainder
 			buffer = buffer.slice(result.read);
 		}
 
@@ -147,16 +169,14 @@ async function processWorkerOutput(sessionId: string): Promise<void> {
 		if (buffer.trim()) {
 			const result = Bun.JSONL.parseChunk(buffer);
 			for (const event of result.values as SDKMessage[]) {
-				for (const callback of subscribers) {
-					callback(event);
-				}
+				emitEvent(sessionId, event);
 			}
 		}
 
-		// Wait for process to exit
 		const exitCode = await proc.exited;
 
 		if (exitCode === 0) {
+			worker.status = "completed";
 			markSessionCompleted(sessionId);
 		} else {
 			const stderr = await new Response(proc.stderr).text();
@@ -164,44 +184,63 @@ async function processWorkerOutput(sessionId: string): Promise<void> {
 				`Worker ${sessionId} exited with code ${exitCode}:`,
 				stderr,
 			);
+			worker.status = "error";
 			markSessionError(sessionId);
 		}
 
-		// Notify subscribers of completion
-		for (const callback of subscribers) {
-			callback({ type: "done" });
-		}
+		emitEvent(sessionId, { type: "done" });
 	} catch (err) {
 		console.error(`Worker ${sessionId} error:`, err);
+		worker.status = "error";
 		markSessionError(sessionId);
-
-		// Notify subscribers of error
-		for (const callback of subscribers) {
-			callback({ type: "error", error: String(err) });
-		}
+		emitEvent(sessionId, { type: "error", error: String(err) });
 	} finally {
-		// Cleanup
-		workerProcesses.delete(sessionId);
+		worker.proc = null;
 	}
 }
 
-// Subscribe to worker output events
+// Subscribe to worker events with replay support
 export function subscribeToWorker(
 	sessionId: string,
-	callback: (
-		event: SDKMessage | { type: "done" | "error"; error?: string },
-	) => void,
+	callback: (event: WorkerEvent) => void,
+	options: { replay?: boolean } = {},
 ): () => void {
-	const worker = workerProcesses.get(sessionId);
+	const worker = workers.get(sessionId);
+
 	if (!worker) {
-		// Worker not found or already finished
-		callback({ type: "error", error: "Worker not found or already completed" });
+		// Worker doesn't exist at all
+		callback({ type: "error", error: "Worker not found" });
 		return () => {};
 	}
 
+	// Replay buffered events if requested (default: true)
+	const shouldReplay = options.replay !== false;
+	if (shouldReplay && worker.eventBuffer.length > 0) {
+		for (const event of worker.eventBuffer) {
+			try {
+				callback(event);
+			} catch (err) {
+				console.error("Replay callback error:", err);
+			}
+		}
+	}
+
+	// If already done, don't add to subscribers
+	if (worker.status !== "running") {
+		// Send final status if not already in buffer
+		const lastEvent = worker.eventBuffer[worker.eventBuffer.length - 1];
+		if (
+			!lastEvent ||
+			(lastEvent.type !== "done" && lastEvent.type !== "error")
+		) {
+			callback({ type: "done" });
+		}
+		return () => {};
+	}
+
+	// Add to live subscribers
 	worker.subscribers.add(callback);
 
-	// Return unsubscribe function
 	return () => {
 		worker.subscribers.delete(callback);
 	};
@@ -209,21 +248,16 @@ export function subscribeToWorker(
 
 // Stop a worker
 export function stopWorker(sessionId: string): boolean {
-	const worker = workerProcesses.get(sessionId);
-	if (!worker) {
-		return false;
-	}
+	const worker = workers.get(sessionId);
+	if (!worker) return false;
 
 	try {
-		worker.proc.kill("SIGTERM");
-		markSessionStopped(sessionId);
-
-		// Notify subscribers
-		for (const callback of worker.subscribers) {
-			callback({ type: "done" });
+		if (worker.proc) {
+			worker.proc.kill("SIGTERM");
 		}
-
-		workerProcesses.delete(sessionId);
+		worker.status = "stopped";
+		markSessionStopped(sessionId);
+		emitEvent(sessionId, { type: "done" });
 		return true;
 	} catch (err) {
 		console.error(`Failed to stop worker ${sessionId}:`, err);
@@ -236,13 +270,12 @@ export async function injectMessage(
 	sessionId: string,
 	message: string,
 ): Promise<{ success: boolean; error?: string }> {
-	const worker = workerProcesses.get(sessionId);
-	if (!worker) {
+	const worker = workers.get(sessionId);
+	if (!worker?.proc) {
 		return { success: false, error: "Worker not found or not running" };
 	}
 
 	try {
-		// Send user message via stdin (same format as claude.ts)
 		const userMessage = {
 			type: "user",
 			session_id: sessionId,
@@ -260,67 +293,41 @@ export async function injectMessage(
 	}
 }
 
-// Check if a worker is still running
+// Check if a worker exists (running or completed with buffer)
+export function workerExists(sessionId: string): boolean {
+	return workers.has(sessionId);
+}
+
+// Check if a worker is actively running
 export function isWorkerRunning(sessionId: string): boolean {
-	return workerProcesses.has(sessionId);
+	const worker = workers.get(sessionId);
+	return worker?.status === "running";
+}
+
+// Get worker status
+export function getWorkerStatus(
+	sessionId: string,
+): WorkerState["status"] | null {
+	return workers.get(sessionId)?.status ?? null;
+}
+
+// Get buffered event count
+export function getWorkerBufferSize(sessionId: string): number {
+	return workers.get(sessionId)?.eventBuffer.length ?? 0;
 }
 
 // Get all active worker session IDs
 export function getActiveWorkerIds(): string[] {
-	return Array.from(workerProcesses.keys());
+	return Array.from(workers.entries())
+		.filter(([_, w]) => w.status === "running")
+		.map(([id]) => id);
 }
 
-// Worker reports - messages that workers send back to the assistant
-type WorkerReport = {
-	id: string;
-	workerId: string;
-	timestamp: number;
-	type: "progress" | "result" | "error" | "question";
-	content: string;
-	metadata?: Record<string, unknown>;
-};
-
-// In-memory report storage (keyed by worker sessionId)
-const workerReports = new Map<string, WorkerReport[]>();
-
-// Report from a worker to the assistant
-export function reportToAssistant(
-	workerId: string,
-	type: WorkerReport["type"],
-	content: string,
-	metadata?: Record<string, unknown>,
-): WorkerReport {
-	const report: WorkerReport = {
-		id: `report-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-		workerId,
-		timestamp: Date.now(),
-		type,
-		content,
-		metadata,
-	};
-
-	const reports = workerReports.get(workerId) || [];
-	reports.push(report);
-	workerReports.set(workerId, reports);
-
-	return report;
-}
-
-// Get all reports for a worker
-export function getWorkerReports(workerId: string): WorkerReport[] {
-	return workerReports.get(workerId) || [];
-}
-
-// Clear reports for a worker
-export function clearWorkerReports(workerId: string): void {
-	workerReports.delete(workerId);
-}
-
-// Get unread reports (reports since a given timestamp)
-export function getWorkerReportsSince(
-	workerId: string,
-	sinceTimestamp: number,
-): WorkerReport[] {
-	const reports = workerReports.get(workerId) || [];
-	return reports.filter((r) => r.timestamp > sinceTimestamp);
+// Clean up old completed workers (call periodically)
+export function cleanupOldWorkers(): void {
+	for (const [id, worker] of workers) {
+		if (worker.status !== "running" && !worker.proc) {
+			workers.delete(id);
+		}
+	}
 }

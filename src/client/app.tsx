@@ -118,7 +118,6 @@ export function App() {
 	let mainRef: HTMLElement | undefined;
 	let menuRef: HTMLDivElement | undefined;
 	let abortController: AbortController | null = null;
-	let threadEventSource: EventSource | null = null;
 
 	const idCounter = { value: 0 };
 	const eventHandlers = createEventHandlers(
@@ -161,13 +160,13 @@ export function App() {
 			setSessionName(data.firstPrompt || getSessionNameFromEvents(messages));
 			idCounter.value = messages.length || 0;
 
-			// Check if backend is busy
+			// Check if backend is busy - if so, connect to stream
 			const statusRes = await fetch(
 				`/api/sessions/${encodeURIComponent(sid)}/status`,
 			);
 			const statusData = await statusRes.json();
 			if (statusData.busy) {
-				setIsLoading(true);
+				connectToSessionStream(sid);
 			}
 		} catch (err) {
 			console.error("Failed to load history:", err);
@@ -176,59 +175,107 @@ export function App() {
 		}
 	};
 
-	// Connect to worker stream
-	const connectToThreadStream = (workerId: string) => {
-		if (threadEventSource) {
-			threadEventSource.close();
-		}
+	// Stream abort controller for cancellation
+	let streamAbort: AbortController | null = null;
 
-		setEvents([]);
+	// Core stream consumption with reconnection support
+	const consumeStream = async (
+		stream: AsyncIterable<string>,
+		options: { clearEvents?: boolean } = {},
+	) => {
+		if (options.clearEvents) {
+			setEvents([]);
+			idCounter.value = 0;
+		}
 		setIsLoading(true);
-		idCounter.value = 0;
 
 		const assistantContentRef = { value: "" };
-		threadEventSource = new EventSource(`/api/threads/${workerId}/stream`);
 
-		threadEventSource.onmessage = (e) => {
-			try {
-				const parsed = JSON.parse(e.data);
+		try {
+			for await (const chunk of stream) {
+				// Parse SSE data format: "data: {...}\n\n"
+				const lines = chunk.split("\n");
+				for (const line of lines) {
+					const data = line.startsWith("data: ") ? line.slice(6) : line;
+					if (!data || data === "[DONE]") continue;
 
-				// Handle stream completion
-				if (parsed.type === "done" || parsed.type === "error") {
-					if (assistantContentRef.value) {
-						eventHandlers.addEvent({
-							type: "assistant",
-							id: eventHandlers.getNextId(),
-							content: assistantContentRef.value,
-						});
-						assistantContentRef.value = "";
-						setStreamingContent("");
+					try {
+						const parsed = JSON.parse(data);
+
+						if (parsed.type === "connected") {
+							continue;
+						}
+
+						if (
+							parsed.type === "done" ||
+							parsed.type === "error" ||
+							parsed.type === "cancelled"
+						) {
+							if (assistantContentRef.value) {
+								eventHandlers.addEvent({
+									type: "assistant",
+									id: eventHandlers.getNextId(),
+									content: assistantContentRef.value,
+								});
+								assistantContentRef.value = "";
+								setStreamingContent("");
+							}
+							eventHandlers.markAllToolsComplete();
+							return;
+						}
+
+						processStreamEvent(parsed, assistantContentRef, eventHandlers);
+					} catch {
+						// Skip invalid JSON
 					}
-					eventHandlers.markAllToolsComplete();
-					setIsLoading(false);
-					threadEventSource?.close();
-					return;
 				}
-
-				processStreamEvent(parsed, assistantContentRef, eventHandlers);
-			} catch {
-				// Skip invalid JSON
 			}
-		};
-
-		threadEventSource.onerror = () => {
+		} finally {
 			setIsLoading(false);
-			threadEventSource?.close();
-		};
+			streamAbort = null;
+		}
+	};
+
+	// Connect to a session stream (for reconnecting to busy sessions)
+	const connectToSessionStream = async (sessionId: string) => {
+		streamAbort?.abort();
+		streamAbort = new AbortController();
+
+		const { data, error } = await api.sessions({ sessionId }).stream.get({
+			fetch: { signal: streamAbort.signal },
+		});
+
+		if (error || !data || typeof data === "string") {
+			console.error("Failed to connect to session stream:", error);
+			setIsLoading(false);
+			return;
+		}
+
+		await consumeStream(data as AsyncIterable<string>);
+	};
+
+	// Connect to a worker stream (with event replay)
+	const connectToWorkerStream = async (workerId: string) => {
+		streamAbort?.abort();
+		streamAbort = new AbortController();
+
+		const { data, error } = await api.threads({ id: workerId }).stream.get({
+			fetch: { signal: streamAbort.signal },
+		});
+
+		if (error || !data || typeof data === "string") {
+			console.error("Failed to connect to worker stream:", error);
+			setIsLoading(false);
+			return;
+		}
+
+		await consumeStream(data as AsyncIterable<string>, { clearEvents: true });
 	};
 
 	// Handle thread selection from thread list
 	const handleSelectThread = async (thread: Thread) => {
-		// Clean up any existing worker connection
-		if (threadEventSource) {
-			threadEventSource.close();
-			threadEventSource = null;
-		}
+		// Clean up any existing stream connection
+		streamAbort?.abort();
 
 		setShowThreadList(false);
 
@@ -243,10 +290,8 @@ export function App() {
 				},
 			]);
 
-			if (thread.status === "running") {
-				connectToThreadStream(thread.id);
-			}
-			// Workers now have URL state too
+			// Always connect to stream - it will replay buffered events
+			connectToWorkerStream(thread.id);
 			navigate({ type: "task", taskId: thread.id });
 		} else {
 			// Session threads - navigate via URL (this triggers the effect below)
@@ -261,10 +306,7 @@ export function App() {
 
 	// Return to main view (thread list)
 	const returnToMain = () => {
-		if (threadEventSource) {
-			threadEventSource.close();
-			threadEventSource = null;
-		}
+		streamAbort?.abort();
 		setActiveTask(null);
 		setEvents([]);
 		setSessionName("");
@@ -298,9 +340,7 @@ export function App() {
 	});
 
 	onCleanup(() => {
-		if (threadEventSource) {
-			threadEventSource.close();
-		}
+		streamAbort?.abort();
 	});
 
 	// Auto-scroll on new content

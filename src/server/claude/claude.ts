@@ -1,5 +1,5 @@
 import { type Subprocess, spawn } from "bun";
-import { endSession, startSession } from "../session";
+import { emitSessionEvent, endSession, startSession } from "../session";
 import type {
 	ContentBlock,
 	ImageBlock,
@@ -235,6 +235,12 @@ export async function* sendMessage(
 				// Start tracking this new session with PID
 				startSession(actualSessionId, proc.pid);
 			}
+
+			// Emit to session subscribers for reconnection support
+			if (actualSessionId) {
+				emitSessionEvent(actualSessionId, event);
+			}
+
 			yield JSON.stringify(event);
 		}
 
