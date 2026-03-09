@@ -108,6 +108,7 @@ export function processStreamEvent(
 	parsed: Record<string, unknown>,
 	assistantContentRef: { value: string },
 	handlers: EventHandlers,
+	options: { processReplay?: boolean } = {},
 ) {
 	const {
 		addEvent,
@@ -131,8 +132,8 @@ export function processStreamEvent(
 		}
 	}
 
-	// Skip replayed messages
-	if (parsed.isReplay) return;
+	// Skip replayed messages unless explicitly processing them
+	if (parsed.isReplay && !options.processReplay) return;
 
 	// Handle assistant messages with tool uses
 	if (parsed.type === "assistant" && parsed.message) {

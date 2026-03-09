@@ -43,6 +43,7 @@ import { ThreadListPanel } from "./thread-list";
 import { ThreadView } from "./thread-view";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread } from "./types";
+import { parseJSON } from "./util";
 import { initWebSocket } from "./ws";
 
 export function App() {
@@ -196,35 +197,32 @@ export function App() {
 					const data = line.startsWith("data: ") ? line.slice(6) : line;
 					if (!data || data === "[DONE]") continue;
 
-					try {
-						const parsed = JSON.parse(data);
+					const [parsed, err] = parseJSON(data);
+					if (err) continue;
 
-						if (parsed.type === "connected") {
-							continue;
-						}
-
-						if (
-							parsed.type === "done" ||
-							parsed.type === "error" ||
-							parsed.type === "cancelled"
-						) {
-							if (assistantContentRef.value) {
-								eventHandlers.addEvent({
-									type: "assistant",
-									id: eventHandlers.getNextId(),
-									content: assistantContentRef.value,
-								});
-								assistantContentRef.value = "";
-								setStreamingContent("");
-							}
-							eventHandlers.markAllToolsComplete();
-							return;
-						}
-
-						processStreamEvent(parsed, assistantContentRef, eventHandlers);
-					} catch {
-						// Skip invalid JSON
+					if (parsed.type === "connected") {
+						continue;
 					}
+
+					if (
+						parsed.type === "done" ||
+						parsed.type === "error" ||
+						parsed.type === "cancelled"
+					) {
+						if (assistantContentRef.value) {
+							eventHandlers.addEvent({
+								type: "assistant",
+								id: eventHandlers.getNextId(),
+								content: assistantContentRef.value,
+							});
+							assistantContentRef.value = "";
+							setStreamingContent("");
+						}
+						eventHandlers.markAllToolsComplete();
+						return;
+					}
+
+					processStreamEvent(parsed, assistantContentRef, eventHandlers);
 				}
 			}
 		} finally {

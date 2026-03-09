@@ -63,7 +63,8 @@ export const threadsRoutes = new Elysia({ prefix: "/threads" })
 			return status(404, "Thread not found");
 		}
 
-		yield `data: ${JSON.stringify({ type: "connected", threadId: params.id })}\n\n`;
+		const threadStatus = getThreadStatus(params.id);
+		yield `data: ${JSON.stringify({ type: "connected", threadId: params.id, status: threadStatus })}\n\n`;
 
 		for await (const event of threadEvents(params.id)) {
 			yield `data: ${JSON.stringify(event)}\n\n`;

@@ -11,6 +11,7 @@ import { createEventHandlers, processStreamEvent } from "./events";
 import { Markdown } from "./markdown";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread } from "./types";
+import { parseJSON } from "./util";
 
 type Props = {
 	thread: Thread;
@@ -24,7 +25,9 @@ export function ThreadView(props: Props) {
 	]);
 	const [isLoading, setIsLoading] = createSignal(true);
 	const [streamingContent, setStreamingContent] = createSignal("");
-	const [status, setStatus] = createSignal(props.thread.status);
+	const [status, setStatus] = createSignal<Thread["status"]>(
+		props.thread.status,
+	);
 	const [input, setInput] = createSignal("");
 
 	let mainRef: HTMLElement | undefined;
@@ -49,16 +52,22 @@ export function ThreadView(props: Props) {
 					const data = line.startsWith("data: ") ? line.slice(6) : line;
 					if (!data || data === "[DONE]") continue;
 
-					try {
-						const parsed = JSON.parse(data);
+					const [parsed, err] = parseJSON(data);
+					if (err) {
+						console.warn("Failed to parse stream data:", err);
+						continue;
+					}
 
-						if (parsed.type === "connected") continue;
+					switch (parsed.type) {
+						case "connected":
+							// Server tells us the current status on connect
+							if (parsed.status) {
+								setStatus(parsed.status as Thread["status"]);
+							}
+							continue;
 
-						if (
-							parsed.type === "done" ||
-							parsed.type === "error" ||
-							parsed.type === "cancelled"
-						) {
+						case "done":
+						case "cancelled":
 							if (assistantContentRef.value) {
 								eventHandlers.addEvent({
 									type: "assistant",
@@ -69,13 +78,25 @@ export function ThreadView(props: Props) {
 								setStreamingContent("");
 							}
 							eventHandlers.markAllToolsComplete();
-							setStatus(parsed.type === "error" ? "error" : "completed");
+							setStatus("completed");
 							return;
-						}
 
-						processStreamEvent(parsed, assistantContentRef, eventHandlers);
-					} catch {
-						// Skip invalid JSON
+						case "error":
+							eventHandlers.markAllToolsComplete();
+							setStatus("error");
+							return;
+
+						case "result":
+							processStreamEvent(parsed, assistantContentRef, eventHandlers, {
+								processReplay: true,
+							});
+							setStatus(parsed.subtype === "success" ? "completed" : "error");
+							break;
+
+						default:
+							processStreamEvent(parsed, assistantContentRef, eventHandlers, {
+								processReplay: true,
+							});
 					}
 				}
 			}
@@ -88,6 +109,7 @@ export function ThreadView(props: Props) {
 	const connectToStream = async () => {
 		streamAbort?.abort();
 		streamAbort = new AbortController();
+		setIsLoading(true);
 
 		const { data, error } = await api
 			.threads({ id: props.thread.id })
@@ -98,6 +120,7 @@ export function ThreadView(props: Props) {
 		if (error || !data || typeof data === "string") {
 			console.error("Failed to connect to thread stream:", error);
 			setIsLoading(false);
+			setStatus("error");
 			return;
 		}
 
@@ -132,6 +155,7 @@ export function ThreadView(props: Props) {
 	};
 
 	onMount(() => {
+		// Connect to stream - server sends status in connected event and replays buffered events
 		connectToStream();
 	});
 
