@@ -2,6 +2,7 @@ import {
 	createEffect,
 	createSignal,
 	For,
+	on,
 	onCleanup,
 	onMount,
 	Show,
@@ -39,6 +40,7 @@ import {
 } from "./round-buttons";
 import { navigate, useLocation, type ViewType } from "./router";
 import { ThreadListPanel } from "./thread-list";
+import { ThreadView } from "./thread-view";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread } from "./types";
 import { initWebSocket } from "./ws";
@@ -143,9 +145,6 @@ export function App() {
 		setPendingVoiceInput,
 		setInput,
 	};
-
-	// Derived state
-	const isBackgroundThread = () => activeTask() !== null;
 
 	// Load session history from API
 	const loadHistory = async (sid: string, project: string) => {
@@ -272,9 +271,6 @@ export function App() {
 
 	// Handle thread selection from thread list
 	const handleSelectThread = async (thread: Thread) => {
-		// Clean up any existing stream connection
-		streamAbort?.abort();
-
 		setShowThreadList(false);
 
 		if (thread.type === "thread") {
@@ -304,13 +300,30 @@ export function App() {
 
 	// Return to main view (thread list)
 	const returnToMain = () => {
-		streamAbort?.abort();
 		setActiveTask(null);
 		setEvents([]);
 		setSessionName("");
 		setIsCompacted(false);
 		navigate({ type: "home" });
 	};
+
+	// Reactive effect: clean up stream state when navigating away
+	createEffect(
+		on(
+			view,
+			(_currentView, prevView) => {
+				// Only clean up if we're leaving a thread/session context
+				// (not when initially entering one)
+				if (prevView && prevView.type !== "home") {
+					streamAbort?.abort();
+					streamAbort = null;
+					setIsLoading(false);
+					setStreamingContent("");
+				}
+			},
+			{ defer: true },
+		),
+	);
 
 	// Reactive effect: when URL changes, load the appropriate session
 	createEffect(() => {
@@ -351,10 +364,6 @@ export function App() {
 
 	// Send message (assistant mode)
 	const sendMessage = async (directMessage?: string) => {
-		if (isBackgroundThread()) {
-			return sendThreadMessage(directMessage);
-		}
-
 		const text = directMessage ?? input().trim();
 		const images = attachedImages();
 		const currentProjectPath = projectPath();
@@ -406,32 +415,6 @@ export function App() {
 		} finally {
 			abortController = null;
 		}
-	};
-
-	// Send message to thread (inject)
-	const sendThreadMessage = async (directMessage?: string) => {
-		const thread = activeTask();
-		if (!thread || thread.type !== "thread") return;
-
-		const text = directMessage ?? input().trim();
-		if (!text || isLoading()) return;
-
-		if (!directMessage) setInput("");
-
-		const { data, error } = await api
-			.threads({ id: thread.id })
-			.inject.post({ message: text });
-
-		if (error || !data?.ok) {
-			alert(error?.value || "Failed to send message");
-			return;
-		}
-
-		eventHandlers.addEvent({
-			type: "user",
-			id: eventHandlers.getNextId(),
-			content: text,
-		});
 	};
 
 	// Voice status
@@ -550,14 +533,6 @@ export function App() {
 		navigate({ type: "session", project });
 	};
 
-	const handleStopThread = async () => {
-		const thread = activeTask();
-		if (thread?.type === "thread") {
-			await api.threads({ id: thread.id }).stop.post();
-			setActiveTask({ ...thread, status: "stopped" });
-		}
-	};
-
 	// Header display
 	const headerTitle = () => {
 		const thread = activeTask();
@@ -584,10 +559,25 @@ export function App() {
 		return project ? project.split("/").pop() : null;
 	};
 
+	// Render ThreadView for background threads
+	const thread = activeTask();
+	if (thread?.type === "thread") {
+		return (
+			<ThreadView
+				thread={thread}
+				onBack={returnToMain}
+				onOpenFile={(path) => {
+					setFileViewerPath(path);
+					setShowFileViewer(true);
+				}}
+			/>
+		);
+	}
+
 	return (
 		<div class="h-dvh flex flex-col bg-background">
-			{/* Header - shown when in a thread (URL has session) or viewing a thread */}
-			<Show when={isInThread() || isBackgroundThread()}>
+			{/* Header - shown when in a session */}
+			<Show when={isInThread()}>
 				<header class="flex-none px-4 py-2 border-b border-border z-20 bg-background">
 					<div class="max-w-2xl mx-auto flex items-center justify-between">
 						<button
@@ -613,34 +603,10 @@ export function App() {
 									{headerTitle()}
 								</span>
 							</div>
-							<div class="text-muted-foreground font-mono text-xs truncate flex items-center gap-1.5">
-								<Show when={isBackgroundThread()}>
-									<span
-										class={`w-1.5 h-1.5 rounded-full ${
-											activeTask()?.status === "running"
-												? "bg-green-500 animate-pulse"
-												: activeTask()?.status === "completed"
-													? "bg-blue-500"
-													: activeTask()?.status === "error"
-														? "bg-red-500"
-														: "bg-muted-foreground"
-										}`}
-									/>
-								</Show>
+							<div class="text-muted-foreground font-mono text-xs truncate">
 								{headerSubtitle()}
 							</div>
 						</button>
-						<Show
-							when={isBackgroundThread() && activeTask()?.status === "running"}
-						>
-							<button
-								type="button"
-								onClick={handleStopThread}
-								class="ml-2 px-3 py-1.5 text-sm rounded-lg bg-red-950 text-red-400"
-							>
-								Stop
-							</button>
-						</Show>
 					</div>
 				</header>
 			</Show>
@@ -648,8 +614,8 @@ export function App() {
 			{/* Scrollable chat history */}
 			<main ref={mainRef} class="flex-1 overflow-y-auto p-4">
 				<div class="max-w-2xl mx-auto space-y-4 w-full pb-40">
-					{/* Compacted context indicator (assistant only) */}
-					<Show when={isCompacted() && !isBackgroundThread()}>
+					{/* Compacted context indicator */}
+					<Show when={isCompacted()}>
 						<div class="flex items-center gap-2 text-sm text-muted-foreground border border-border rounded-lg px-3 py-2 bg-muted/30">
 							<svg
 								class="w-4 h-4"
@@ -695,38 +661,36 @@ export function App() {
 								{event.type === "assistant" && (
 									<div class="prose prose-sm max-w-none group relative">
 										<Markdown content={event.content} />
-										<Show when={!isBackgroundThread()}>
-											<button
-												type="button"
-												class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full bg-background border border-border hover:bg-muted"
-												onClick={() => handlePlayTTS(event.id, event.content)}
+										<button
+											type="button"
+											class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full bg-background border border-border hover:bg-muted"
+											onClick={() => handlePlayTTS(event.id, event.content)}
+										>
+											<svg
+												class="w-4 h-4"
+												fill="none"
+												stroke="currentColor"
+												viewBox="0 0 24 24"
 											>
-												<svg
-													class="w-4 h-4"
-													fill="none"
-													stroke="currentColor"
-													viewBox="0 0 24 24"
-												>
-													{playingId() === event.id ? (
-														<rect
-															x="6"
-															y="6"
-															width="12"
-															height="12"
-															rx="2"
-															fill="currentColor"
-														/>
-													) : (
-														<path
-															stroke-linecap="round"
-															stroke-linejoin="round"
-															stroke-width="2"
-															d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-3.5v14l-5-3.5H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z"
-														/>
-													)}
-												</svg>
-											</button>
-										</Show>
+												{playingId() === event.id ? (
+													<rect
+														x="6"
+														y="6"
+														width="12"
+														height="12"
+														rx="2"
+														fill="currentColor"
+													/>
+												) : (
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="2"
+														d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-3.5v14l-5-3.5H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z"
+													/>
+												)}
+											</svg>
+										</button>
 									</div>
 								)}
 
@@ -759,7 +723,7 @@ export function App() {
 					<Show when={isLoading() && !streamingContent()}>
 						<div class="flex items-center gap-2 text-sm text-muted-foreground">
 							<span class="inline-block w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
-							<span>{isBackgroundThread() ? "Working..." : "Thinking..."}</span>
+							<span>{"Thinking..."}</span>
 						</div>
 					</Show>
 
@@ -774,8 +738,8 @@ export function App() {
 
 			{/* Fixed floating bottom controls */}
 			<div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-3">
-				{/* Text input - always show for threads, toggle for assistant */}
-				<Show when={showTextInput() || isBackgroundThread()}>
+				{/* Text input */}
+				<Show when={showTextInput()}>
 					<form
 						onSubmit={(e) => {
 							e.preventDefault();
@@ -783,36 +747,26 @@ export function App() {
 						}}
 						class="flex gap-2 bg-muted border border-border rounded-full px-3 py-2 shadow-lg"
 					>
-						<Show when={!isBackgroundThread()}>
-							<ImagePickerButton
-								images={attachedImages}
-								setImages={setAttachedImages}
-								disabled={() =>
-									isLoading() || isRecording() || isTranscribing()
-								}
-							/>
-						</Show>
+						<ImagePickerButton
+							images={attachedImages}
+							setImages={setAttachedImages}
+							disabled={() => isLoading() || isRecording() || isTranscribing()}
+						/>
 						<input
 							type="text"
 							value={input()}
 							onInput={(e) => setInput(e.currentTarget.value)}
-							placeholder={
-								isBackgroundThread() ? "Send to thread..." : "Type a message..."
-							}
-							disabled={
-								isBackgroundThread()
-									? activeTask()?.status !== "running"
-									: isLoading() || isRecording() || isTranscribing()
-							}
+							placeholder="Type a message..."
+							disabled={isLoading() || isRecording() || isTranscribing()}
 							class="input flex-1 min-w-[200px]"
 						/>
 						<button
 							type="submit"
 							disabled={
 								!input().trim() ||
-								(isBackgroundThread()
-									? activeTask()?.status !== "running"
-									: isLoading() || isRecording() || isTranscribing())
+								isLoading() ||
+								isRecording() ||
+								isTranscribing()
 							}
 							class="px-3 py-1.5 rounded-full bg-foreground text-background disabled:opacity-50"
 						>
@@ -833,62 +787,54 @@ export function App() {
 					</form>
 				</Show>
 
-				{/* Image preview (assistant only) */}
-				<Show when={!isBackgroundThread()}>
-					<ImagePreview images={attachedImages} setImages={setAttachedImages} />
-				</Show>
+				{/* Image preview */}
+				<ImagePreview images={attachedImages} setImages={setAttachedImages} />
 
-				{/* Buttons - full controls for assistant, simplified for thread */}
-				<Show when={!isBackgroundThread()}>
-					<div class="flex items-center justify-center gap-4 bg-muted rounded-full px-3 py-2 border border-border shadow-lg">
-						<OptionsMenuButton
-							menuRef={menuRef}
-							showMenu={showMenu()}
-							setShowMenu={setShowMenu}
-						>
-							<OptionsMenu
-								showTextInput={showTextInput()}
-								onToggleTextInput={() => {
-									setShowTextInput(!showTextInput());
-									setShowMenu(false);
-								}}
-								onBrowseFiles={() => {
-									setShowFileBrowser(true);
-									setShowMenu(false);
-								}}
-								onCompact={handleCompact}
-								onClear={handleClear}
-								isCompacting={isCompacting()}
-								isClearing={isClearing()}
-								isLoading={isLoading()}
-							/>
-						</OptionsMenuButton>
-
-						<MicButton
-							status={status()}
-							audioLevels={audioLevels()}
-							disabled={isTranscribing()}
-							onClick={handleMicClick}
+				{/* Bottom controls */}
+				<div class="flex items-center justify-center gap-4 bg-muted rounded-full px-3 py-2 border border-border shadow-lg">
+					<OptionsMenuButton
+						menuRef={menuRef}
+						showMenu={showMenu()}
+						setShowMenu={setShowMenu}
+					>
+						<OptionsMenu
+							showTextInput={showTextInput()}
+							onToggleTextInput={() => {
+								setShowTextInput(!showTextInput());
+								setShowMenu(false);
+							}}
+							onBrowseFiles={() => {
+								setShowFileBrowser(true);
+								setShowMenu(false);
+							}}
+							onCompact={handleCompact}
+							onClear={handleClear}
+							isCompacting={isCompacting()}
+							isClearing={isClearing()}
+							isLoading={isLoading()}
 						/>
+					</OptionsMenuButton>
 
-						{/* Threads button (main view) or Git indicator (in thread) */}
-						<Show
-							when={isInThread()}
-							fallback={
-								<ThreadsButton onClick={() => setShowThreadList(true)} />
-							}
-						>
-							<GitStatusIndicator
-								gitStatus={gitStatus()}
-								onClick={() => setShowDiffModal(true)}
-								onLongPress={() => setShowGitPanel(true)}
-							/>
-						</Show>
-					</div>
-				</Show>
+					<MicButton
+						status={status()}
+						audioLevels={audioLevels()}
+						disabled={isTranscribing()}
+						onClick={handleMicClick}
+					/>
+
+					{/* Threads button (main view) or Git indicator (in thread) */}
+					<Show
+						when={isInThread()}
+						fallback={<ThreadsButton onClick={() => setShowThreadList(true)} />}
+					>
+						<GitStatusIndicator
+							gitStatus={gitStatus()}
+							onClick={() => setShowDiffModal(true)}
+							onLongPress={() => setShowGitPanel(true)}
+						/>
+					</Show>
+				</div>
 			</div>
-
-			{/* Git Diff Modal */}
 			<Show when={showDiffModal()}>
 				<GitDiffModal
 					projectPath={projectPath()}
@@ -896,8 +842,6 @@ export function App() {
 					onCommit={handleCommit}
 				/>
 			</Show>
-
-			{/* Thread List */}
 			<Show when={showThreadList()}>
 				<ThreadListPanel
 					currentSessionId={sessionId()}
@@ -910,8 +854,6 @@ export function App() {
 					onClose={() => setShowThreadList(false)}
 				/>
 			</Show>
-
-			{/* File Browser Modal */}
 			<Show when={showFileBrowser()}>
 				<FileBrowserModal
 					projectPath={projectPath()}
@@ -923,8 +865,6 @@ export function App() {
 					}}
 				/>
 			</Show>
-
-			{/* File Viewer Modal */}
 			<Show when={showFileViewer()}>
 				<FileViewerModal
 					projectPath={projectPath()}
@@ -932,8 +872,6 @@ export function App() {
 					onClose={() => setShowFileViewer(false)}
 				/>
 			</Show>
-
-			{/* Git Panel */}
 			<Show when={showGitPanel()}>
 				<GitPanel
 					projectPath={projectPath()}

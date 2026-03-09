@@ -67,6 +67,15 @@ export function emitSessionEvent(sessionId: string, event: SessionEvent): void {
 	}
 }
 
+// Check if event is terminal
+function isTerminalEvent(event: SessionEvent): boolean {
+	return (
+		event.type === "done" ||
+		event.type === "error" ||
+		event.type === "cancelled"
+	);
+}
+
 // Subscribe to session events with optional replay
 export function subscribeToSession(
 	sessionId: string,
@@ -88,6 +97,12 @@ export function subscribeToSession(
 				console.error("Replay callback error:", err);
 			}
 		}
+
+		// If buffer already contains terminal event, don't add subscriber
+		const lastEvent = session.eventBuffer[session.eventBuffer.length - 1];
+		if (lastEvent && isTerminalEvent(lastEvent)) {
+			return () => {};
+		}
 	}
 
 	session.subscribers.add(callback);
@@ -100,14 +115,8 @@ export function subscribeToSession(
 export function endSession(sessionId: string): boolean {
 	const session = activeSessions.get(sessionId);
 	if (session) {
-		// Notify subscribers of completion
-		for (const callback of session.subscribers) {
-			try {
-				callback({ type: "done" });
-			} catch {
-				// Ignore errors on cleanup
-			}
-		}
+		// Emit done event to buffer and notify subscribers
+		emitSessionEvent(sessionId, { type: "done" });
 		activeSessions.delete(sessionId);
 		return true;
 	}
@@ -123,14 +132,8 @@ export function cancelSession(sessionId: string): boolean {
 		} catch {
 			// Process may have already exited
 		}
-		// Notify subscribers
-		for (const callback of session.subscribers) {
-			try {
-				callback({ type: "cancelled" });
-			} catch {
-				// Ignore
-			}
-		}
+		// Emit cancelled event to buffer and notify subscribers
+		emitSessionEvent(sessionId, { type: "cancelled" });
 		activeSessions.delete(sessionId);
 		return true;
 	}
