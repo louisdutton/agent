@@ -78,55 +78,21 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 
 	.post(
 		"/:sessionId/messages",
-		async ({ params, query, body }) => {
-			const encoder = new TextEncoder();
-			let controllerClosed = false;
-
-			const stream = new ReadableStream({
-				async start(controller) {
-					try {
-						const resolvedSessionId =
-							params.sessionId === "new" ? null : params.sessionId;
-						for await (const line of sendMessage(
-							body.message,
-							resolvedSessionId,
-							query.project,
-							body.images,
-						)) {
-							if (controllerClosed) break;
-							controller.enqueue(encoder.encode(`data: ${line}\n\n`));
-						}
-						if (!controllerClosed) {
-							controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-						}
-					} catch (err) {
-						if (!controllerClosed) {
-							try {
-								controller.enqueue(
-									encoder.encode(`data: {"error": "${String(err)}"}\n\n`),
-								);
-							} catch {
-								// Controller already closed
-							}
-						}
-					} finally {
-						if (!controllerClosed) {
-							controllerClosed = true;
-							controller.close();
-						}
-					}
-				},
-				cancel() {
-					controllerClosed = true;
-				},
-			});
-
-			return new Response(stream, {
-				headers: {
-					"Content-Type": "text/event-stream",
-					"Cache-Control": "no-cache",
-				},
-			});
+		async function* ({ params, query, body }) {
+			const sessionId = params.sessionId === "new" ? null : params.sessionId;
+			try {
+				for await (const line of sendMessage(
+					body.message,
+					sessionId,
+					query.project,
+					body.images,
+				)) {
+					yield `data: ${line}\n\n`;
+				}
+				yield "data: [DONE]\n\n";
+			} catch (err) {
+				yield `data: {"error": "${String(err)}"}\n\n`;
+			}
 		},
 		{
 			query: projectQuery,

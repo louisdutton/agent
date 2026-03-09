@@ -8,6 +8,35 @@ import {
 	subscribeToWorker,
 } from "../session";
 
+type WorkerEvent = { type: string; [key: string]: unknown };
+
+/** Convert callback-based subscription to async generator */
+async function* workerEvents(workerId: string): AsyncGenerator<WorkerEvent> {
+	const queue: WorkerEvent[] = [];
+	let resolve: (() => void) | null = null;
+	let done = false;
+
+	const unsubscribe = subscribeToWorker(workerId, (event) => {
+		queue.push(event);
+		if (event.type === "done" || event.type === "error") {
+			done = true;
+		}
+		resolve?.();
+	});
+
+	try {
+		while (!done || queue.length > 0) {
+			if (queue.length > 0) {
+				yield queue.shift()!;
+			} else {
+				await new Promise<void>((r) => (resolve = r));
+			}
+		}
+	} finally {
+		unsubscribe();
+	}
+}
+
 export const threadsRoutes = new Elysia({ prefix: "/threads" })
 	.get("/", () => {
 		const threads = getAllWorkers();
@@ -41,43 +70,14 @@ export const threadsRoutes = new Elysia({ prefix: "/threads" })
 		return { stopped };
 	})
 
-	.get("/:id/stream", ({ params }) => {
+	.get("/:id/stream", async function* ({ params, error }) {
 		if (!isWorkerRunning(params.id)) {
-			return new Response(JSON.stringify({ error: "Thread not found" }), {
-				status: 404,
-				headers: { "Content-Type": "application/json" },
-			});
+			return error(404, { error: "Thread not found" });
 		}
 
-		const encoder = new TextEncoder();
-		let unsubscribe: () => void;
-
-		const stream = new ReadableStream({
-			start(controller) {
-				unsubscribe = subscribeToWorker(params.id, (event) => {
-					if (event.type === "done" || event.type === "error") {
-						controller.enqueue(
-							encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
-						);
-						controller.close();
-					} else {
-						controller.enqueue(
-							encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
-						);
-					}
-				});
-			},
-			cancel() {
-				if (unsubscribe) unsubscribe();
-			},
-		});
-
-		return new Response(stream, {
-			headers: {
-				"Content-Type": "text/event-stream",
-				"Cache-Control": "no-cache",
-			},
-		});
+		for await (const event of workerEvents(params.id)) {
+			yield `data: ${JSON.stringify(event)}\n\n`;
+		}
 	})
 
 	.post(
