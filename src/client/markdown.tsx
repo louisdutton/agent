@@ -34,7 +34,7 @@ renderer.codespan = ({ text }) => {
 		.replace(/&/g, "&amp;")
 		.replace(/</g, "&lt;")
 		.replace(/>/g, "&gt;");
-	return `<code>${escaped}</code>`;
+	return `<code class="break-words">${escaped}</code>`;
 };
 
 marked.setOptions({
