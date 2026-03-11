@@ -2,7 +2,6 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import Anthropic from "@anthropic-ai/sdk";
 import type {
 	ContentPart,
 	Message,
@@ -23,9 +22,39 @@ type Credentials = {
 	};
 };
 
-type AnthropicMessage = Anthropic.MessageParam;
-type AnthropicContent = Anthropic.ContentBlockParam;
-type AnthropicTool = Anthropic.Tool;
+type AnthropicContent =
+	| { type: "text"; text: string }
+	| {
+			type: "image";
+			source: {
+				type: "base64";
+				media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+				data: string;
+			};
+	  }
+	| {
+			type: "tool_use";
+			id: string;
+			name: string;
+			input: Record<string, unknown>;
+	  }
+	| {
+			type: "tool_result";
+			tool_use_id: string;
+			content: string;
+			is_error?: boolean;
+	  };
+
+type AnthropicMessage = {
+	role: "user" | "assistant";
+	content: AnthropicContent[];
+};
+
+type AnthropicTool = {
+	name: string;
+	description: string;
+	input_schema: Record<string, unknown>;
+};
 
 function toAnthropicContent(
 	content: string | ContentPart[],
@@ -80,7 +109,7 @@ function toAnthropicTools(tools: ToolDefinition[]): AnthropicTool[] {
 	return tools.map((tool) => ({
 		name: tool.name,
 		description: tool.description,
-		input_schema: tool.inputSchema as Anthropic.Tool["input_schema"],
+		input_schema: tool.inputSchema,
 	}));
 }
 
@@ -135,15 +164,6 @@ export function createAnthropicProvider(config: ProviderConfig = {}): Provider {
 		return authPromise;
 	}
 
-	// SDK client for API key auth (lazy)
-	let sdkClient: Anthropic | null = null;
-	function getSdkClient(apiKey: string): Anthropic {
-		if (!sdkClient) {
-			sdkClient = new Anthropic({ apiKey, baseURL: config.baseUrl });
-		}
-		return sdkClient;
-	}
-
 	return {
 		name: "anthropic",
 		model,
@@ -154,45 +174,11 @@ export function createAnthropicProvider(config: ProviderConfig = {}): Provider {
 			options: StreamOptions,
 		): AsyncGenerator<StreamChunk> {
 			const authConfig = await getAuth();
-
-			// Use SDK for API key auth
-			if (authConfig.type === "apiKey") {
-				yield* streamWithSdk(
-					getSdkClient(authConfig.apiKey),
-					model,
-					messages,
-					options,
-				);
-				return;
-			}
-
-			// Use raw fetch for OAuth
-			yield* streamWithOAuth(
-				baseUrl,
-				authConfig.token,
-				model,
-				messages,
-				options,
-			);
+			yield* streamWithFetch(baseUrl, authConfig, model, messages, options);
 		},
 
 		async countTokens(messages: Message[]): Promise<number> {
-			const authConfig = await getAuth();
-
-			if (authConfig.type === "apiKey") {
-				try {
-					const client = getSdkClient(authConfig.apiKey);
-					const result = await client.messages.countTokens({
-						model,
-						messages: toAnthropicMessages(messages),
-					});
-					return result.input_tokens;
-				} catch {
-					// Fall through to estimate
-				}
-			}
-
-			// Fallback: rough estimate (4 chars per token)
+			// Rough estimate (4 chars per token)
 			const text = messages
 				.map((m) =>
 					typeof m.content === "string" ? m.content : JSON.stringify(m.content),
@@ -203,123 +189,27 @@ export function createAnthropicProvider(config: ProviderConfig = {}): Provider {
 	};
 }
 
-// Stream using Anthropic SDK (for API key auth)
-async function* streamWithSdk(
-	client: Anthropic,
-	model: string,
-	messages: Message[],
-	options: StreamOptions,
-): AsyncGenerator<StreamChunk> {
-	const { systemPrompt, tools, maxTokens = 8192, signal } = options;
-	let currentToolId: string | null = null;
+// Build auth headers based on auth type
+function buildHeaders(authConfig: AuthConfig): Record<string, string> {
+	const headers: Record<string, string> = {
+		"Content-Type": "application/json",
+		"anthropic-version": "2023-06-01",
+	};
 
-	try {
-		const streamParams: Anthropic.MessageCreateParams = {
-			model,
-			max_tokens: maxTokens,
-			messages: toAnthropicMessages(messages),
-		};
-
-		if (systemPrompt) {
-			streamParams.system = systemPrompt;
-		}
-
-		if (tools?.length) {
-			streamParams.tools = toAnthropicTools(tools);
-		}
-
-		const stream = client.messages.stream(streamParams, {
-			signal: signal ?? undefined,
-		});
-
-		for await (const event of stream) {
-			switch (event.type) {
-				case "content_block_start": {
-					const block = event.content_block;
-					if (block.type === "tool_use") {
-						currentToolId = block.id;
-						yield {
-							type: "tool_use_start",
-							id: block.id,
-							name: block.name,
-						};
-					}
-					break;
-				}
-
-				case "content_block_delta": {
-					const delta = event.delta;
-					if (delta.type === "text_delta") {
-						yield { type: "text", text: delta.text };
-					} else if (delta.type === "input_json_delta" && currentToolId) {
-						yield {
-							type: "tool_use_delta",
-							id: currentToolId,
-							input: delta.partial_json,
-						};
-					}
-					break;
-				}
-
-				case "content_block_stop": {
-					if (currentToolId) {
-						yield { type: "tool_use_end", id: currentToolId };
-						currentToolId = null;
-					}
-					break;
-				}
-
-				case "message_delta": {
-					const usage = event.usage;
-					if (usage) {
-						yield {
-							type: "usage",
-							inputTokens: 0,
-							outputTokens: usage.output_tokens,
-						};
-					}
-					break;
-				}
-
-				case "message_start": {
-					const usage = event.message.usage;
-					if (usage) {
-						yield {
-							type: "usage",
-							inputTokens: usage.input_tokens,
-							outputTokens: 0,
-							cacheRead: (usage as { cache_read_input_tokens?: number })
-								.cache_read_input_tokens,
-							cacheWrite: (usage as { cache_creation_input_tokens?: number })
-								.cache_creation_input_tokens,
-						};
-					}
-					break;
-				}
-
-				case "message_stop":
-					break;
-			}
-		}
-
-		const finalMessage = await stream.finalMessage();
-		yield {
-			type: "done",
-			stopReason: finalMessage.stop_reason ?? "end_turn",
-		};
-	} catch (err) {
-		if (err instanceof Error && err.name === "AbortError") {
-			yield { type: "done", stopReason: "cancelled" };
-		} else {
-			yield { type: "error", error: String(err) };
-		}
+	if (authConfig.type === "apiKey") {
+		headers["x-api-key"] = authConfig.apiKey;
+	} else {
+		headers["Authorization"] = `Bearer ${authConfig.token}`;
+		headers["anthropic-beta"] = "prompt-caching-2024-07-31,oauth-2025-04-20";
 	}
+
+	return headers;
 }
 
-// Stream using raw fetch for OAuth (SDK doesn't support Bearer auth properly)
-async function* streamWithOAuth(
+// Stream using raw fetch (works for both API key and OAuth)
+async function* streamWithFetch(
 	baseUrl: string,
-	token: string,
+	authConfig: AuthConfig,
 	model: string,
 	messages: Message[],
 	options: StreamOptions,
@@ -344,12 +234,7 @@ async function* streamWithOAuth(
 	try {
 		const response = await fetch(`${baseUrl}/v1/messages`, {
 			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${token}`,
-				"anthropic-version": "2023-06-01",
-				"anthropic-beta": "prompt-caching-2024-07-31,oauth-2025-04-20",
-			},
+			headers: buildHeaders(authConfig),
 			body: JSON.stringify(body),
 			signal,
 		});
@@ -365,144 +250,154 @@ async function* streamWithOAuth(
 			return;
 		}
 
-		let currentToolId: string | null = null;
-		let currentToolName: string | null = null;
-		let toolArgsBuffer = "";
-		let inputTokens = 0;
-		let outputTokens = 0;
-
-		const reader = response.body.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
-
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-
-			buffer += decoder.decode(value, { stream: true });
-
-			// Process complete SSE lines
-			const lines = buffer.split("\n");
-			buffer = lines.pop() ?? "";
-
-			for (const line of lines) {
-				if (!line.startsWith("data: ")) continue;
-				const data = line.slice(6);
-				if (data === "[DONE]") continue;
-
-				let event: Record<string, unknown>;
-				try {
-					event = JSON.parse(data);
-				} catch {
-					continue;
-				}
-
-				const eventType = event.type as string;
-
-				switch (eventType) {
-					case "error": {
-						const error = event.error as { message?: string };
-						yield {
-							type: "error",
-							error: error?.message ?? "Anthropic API error",
-						};
-						return;
-					}
-
-					case "message_start": {
-						const msg = event.message as { usage?: Record<string, number> };
-						if (msg?.usage) {
-							inputTokens = msg.usage.input_tokens ?? 0;
-							yield {
-								type: "usage",
-								inputTokens,
-								outputTokens: 0,
-								cacheRead: msg.usage.cache_read_input_tokens,
-								cacheWrite: msg.usage.cache_creation_input_tokens,
-							};
-						}
-						break;
-					}
-
-					case "content_block_start": {
-						const block = event.content_block as {
-							type: string;
-							id?: string;
-							name?: string;
-						};
-						if (block?.type === "tool_use") {
-							currentToolId = block.id ?? null;
-							currentToolName = block.name ?? null;
-							toolArgsBuffer = "";
-							if (currentToolId && currentToolName) {
-								yield {
-									type: "tool_use_start",
-									id: currentToolId,
-									name: currentToolName,
-								};
-							}
-						}
-						break;
-					}
-
-					case "content_block_delta": {
-						const delta = event.delta as {
-							type: string;
-							text?: string;
-							partial_json?: string;
-						};
-						if (delta?.type === "text_delta" && delta.text) {
-							yield { type: "text", text: delta.text };
-						} else if (
-							delta?.type === "input_json_delta" &&
-							delta.partial_json &&
-							currentToolId
-						) {
-							toolArgsBuffer += delta.partial_json;
-							yield {
-								type: "tool_use_delta",
-								id: currentToolId,
-								input: delta.partial_json,
-							};
-						}
-						break;
-					}
-
-					case "content_block_stop": {
-						if (currentToolId) {
-							yield { type: "tool_use_end", id: currentToolId };
-							currentToolId = null;
-							currentToolName = null;
-							toolArgsBuffer = "";
-						}
-						break;
-					}
-
-					case "message_delta": {
-						const usage = event.usage as { output_tokens?: number };
-						if (usage?.output_tokens) {
-							outputTokens = usage.output_tokens;
-							yield {
-								type: "usage",
-								inputTokens: 0,
-								outputTokens,
-							};
-						}
-						break;
-					}
-
-					case "message_stop": {
-						yield { type: "done", stopReason: "end_turn" };
-						break;
-					}
-				}
-			}
-		}
+		yield* parseSSEStream(response.body);
 	} catch (err) {
 		if (err instanceof Error && err.name === "AbortError") {
 			yield { type: "done", stopReason: "cancelled" };
 		} else {
 			yield { type: "error", error: String(err) };
 		}
+	}
+}
+
+// Parse SSE stream and yield StreamChunks
+async function* parseSSEStream(
+	body: ReadableStream<Uint8Array>,
+): AsyncGenerator<StreamChunk> {
+	let currentToolId: string | null = null;
+
+	const reader = body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+
+		buffer += decoder.decode(value, { stream: true });
+
+		// Process complete SSE lines
+		const lines = buffer.split("\n");
+		buffer = lines.pop() ?? "";
+
+		for (const line of lines) {
+			if (!line.startsWith("data: ")) continue;
+			const data = line.slice(6);
+			if (data === "[DONE]") continue;
+
+			let event: Record<string, unknown>;
+			try {
+				event = JSON.parse(data);
+			} catch {
+				continue;
+			}
+
+			const chunk = processSSEEvent(event, currentToolId);
+			if (chunk) {
+				// Track tool state
+				if (chunk.type === "tool_use_start") {
+					currentToolId = chunk.id;
+				} else if (chunk.type === "tool_use_end") {
+					currentToolId = null;
+				}
+				yield chunk;
+				if (chunk.type === "error") return;
+			}
+		}
+	}
+}
+
+// Process a single SSE event into a StreamChunk
+function processSSEEvent(
+	event: Record<string, unknown>,
+	currentToolId: string | null,
+): StreamChunk | null {
+	const eventType = event.type as string;
+
+	switch (eventType) {
+		case "error": {
+			const error = event.error as { message?: string };
+			return { type: "error", error: error?.message ?? "Anthropic API error" };
+		}
+
+		case "message_start": {
+			const msg = event.message as { usage?: Record<string, number> };
+			if (msg?.usage) {
+				return {
+					type: "usage",
+					inputTokens: msg.usage.input_tokens ?? 0,
+					outputTokens: 0,
+					cacheRead: msg.usage.cache_read_input_tokens,
+					cacheWrite: msg.usage.cache_creation_input_tokens,
+				};
+			}
+			return null;
+		}
+
+		case "content_block_start": {
+			const block = event.content_block as {
+				type: string;
+				id?: string;
+				name?: string;
+			};
+			if (block?.type === "tool_use" && block.id && block.name) {
+				return { type: "tool_use_start", id: block.id, name: block.name };
+			}
+			return null;
+		}
+
+		case "content_block_delta": {
+			const delta = event.delta as {
+				type: string;
+				text?: string;
+				partial_json?: string;
+			};
+			if (delta?.type === "text_delta" && delta.text) {
+				return { type: "text", text: delta.text };
+			}
+			if (
+				delta?.type === "input_json_delta" &&
+				delta.partial_json &&
+				currentToolId
+			) {
+				return {
+					type: "tool_use_delta",
+					id: currentToolId,
+					input: delta.partial_json,
+				};
+			}
+			return null;
+		}
+
+		case "content_block_stop": {
+			if (currentToolId) {
+				return { type: "tool_use_end", id: currentToolId };
+			}
+			return null;
+		}
+
+		case "message_delta": {
+			const delta = event.delta as { stop_reason?: string };
+			const usage = event.usage as { output_tokens?: number };
+			if (usage?.output_tokens) {
+				return {
+					type: "usage",
+					inputTokens: 0,
+					outputTokens: usage.output_tokens,
+				};
+			}
+			// Capture stop reason for done event
+			if (delta?.stop_reason) {
+				return { type: "done", stopReason: delta.stop_reason };
+			}
+			return null;
+		}
+
+		case "message_stop": {
+			return { type: "done", stopReason: "end_turn" };
+		}
+
+		default:
+			return null;
 	}
 }
