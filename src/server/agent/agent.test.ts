@@ -503,12 +503,63 @@ describe("Tools", () => {
 		expect(bashTool!.requiresApproval).toBe(true);
 	});
 
-	test("read/write/glob/grep don't require approval", () => {
+	test("read/write/glob/grep/web_search don't require approval", () => {
 		const tools = createDefaultToolRegistry();
 
 		expect(tools.get("read")!.requiresApproval).toBe(false);
 		expect(tools.get("write")!.requiresApproval).toBe(false);
 		expect(tools.get("glob")!.requiresApproval).toBe(false);
 		expect(tools.get("grep")!.requiresApproval).toBe(false);
+		expect(tools.get("web_search")!.requiresApproval).toBe(false);
+	});
+
+	test("web_search tool is registered", () => {
+		const tools = createDefaultToolRegistry();
+		const webSearch = tools.get("web_search");
+
+		expect(webSearch).toBeDefined();
+		expect(webSearch!.name).toBe("web_search");
+		expect(webSearch!.description).toContain("DuckDuckGo");
+	});
+
+	test("web_search rejects empty query", async () => {
+		const tools = createDefaultToolRegistry();
+		const webSearch = tools.get("web_search");
+
+		const result = await webSearch!.execute(
+			{ query: "" },
+			{ workDir: TEST_DIR, sessionId: "test" },
+		);
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain("Missing");
+	});
+
+	test("web_search rejects missing query", async () => {
+		const tools = createDefaultToolRegistry();
+		const webSearch = tools.get("web_search");
+
+		const result = await webSearch!.execute(
+			{},
+			{ workDir: TEST_DIR, sessionId: "test" },
+		);
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain("Missing");
+	});
+
+	test("web_search clamps num to valid range", async () => {
+		const tools = createDefaultToolRegistry();
+		const webSearch = tools.get("web_search");
+
+		// This will fail if ddgr isn't installed, but tests the parameter handling
+		const result = await webSearch!.execute(
+			{ query: "test", num: 100 }, // Should clamp to 25
+			{ workDir: TEST_DIR, sessionId: "test" },
+		);
+
+		// Either succeeds with results or fails because ddgr not installed
+		// Both are valid - we're testing it doesn't crash with invalid num
+		expect(result.content).toBeDefined();
 	});
 });

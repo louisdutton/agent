@@ -5,6 +5,7 @@ import { bashTool } from "./bash";
 import { globTool } from "./glob";
 import { grepTool } from "./grep";
 import { readTool } from "./read";
+import { webSearchTool } from "./web-search";
 import { writeTool } from "./write";
 
 export class ToolRegistry {
@@ -43,7 +44,8 @@ export function createDefaultToolRegistry(): ToolRegistry {
 	registry.register(bashTool);
 	registry.register(globTool);
 	registry.register(grepTool);
+	registry.register(webSearchTool);
 	return registry;
 }
 
-export { bashTool, globTool, grepTool, readTool, writeTool };
+export { bashTool, globTool, grepTool, readTool, webSearchTool, writeTool };
