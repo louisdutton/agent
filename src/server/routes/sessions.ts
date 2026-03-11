@@ -3,7 +3,7 @@
 import { Elysia, t } from "elysia";
 import { getSessionManager } from "../agent";
 import { subscriptionToGenerator } from "../util";
-import type { WireEvent } from "../wire/types";
+import type { NotificationEvent, WireEvent } from "../wire/types";
 
 const projectQuery = t.Object({ project: t.String() });
 
@@ -18,7 +18,39 @@ const sessionEvents = (sessionId: string) =>
 				(e.status === "completed" || e.status === "error")),
 	);
 
+// Notification events generator (never terminates - client disconnects)
+async function* notificationEvents(): AsyncGenerator<NotificationEvent> {
+	const queue: NotificationEvent[] = [];
+	let resolve: (() => void) | null = null;
+
+	const unsubscribe = getSessionManager().subscribeToNotifications((event) => {
+		queue.push(event);
+		resolve?.();
+	});
+
+	try {
+		while (true) {
+			if (queue.length > 0) {
+				yield queue.shift()!;
+			} else {
+				await new Promise<void>((r) => (resolve = r));
+			}
+		}
+	} finally {
+		unsubscribe();
+	}
+}
+
 export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
+	// Global notifications stream (SSE)
+	.get("/notifications", async function* () {
+		yield `data: ${JSON.stringify({ type: "connected" })}\n\n`;
+
+		for await (const event of notificationEvents()) {
+			yield `data: ${JSON.stringify(event)}\n\n`;
+		}
+	})
+
 	// List sessions from disk
 	.get(
 		"/",

@@ -1,7 +1,16 @@
 // Tool registry
 
 import type { Tool, ToolContext, ToolResult } from "../types";
+import {
+	createJobTool,
+	createWebhookTool,
+	deleteAutomationTool,
+	listAutomationsTool,
+	runJobNowTool,
+	toggleAutomationTool,
+} from "./automations";
 import { bashTool } from "./bash";
+import { getConfigTool, updateConfigTool } from "./config";
 import { globTool } from "./glob";
 import { grepTool } from "./grep";
 import { readTool } from "./read";
@@ -39,13 +48,37 @@ export class ToolRegistry {
 // Create default registry with built-in tools
 export function createDefaultToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry();
+
+	// Core tools
 	registry.register(readTool);
 	registry.register(writeTool);
 	registry.register(bashTool);
 	registry.register(globTool);
 	registry.register(grepTool);
 	registry.register(webSearchTool);
+
+	// Automation tools
+	registry.register(listAutomationsTool);
+	registry.register(createJobTool);
+	registry.register(createWebhookTool);
+	registry.register(toggleAutomationTool);
+	registry.register(deleteAutomationTool);
+	registry.register(runJobNowTool);
+
+	// Config tools
+	registry.register(getConfigTool);
+	registry.register(updateConfigTool);
+
 	return registry;
 }
 
 export { bashTool, globTool, grepTool, readTool, webSearchTool, writeTool };
+export {
+	createJobTool,
+	createWebhookTool,
+	deleteAutomationTool,
+	listAutomationsTool,
+	runJobNowTool,
+	toggleAutomationTool,
+};
+export { getConfigTool, updateConfigTool };

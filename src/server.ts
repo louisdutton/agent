@@ -1,4 +1,3 @@
-import type { ServerWebSocket } from "bun";
 import { parseArgs } from "util";
 import html from "./index.html";
 import { app as elysiaApp } from "./server/app";
@@ -10,16 +9,6 @@ const { values } = parseArgs({
 	},
 });
 
-// Single client WebSocket connection
-let clientWs: ServerWebSocket<unknown> | null = null;
-
-// Send message to connected client (if any)
-export function wsSend(data: object) {
-	if (clientWs?.readyState === WebSocket.OPEN) {
-		clientWs.send(JSON.stringify(data));
-	}
-}
-
 const server = Bun.serve({
 	port: Number(values.port),
 	idleTimeout: 120,
@@ -27,7 +16,6 @@ const server = Bun.serve({
 
 	routes: {
 		"/": html,
-		// Serve SW from root so it can control the whole site
 		"/sw.js": () =>
 			new Response(Bun.file("./public/sw.js"), {
 				headers: { "Content-Type": "application/javascript" },
@@ -50,12 +38,10 @@ const server = Bun.serve({
 	},
 
 	websocket: {
-		open(ws) {
-			clientWs = ws;
+		open() {
 			console.debug("WebSocket client connected");
 		},
 		close() {
-			clientWs = null;
 			console.debug("WebSocket client disconnected");
 		},
 		message(ws, message) {
@@ -65,7 +51,6 @@ const server = Bun.serve({
 		},
 	},
 
-	// Use Elysia's fetch handler for API routes
 	fetch: elysiaApp.fetch,
 });
 

@@ -4,6 +4,7 @@ import { cors } from "@elysiajs/cors";
 import { Elysia } from "elysia";
 import { audioRoutes } from "./routes/audio";
 import { automationsRoutes, webhookTriggerRoutes } from "./routes/automations";
+import { configRoutes } from "./routes/config";
 import { filesRoutes } from "./routes/files";
 import { gitRoutes } from "./routes/git";
 import { projectsRoutes } from "./routes/projects";
@@ -27,6 +28,7 @@ export const app = new Elysia({ prefix: "/api" })
 	.use(filesRoutes)
 	.use(projectsRoutes)
 	.use(automationsRoutes)
+	.use(configRoutes)
 	.use(webhookTriggerRoutes);
 
 // Export type for Eden treaty

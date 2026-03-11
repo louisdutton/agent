@@ -40,11 +40,19 @@ import {
 	type VoiceStatus,
 } from "./round-buttons";
 import { navigate, useLocation, type ViewType } from "./router";
+import {
+	type ActiveSession,
+	addApprovalToQueue,
+	type QueuedApproval,
+	removeApprovalFromQueue,
+	updateActiveSession,
+} from "./session-state";
+import { SessionStatusBar } from "./session-status-bar";
 import { ThreadListPanel } from "./thread-list";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread } from "./types";
 import { parseJSON } from "./util";
-import { initWebSocket } from "./ws";
+import { initWebSocket, subscribeToNotifications } from "./ws";
 
 export function App() {
 	// URL-based routing state (single source of truth)
@@ -263,6 +271,30 @@ export function App() {
 		});
 	};
 
+	// Handle session selection from status bar
+	const handleSelectSession = (session: ActiveSession) => {
+		navigate({
+			type: "session",
+			project: session.projectPath,
+			sessionId: session.id,
+		});
+	};
+
+	// Handle approval from status bar (for other sessions)
+	const handleStatusBarApproval = async (
+		approval: QueuedApproval,
+		approved: boolean,
+	) => {
+		removeApprovalFromQueue(approval.request.id);
+		try {
+			await api
+				.sessions({ sessionId: approval.sessionId })
+				.approval.post({ approved });
+		} catch (err) {
+			console.error("Failed to send approval:", err);
+		}
+	};
+
 	// Return to main view (thread list)
 	const returnToMain = () => {
 		setActiveTask(null);
@@ -312,6 +344,25 @@ export function App() {
 		setDefaultProject(data?.cwd || "");
 
 		initWebSocket();
+
+		// Subscribe to session notifications
+		const unsubscribe = subscribeToNotifications((event) => {
+			if (event.type === "session_status") {
+				updateActiveSession(
+					event.sessionId,
+					event.projectPath,
+					event.status,
+					event.title,
+				);
+			} else if (event.type === "approval_needed") {
+				// Add to queue if not current session
+				if (event.sessionId !== sessionId()) {
+					addApprovalToQueue(event.sessionId, event.projectPath, event.request);
+				}
+			}
+		});
+
+		onCleanup(unsubscribe);
 	});
 
 	onCleanup(() => {
@@ -542,6 +593,13 @@ export function App() {
 
 	return (
 		<div class="h-dvh flex flex-col bg-background">
+			{/* Session status bar - shows other active sessions */}
+			<SessionStatusBar
+				currentSessionId={sessionId()}
+				onSelectSession={handleSelectSession}
+				onApprove={handleStatusBarApproval}
+			/>
+
 			{/* Header - shown when in a session */}
 			<Show when={isInThread()}>
 				<header class="flex-none px-4 py-2 border-b border-border z-20 bg-background">

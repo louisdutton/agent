@@ -1,18 +1,37 @@
+// Connection management - WebSocket for keepalive, SSE for notifications
+
 import { createSignal } from "solid-js";
+import type { NotificationEvent } from "../server/wire/types";
 
 export type ConnectionStatus = "connected" | "connecting" | "disconnected";
 
 const [status, setStatus] = createSignal<ConnectionStatus>("disconnected");
 export { status as connectionStatus };
 
+// WebSocket for ping/pong keepalive
 let ws: WebSocket | null = null;
 let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 let pingInterval: ReturnType<typeof setInterval> | null = null;
 
+// SSE for notifications
+let eventSource: EventSource | null = null;
+let sseReconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+
 const RECONNECT_DELAY = 2000;
 const PING_INTERVAL = 30000;
 
-function cleanup() {
+// Notification handlers
+type NotificationHandler = (event: NotificationEvent) => void;
+const handlers = new Set<NotificationHandler>();
+
+export function subscribeToNotifications(
+	handler: NotificationHandler,
+): () => void {
+	handlers.add(handler);
+	return () => handlers.delete(handler);
+}
+
+function cleanupWs() {
 	if (pingInterval) {
 		clearInterval(pingInterval);
 		pingInterval = null;
@@ -23,8 +42,15 @@ function cleanup() {
 	}
 }
 
-function connect() {
-	cleanup();
+function cleanupSse() {
+	if (sseReconnectTimeout) {
+		clearTimeout(sseReconnectTimeout);
+		sseReconnectTimeout = null;
+	}
+}
+
+function connectWs() {
+	cleanupWs();
 	setStatus("connecting");
 
 	const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -32,7 +58,6 @@ function connect() {
 
 	ws.onopen = () => {
 		setStatus("connected");
-		// Start ping interval to detect dead connections
 		pingInterval = setInterval(() => {
 			if (ws?.readyState === WebSocket.OPEN) {
 				ws.send("ping");
@@ -42,40 +67,68 @@ function connect() {
 
 	ws.onclose = () => {
 		setStatus("disconnected");
-		cleanup();
-		// Auto-reconnect
-		reconnectTimeout = setTimeout(connect, RECONNECT_DELAY);
+		cleanupWs();
+		reconnectTimeout = setTimeout(connectWs, RECONNECT_DELAY);
 	};
 
 	ws.onerror = () => {
-		// onclose will be called after onerror, triggering reconnect
 		ws?.close();
 	};
 
-	ws.onmessage = (event) => {
-		// Handle server-pushed messages here if needed
-		if (event.data === "pong") return;
+	ws.onmessage = () => {
+		// Just ping/pong, no notifications here
+	};
+}
 
+function connectSse() {
+	cleanupSse();
+
+	eventSource = new EventSource("/api/sessions/notifications");
+
+	eventSource.onmessage = (event) => {
 		try {
 			const data = JSON.parse(event.data);
-			// Future: handle server push events (session status, etc.)
-			console.debug("WS message:", data);
+			// Skip connection confirmation
+			if (data.type === "connected") return;
+
+			for (const handler of handlers) {
+				try {
+					handler(data as NotificationEvent);
+				} catch (err) {
+					console.error("Notification handler error:", err);
+				}
+			}
 		} catch {
-			// Ignore non-JSON messages
+			// Ignore parse errors
 		}
+	};
+
+	eventSource.onerror = () => {
+		eventSource?.close();
+		eventSource = null;
+		sseReconnectTimeout = setTimeout(connectSse, RECONNECT_DELAY);
 	};
 }
 
 export function initWebSocket() {
-	connect();
+	connectWs();
+	connectSse();
 }
 
 export function disconnectWebSocket() {
-	cleanup();
+	cleanupWs();
+	cleanupSse();
+
 	if (ws) {
-		ws.onclose = null; // Prevent auto-reconnect
+		ws.onclose = null;
 		ws.close();
 		ws = null;
 	}
+
+	if (eventSource) {
+		eventSource.close();
+		eventSource = null;
+	}
+
 	setStatus("disconnected");
 }
