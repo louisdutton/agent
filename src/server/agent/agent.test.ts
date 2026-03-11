@@ -88,11 +88,11 @@ describe("SessionManager", () => {
 		expect(sessions[0].projectPath).toBe(TEST_DIR);
 	});
 
-	test("deletes a session", () => {
+	test("deletes a session", async () => {
 		const manager = new SessionManager({ provider: mockProvider });
 		const session = manager.create(TEST_DIR);
 
-		expect(manager.delete(session.id)).toBe(true);
+		expect(await manager.delete(session.id)).toBe(true);
 		expect(manager.get(session.id)).toBeUndefined();
 	});
 

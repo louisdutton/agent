@@ -1,23 +1,9 @@
-// Anthropic API client - uses API key from env or Claude Code credentials
+// Simple Anthropic API client for one-off completions (used by git auto-commit)
 
 import { homedir } from "node:os";
 import { join } from "node:path";
-import Anthropic from "@anthropic-ai/sdk";
 
 const CREDENTIALS_PATH = join(homedir(), ".claude", ".credentials.json");
-
-export type Model = "claude-3-5-haiku-latest" | "claude-3-5-sonnet-latest";
-
-export type Message = {
-	role: "user" | "assistant";
-	content: string;
-};
-
-export type CompletionOptions = {
-	model?: Model;
-	maxTokens?: number;
-	system?: string;
-};
 
 type Credentials = {
 	claudeAiOauth?: {
@@ -25,61 +11,64 @@ type Credentials = {
 	};
 };
 
-// Cache the client
-let cachedClient: Anthropic | null = null;
+type AuthConfig =
+	| { type: "apiKey"; apiKey: string }
+	| { type: "oauth"; token: string };
 
-/**
- * Get or create an Anthropic client
- * Priority: ANTHROPIC_API_KEY env > OAuth token from Claude Code
- */
-async function getClient(): Promise<Anthropic | null> {
-	if (cachedClient) {
-		return cachedClient;
-	}
-
-	// First try env API key
+// Get auth config (API key or OAuth token)
+async function getAuth(): Promise<AuthConfig | null> {
+	// Try API key first
 	const apiKey = process.env.ANTHROPIC_API_KEY;
 	if (apiKey) {
-		cachedClient = new Anthropic({ apiKey });
-		return cachedClient;
+		return { type: "apiKey", apiKey };
 	}
 
-	// Fall back to OAuth token (will fail until Anthropic adds support)
+	// Fall back to OAuth token
 	try {
 		const file = Bun.file(CREDENTIALS_PATH);
-		if (!(await file.exists())) {
-			return null;
-		}
+		if (!(await file.exists())) return null;
 		const creds = (await file.json()) as Credentials;
-		const accessToken = creds.claudeAiOauth?.accessToken;
-
-		if (!accessToken) {
-			return null;
+		const token = creds.claudeAiOauth?.accessToken;
+		if (token) {
+			return { type: "oauth", token };
 		}
-
-		cachedClient = new Anthropic({
-			authToken: accessToken,
-		});
-
-		return cachedClient;
 	} catch {
-		return null;
+		// Ignore
 	}
+
+	return null;
+}
+
+// Build headers for Anthropic API
+function buildHeaders(auth: AuthConfig): Record<string, string> {
+	const headers: Record<string, string> = {
+		"Content-Type": "application/json",
+		"anthropic-version": "2023-06-01",
+	};
+
+	if (auth.type === "apiKey") {
+		headers["x-api-key"] = auth.apiKey;
+	} else {
+		headers["Authorization"] = `Bearer ${auth.token}`;
+		headers["anthropic-beta"] = "oauth-2025-04-20";
+	}
+
+	return headers;
 }
 
 /**
- * Get a completion from the Anthropic API
+ * Simple single-prompt completion using Haiku (fast/cheap)
  */
-export async function complete(
-	messages: Message[],
-	options: CompletionOptions = {},
+export async function prompt(
+	userPrompt: string,
+	options: { model?: string; maxTokens?: number; system?: string } = {},
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-	const client = await getClient();
-
-	if (!client) {
+	const auth = await getAuth();
+	if (!auth) {
 		return {
 			ok: false,
-			error: "No API key found. Set ANTHROPIC_API_KEY environment variable.",
+			error:
+				"No API key found. Set ANTHROPIC_API_KEY or login with Claude Code.",
 		};
 	}
 
@@ -90,34 +79,38 @@ export async function complete(
 	} = options;
 
 	try {
-		const response = await client.messages.create({
+		const body: Record<string, unknown> = {
 			model,
 			max_tokens: maxTokens,
-			system,
-			messages,
+			messages: [{ role: "user", content: userPrompt }],
+		};
+
+		if (system) {
+			body.system = system;
+		}
+
+		const response = await fetch("https://api.anthropic.com/v1/messages", {
+			method: "POST",
+			headers: buildHeaders(auth),
+			body: JSON.stringify(body),
 		});
 
-		const text = response.content?.[0];
+		if (!response.ok) {
+			const errorText = await response.text();
+			return { ok: false, error: `HTTP ${response.status}: ${errorText}` };
+		}
+
+		const data = (await response.json()) as {
+			content?: Array<{ type: string; text?: string }>;
+		};
+
+		const text = data.content?.[0];
 		if (text?.type !== "text" || !text.text) {
 			return { ok: false, error: "Empty response from API" };
 		}
 
 		return { ok: true, text: text.text.trim() };
 	} catch (err) {
-		// Clear cached client on auth error
-		if (err instanceof Error && err.message.includes("authentication")) {
-			cachedClient = null;
-		}
 		return { ok: false, error: String(err) };
 	}
-}
-
-/**
- * Simple single-prompt completion
- */
-export async function prompt(
-	userPrompt: string,
-	options: CompletionOptions = {},
-): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-	return complete([{ role: "user", content: userPrompt }], options);
 }

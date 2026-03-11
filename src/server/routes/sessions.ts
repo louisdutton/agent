@@ -1,12 +1,7 @@
-// Session routes - uses new agent module with direct API
+// Session routes - uses new agent module with direct API and persistence
 
 import { Elysia, t } from "elysia";
 import { getSessionManager } from "../agent";
-import {
-	clearSessionById,
-	getSessionHistoryById,
-	getSessionsFromTranscripts,
-} from "../session";
 import { subscriptionToGenerator } from "../util";
 import type { WireEvent } from "../wire/types";
 
@@ -24,40 +19,65 @@ const sessionEvents = (sessionId: string) =>
 	);
 
 export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
-	// List sessions from transcripts (for history)
+	// List sessions from disk
 	.get(
 		"/",
 		async ({ query }) => {
-			const allSessions = await getSessionsFromTranscripts(query.project);
-			const sorted = allSessions
-				.filter((e) => !e.isSidechain)
-				.sort(
-					(a, b) =>
-						new Date(b.modified).getTime() - new Date(a.modified).getTime(),
-				);
+			const manager = getSessionManager();
+			const sessions = await manager.listFromDisk(query.project);
 
 			return {
-				sessions: sorted.map((e) => ({
-					sessionId: e.sessionId,
-					firstPrompt: e.firstPrompt || "Untitled session",
-					created: e.created,
-					modified: e.modified,
-					gitBranch: e.gitBranch,
+				sessions: sessions.map((s) => ({
+					sessionId: s.sessionId,
+					firstPrompt: s.title,
+					created: new Date(s.createdAt).toISOString(),
+					modified: new Date(s.updatedAt).toISOString(),
 				})),
 				projectPath: query.project,
-				latestSessionId: sorted[0]?.sessionId,
+				latestSessionId: sessions[0]?.sessionId,
 			};
 		},
 		{ query: projectQuery },
 	)
 
-	// Get session history from transcript
+	// Get session history
 	.get(
 		"/:sessionId/history",
 		async ({ params, query }) => {
-			const { messages, isCompacted, firstPrompt } =
-				await getSessionHistoryById(params.sessionId, query.project);
-			return { messages, isCompacted, firstPrompt };
+			const manager = getSessionManager();
+			const history = await manager.getHistory(query.project, params.sessionId);
+
+			if (!history) {
+				return { messages: [], isCompacted: false, firstPrompt: null };
+			}
+
+			// Convert provider messages to UI format
+			const messages = history.messages.map((msg, i) => {
+				if (msg.role === "user") {
+					const content =
+						typeof msg.content === "string"
+							? msg.content
+							: msg.content
+									.filter((p) => p.type === "text")
+									.map((p) => (p as { text: string }).text)
+									.join("");
+					return { type: "user" as const, id: String(i), content };
+				}
+				const content =
+					typeof msg.content === "string"
+						? msg.content
+						: msg.content
+								.filter((p) => p.type === "text")
+								.map((p) => (p as { text: string }).text)
+								.join("");
+				return { type: "assistant" as const, id: String(i), content };
+			});
+
+			return {
+				messages,
+				isCompacted: false,
+				firstPrompt: history.title,
+			};
 		},
 		{ query: projectQuery },
 	)
@@ -90,23 +110,21 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 		}
 	})
 
-	// Delete session transcript
+	// Delete session
 	.delete(
 		"/:sessionId",
 		async ({ params, query }) => {
-			await clearSessionById(params.sessionId, query.project);
-			getSessionManager().delete(params.sessionId);
+			await getSessionManager().delete(params.sessionId, query.project);
 			return { ok: true };
 		},
 		{ query: projectQuery },
 	)
 
-	// Compact session (delegates to old claude module for now)
+	// Compact session (not yet implemented)
 	.post(
 		"/:sessionId/compact",
 		async () => {
-			// TODO: Implement compaction with new agent module
-			// For now, return success without doing anything
+			// TODO: Implement context compaction
 			return { ok: true };
 		},
 		{ query: projectQuery },

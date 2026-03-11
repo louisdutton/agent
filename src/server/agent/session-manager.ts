@@ -1,6 +1,9 @@
-// Session manager - orchestrates multiple parallel sessions
+// Session manager - orchestrates multiple parallel sessions with JSONL persistence
 
 import { randomUUID } from "node:crypto";
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { createAnthropicProvider } from "../providers/anthropic";
 import type { ContentPart, Message, Provider } from "../providers/types";
 import type {
@@ -17,12 +20,32 @@ type SessionManagerConfig = {
 	apiKey?: string;
 	provider?: Provider; // For testing
 	tools?: ToolRegistry; // For testing
+	transcriptsDir?: string; // For testing
 };
+
+// Session metadata stored in first line of transcript
+type SessionMeta = {
+	id: string;
+	projectPath: string;
+	title?: string;
+	createdAt: number;
+	updatedAt: number;
+};
+
+// Transcript entry format
+type TranscriptEntry =
+	| { type: "meta"; data: SessionMeta }
+	| {
+			type: "message";
+			role: "user" | "assistant";
+			content: Message["content"];
+	  };
 
 export class SessionManager {
 	private sessions = new Map<string, Session>();
 	private provider: Provider;
 	private tools: ToolRegistry;
+	private transcriptsDir: string;
 	private notificationSubscribers = new Set<
 		(event: NotificationEvent) => void
 	>();
@@ -39,6 +62,170 @@ export class SessionManager {
 				model: config.model,
 			});
 		this.tools = config.tools ?? createDefaultToolRegistry();
+		this.transcriptsDir =
+			config.transcriptsDir ?? join(homedir(), ".claude", "projects");
+	}
+
+	// Get transcript directory for a project
+	private getProjectDir(projectPath: string): string {
+		// Convert project path to safe directory name (same as Claude CLI)
+		const safeName = projectPath.replace(/\//g, "-").replace(/^-/, "");
+		return join(this.transcriptsDir, safeName);
+	}
+
+	// Get transcript file path for a session
+	private getTranscriptPath(projectPath: string, sessionId: string): string {
+		return join(this.getProjectDir(projectPath), `${sessionId}.jsonl`);
+	}
+
+	// Persist session to JSONL
+	private async persistSession(session: Session): Promise<void> {
+		const dir = this.getProjectDir(session.projectPath);
+		await mkdir(dir, { recursive: true });
+
+		const path = this.getTranscriptPath(session.projectPath, session.id);
+		const lines: string[] = [];
+
+		// Meta entry
+		const meta: SessionMeta = {
+			id: session.id,
+			projectPath: session.projectPath,
+			title: session.title,
+			createdAt: session.createdAt,
+			updatedAt: session.updatedAt,
+		};
+		lines.push(JSON.stringify({ type: "meta", data: meta }));
+
+		// Message entries
+		for (const msg of session.messages) {
+			lines.push(
+				JSON.stringify({
+					type: "message",
+					role: msg.role,
+					content: msg.content,
+				}),
+			);
+		}
+
+		await Bun.write(path, lines.join("\n") + "\n");
+	}
+
+	// Load session from transcript file
+	private async loadSession(
+		projectPath: string,
+		sessionId: string,
+	): Promise<Session | null> {
+		const path = this.getTranscriptPath(projectPath, sessionId);
+		const file = Bun.file(path);
+
+		if (!(await file.exists())) return null;
+
+		const content = await file.text();
+		const lines = content.trim().split("\n").filter(Boolean);
+
+		let meta: SessionMeta | null = null;
+		const messages: Message[] = [];
+
+		for (const line of lines) {
+			try {
+				const entry = JSON.parse(line) as TranscriptEntry;
+				if (entry.type === "meta") {
+					meta = entry.data;
+				} else if (entry.type === "message") {
+					messages.push({ role: entry.role, content: entry.content });
+				}
+			} catch {
+				// Skip invalid lines
+			}
+		}
+
+		if (!meta) return null;
+
+		return {
+			id: meta.id,
+			projectPath: meta.projectPath,
+			title: meta.title,
+			createdAt: meta.createdAt,
+			updatedAt: meta.updatedAt,
+			status: "idle",
+			messages,
+		};
+	}
+
+	// List all sessions for a project from disk
+	async listFromDisk(projectPath: string): Promise<
+		Array<{
+			sessionId: string;
+			title: string;
+			createdAt: number;
+			updatedAt: number;
+		}>
+	> {
+		const dir = this.getProjectDir(projectPath);
+
+		try {
+			const files = await readdir(dir);
+			const sessions: Array<{
+				sessionId: string;
+				title: string;
+				createdAt: number;
+				updatedAt: number;
+			}> = [];
+
+			for (const file of files) {
+				if (!file.endsWith(".jsonl")) continue;
+
+				const sessionId = file.replace(".jsonl", "");
+				const path = join(dir, file);
+
+				try {
+					// Read just the first line for meta
+					const content = await Bun.file(path).text();
+					const firstLine = content.split("\n")[0];
+					const entry = JSON.parse(firstLine) as TranscriptEntry;
+
+					if (entry.type === "meta") {
+						sessions.push({
+							sessionId: entry.data.id,
+							title: entry.data.title || "Untitled",
+							createdAt: entry.data.createdAt,
+							updatedAt: entry.data.updatedAt,
+						});
+					}
+				} catch {
+					// Try to get timestamps from file stats
+					const stats = await stat(path);
+					sessions.push({
+						sessionId,
+						title: "Untitled",
+						createdAt: stats.birthtimeMs,
+						updatedAt: stats.mtimeMs,
+					});
+				}
+			}
+
+			return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+		} catch {
+			return [];
+		}
+	}
+
+	// Get session history from disk (for UI display)
+	async getHistory(
+		projectPath: string,
+		sessionId: string,
+	): Promise<{ messages: Message[]; title?: string } | null> {
+		// Check in-memory first
+		const inMemory = this.sessions.get(sessionId);
+		if (inMemory) {
+			return { messages: inMemory.messages, title: inMemory.title };
+		}
+
+		// Load from disk
+		const session = await this.loadSession(projectPath, sessionId);
+		if (!session) return null;
+
+		return { messages: session.messages, title: session.title };
 	}
 
 	// Create a new session
@@ -55,17 +242,17 @@ export class SessionManager {
 		return session;
 	}
 
-	// Get session by ID
+	// Get session by ID (in-memory only)
 	get(id: string): Session | undefined {
 		return this.sessions.get(id);
 	}
 
-	// List all sessions
+	// List all in-memory sessions
 	list(): Session[] {
 		return Array.from(this.sessions.values());
 	}
 
-	// List sessions by project
+	// List in-memory sessions by project
 	listByProject(projectPath: string): Session[] {
 		return this.list().filter((s) => s.projectPath === projectPath);
 	}
@@ -127,16 +314,28 @@ export class SessionManager {
 		return true;
 	}
 
-	// Delete a session
-	delete(sessionId: string): boolean {
+	// Delete a session (memory and disk)
+	async delete(sessionId: string, projectPath?: string): Promise<boolean> {
 		const session = this.sessions.get(sessionId);
+
 		if (session) {
 			session.abortController?.abort();
 			this.sessions.delete(sessionId);
 			this.streamSubscribers.delete(sessionId);
-			return true;
+			projectPath = session.projectPath;
 		}
-		return false;
+
+		// Delete from disk if we have project path
+		if (projectPath) {
+			const path = this.getTranscriptPath(projectPath, sessionId);
+			try {
+				await rm(path);
+			} catch {
+				// Ignore if file doesn't exist
+			}
+		}
+
+		return true;
 	}
 
 	// Subscribe to notifications (all sessions)
@@ -198,7 +397,6 @@ export class SessionManager {
 		};
 
 		try {
-			// TODO: Load AGENTS.md from project for system prompt
 			const systemPrompt = await this.loadSystemPrompt(session.projectPath);
 
 			await runAgentLoop(
@@ -221,6 +419,13 @@ export class SessionManager {
 			session.updatedAt = Date.now();
 			session.abortController = undefined;
 			this.notifyStatus(session);
+
+			// Persist to disk after turn completes
+			try {
+				await this.persistSession(session);
+			} catch (err) {
+				console.error("Failed to persist session:", err);
+			}
 		}
 	}
 

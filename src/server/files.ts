@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
-import { getSessionsFromTranscripts } from "./session";
+import { getSessionManager } from "./agent";
 
 export const PROJECTS_DIR = join(homedir(), "projects");
 
@@ -25,7 +25,6 @@ export async function listProjects() {
 		firstPrompt: string;
 		created: string;
 		modified: string;
-		gitBranch?: string;
 	};
 	type ProjectWithSessions = {
 		name: string;
@@ -34,6 +33,7 @@ export async function listProjects() {
 	};
 
 	const projects: ProjectWithSessions[] = [];
+	const manager = getSessionManager();
 
 	for (const name of projectNames) {
 		const projectPath = join(projectsDir, name);
@@ -45,20 +45,13 @@ export async function listProjects() {
 		};
 
 		try {
-			const allSessions = await getSessionsFromTranscripts(projectPath);
-			projectData.sessions = allSessions
-				.filter((e) => !e.isSidechain)
-				.sort(
-					(a, b) =>
-						new Date(b.modified).getTime() - new Date(a.modified).getTime(),
-				)
-				.map((e) => ({
-					sessionId: e.sessionId,
-					firstPrompt: e.firstPrompt || "Untitled session",
-					created: e.created,
-					modified: e.modified,
-					gitBranch: e.gitBranch,
-				}));
+			const sessions = await manager.listFromDisk(projectPath);
+			projectData.sessions = sessions.map((s) => ({
+				sessionId: s.sessionId,
+				firstPrompt: s.title,
+				created: new Date(s.createdAt).toISOString(),
+				modified: new Date(s.updatedAt).toISOString(),
+			}));
 		} catch {
 			// No sessions for this project
 		}
