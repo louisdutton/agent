@@ -16,6 +16,7 @@ import {
 	stopPlayback,
 	stopRecording,
 } from "./audio";
+import { AutomationsPanel } from "./automations";
 import {
 	createEventHandlers,
 	getSessionNameFromEvents,
@@ -123,6 +124,9 @@ export function App() {
 	const [showFileBrowser, setShowFileBrowser] = createSignal(false);
 	const [showFileViewer, setShowFileViewer] = createSignal(false);
 	const [fileViewerPath, setFileViewerPath] = createSignal("");
+
+	// Automations state
+	const [showAutomations, setShowAutomations] = createSignal(false);
 
 	let mainRef: HTMLElement | undefined;
 	let menuRef: HTMLDivElement | undefined;
@@ -812,6 +816,10 @@ export function App() {
 								setShowFileBrowser(true);
 								setShowMenu(false);
 							}}
+							onAutomations={() => {
+								setShowAutomations(true);
+								setShowMenu(false);
+							}}
 							onCompact={handleCompact}
 							onClear={handleClear}
 							isCompacting={isCompacting()}
@@ -881,6 +889,16 @@ export function App() {
 				<GitPanel
 					projectPath={projectPath()}
 					onClose={() => setShowGitPanel(false)}
+				/>
+			</Show>
+			<Show when={showAutomations()}>
+				<AutomationsPanel
+					defaultProject={defaultProject()}
+					onClose={() => setShowAutomations(false)}
+					onOpenSession={(project, sid) => {
+						setShowAutomations(false);
+						navigate({ type: "session", project, sessionId: sid });
+					}}
 				/>
 			</Show>
 		</div>

@@ -397,6 +397,9 @@ export class SessionManager {
 		};
 
 		try {
+			// Auto-compact if context is getting large
+			await this.maybeCompact(session);
+
 			const systemPrompt = await this.loadSystemPrompt(session.projectPath);
 
 			await runAgentLoop(
@@ -473,6 +476,100 @@ export class SessionManager {
 		}
 
 		return content;
+	}
+
+	// Compact session by summarizing old messages
+	async compact(sessionId: string): Promise<{ ok: boolean; error?: string }> {
+		const session = this.sessions.get(sessionId);
+		if (!session) {
+			return { ok: false, error: "Session not found" };
+		}
+
+		if (session.messages.length < 6) {
+			return { ok: true }; // Nothing to compact
+		}
+
+		// Keep last 4 messages (2 turns), summarize the rest
+		const toSummarize = session.messages.slice(0, -4);
+		const toKeep = session.messages.slice(-4);
+
+		// Build summary prompt
+		const summaryText = toSummarize
+			.map((m) => {
+				const content =
+					typeof m.content === "string"
+						? m.content
+						: m.content
+								.filter((p) => p.type === "text" || p.type === "tool_result")
+								.map((p) =>
+									"text" in p ? p.text : "content" in p ? p.content : "",
+								)
+								.join("\n");
+				return `${m.role.toUpperCase()}: ${content}`;
+			})
+			.join("\n\n");
+
+		const { prompt: anthropicPrompt } = await import("../anthropic");
+		const result = await anthropicPrompt(
+			`Summarize this conversation history concisely, preserving key decisions, file changes, and context needed for continuation:\n\n${summaryText}`,
+			{
+				system:
+					"You are a conversation summarizer. Output a brief summary preserving key technical details, decisions made, files modified, and important context. Be concise but complete.",
+				maxTokens: 1024,
+			},
+		);
+
+		if (!result.ok) {
+			return { ok: false, error: result.error };
+		}
+
+		// Replace old messages with summary
+		session.messages = [
+			{
+				role: "user",
+				content: `[Previous conversation summary]\n${result.text}`,
+			},
+			{
+				role: "assistant",
+				content: "I understand the context. Let me continue helping you.",
+			},
+			...toKeep,
+		];
+
+		session.updatedAt = Date.now();
+		await this.persistSession(session);
+
+		return { ok: true };
+	}
+
+	// Estimate token count for messages
+	estimateTokens(messages: Message[]): number {
+		let chars = 0;
+		for (const msg of messages) {
+			if (typeof msg.content === "string") {
+				chars += msg.content.length;
+			} else {
+				for (const part of msg.content) {
+					if ("text" in part) chars += part.text.length;
+					if ("content" in part) chars += part.content.length;
+				}
+			}
+		}
+		// Rough estimate: 4 chars per token
+		return Math.ceil(chars / 4);
+	}
+
+	// Auto-compact if needed before running agent loop
+	private async maybeCompact(session: Session): Promise<void> {
+		const tokens = this.estimateTokens(session.messages);
+		const threshold = this.provider.maxContextTokens * 0.7; // 70% of max
+
+		if (tokens > threshold && session.messages.length >= 6) {
+			console.log(
+				`Auto-compacting session ${session.id} (${tokens} tokens, ${session.messages.length} messages)`,
+			);
+			await this.compact(session.id);
+		}
 	}
 
 	private notifyStatus(session: Session): void {

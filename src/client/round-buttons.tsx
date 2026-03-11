@@ -145,6 +145,7 @@ export function OptionsMenu(props: {
 	onCompact: () => void;
 	onClear: () => void;
 	onBrowseFiles?: () => void;
+	onAutomations?: () => void;
 	isCompacting: boolean;
 	isClearing: boolean;
 	isLoading: boolean;
@@ -165,6 +166,15 @@ export function OptionsMenu(props: {
 					class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base min-h-[48px]"
 				>
 					Browse Files
+				</button>
+			</Show>
+			<Show when={props.onAutomations}>
+				<button
+					type="button"
+					onClick={props.onAutomations}
+					class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base min-h-[48px]"
+				>
+					Automations
 				</button>
 			</Show>
 			<button

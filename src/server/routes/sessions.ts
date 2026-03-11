@@ -120,12 +120,11 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 		{ query: projectQuery },
 	)
 
-	// Compact session (not yet implemented)
+	// Compact session context
 	.post(
 		"/:sessionId/compact",
-		async () => {
-			// TODO: Implement context compaction
-			return { ok: true };
+		async ({ params }) => {
+			return await getSessionManager().compact(params.sessionId);
 		},
 		{ query: projectQuery },
 	)
