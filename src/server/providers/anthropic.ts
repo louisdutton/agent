@@ -1,5 +1,7 @@
 // Anthropic provider implementation
 
+import { homedir } from "node:os";
+import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import type {
 	ContentPart,
@@ -13,6 +15,13 @@ import type {
 
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 const MAX_CONTEXT_TOKENS = 200_000;
+const CREDENTIALS_PATH = join(homedir(), ".claude", ".credentials.json");
+
+type Credentials = {
+	claudeAiOauth?: {
+		accessToken: string;
+	};
+};
 
 type AnthropicMessage = Anthropic.MessageParam;
 type AnthropicContent = Anthropic.ContentBlockParam;
@@ -75,20 +84,51 @@ function toAnthropicTools(tools: ToolDefinition[]): AnthropicTool[] {
 	}));
 }
 
-export function createAnthropicProvider(config: ProviderConfig = {}): Provider {
-	const apiKey = config.apiKey ?? process.env.ANTHROPIC_API_KEY;
-	if (!apiKey) {
-		throw new Error(
-			"Anthropic API key required (set ANTHROPIC_API_KEY or pass apiKey)",
-		);
+// Try to load OAuth token from Claude Code credentials
+async function loadOAuthToken(): Promise<string | null> {
+	try {
+		const file = Bun.file(CREDENTIALS_PATH);
+		if (!(await file.exists())) return null;
+		const creds = (await file.json()) as Credentials;
+		return creds.claudeAiOauth?.accessToken ?? null;
+	} catch {
+		return null;
 	}
+}
 
-	const client = new Anthropic({
-		apiKey,
-		baseURL: config.baseUrl,
-	});
-
+export function createAnthropicProvider(config: ProviderConfig = {}): Provider {
 	const model = config.model ?? DEFAULT_MODEL;
+
+	// Lazy client initialization to support async OAuth loading
+	let client: Anthropic | null = null;
+	let clientPromise: Promise<Anthropic> | null = null;
+
+	async function getClient(): Promise<Anthropic> {
+		if (client) return client;
+		if (clientPromise) return clientPromise;
+
+		clientPromise = (async () => {
+			// Try API key first
+			const apiKey = config.apiKey ?? process.env.ANTHROPIC_API_KEY;
+			if (apiKey) {
+				client = new Anthropic({ apiKey, baseURL: config.baseUrl });
+				return client;
+			}
+
+			// Fall back to OAuth token
+			const authToken = await loadOAuthToken();
+			if (authToken) {
+				client = new Anthropic({ authToken, baseURL: config.baseUrl });
+				return client;
+			}
+
+			throw new Error(
+				"Anthropic API key required (set ANTHROPIC_API_KEY or login with Claude Code)",
+			);
+		})();
+
+		return clientPromise;
+	}
 
 	return {
 		name: "anthropic",
@@ -105,6 +145,8 @@ export function createAnthropicProvider(config: ProviderConfig = {}): Provider {
 			let currentToolId: string | null = null;
 
 			try {
+				const anthropicClient = await getClient();
+
 				const streamParams: Anthropic.MessageCreateParams = {
 					model,
 					max_tokens: maxTokens,
@@ -119,7 +161,7 @@ export function createAnthropicProvider(config: ProviderConfig = {}): Provider {
 					streamParams.tools = toAnthropicTools(tools);
 				}
 
-				const stream = client.messages.stream(streamParams, {
+				const stream = anthropicClient.messages.stream(streamParams, {
 					signal: signal ?? undefined,
 				});
 
@@ -213,7 +255,8 @@ export function createAnthropicProvider(config: ProviderConfig = {}): Provider {
 
 		async countTokens(messages: Message[]): Promise<number> {
 			try {
-				const result = await client.messages.countTokens({
+				const anthropicClient = await getClient();
+				const result = await anthropicClient.messages.countTokens({
 					model,
 					messages: toAnthropicMessages(messages),
 				});
