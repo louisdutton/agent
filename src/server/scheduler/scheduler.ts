@@ -8,7 +8,11 @@ import { getSessionManager } from "../agent";
 import { matchesCron, parseCron } from "./cron";
 import type { CronJob, RunHistory, Webhook } from "./types";
 
-const AUTOMATIONS_DIR = join(homedir(), ".claude", "automations");
+const AUTOMATIONS_DIR = join(
+	process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"),
+	"agent",
+	"automations",
+);
 const JOBS_FILE = join(AUTOMATIONS_DIR, "jobs.json");
 const WEBHOOKS_FILE = join(AUTOMATIONS_DIR, "webhooks.json");
 const HISTORY_FILE = join(AUTOMATIONS_DIR, "history.json");

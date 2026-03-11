@@ -63,7 +63,12 @@ export class SessionManager {
 			});
 		this.tools = config.tools ?? createDefaultToolRegistry();
 		this.transcriptsDir =
-			config.transcriptsDir ?? join(homedir(), ".claude", "projects");
+			config.transcriptsDir ??
+			join(
+				process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"),
+				"agent",
+				"sessions",
+			);
 	}
 
 	// Get transcript directory for a project
