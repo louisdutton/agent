@@ -4,6 +4,14 @@ import { notifyClaudeError, notifyClaudeFinished } from "./notifications";
 import { navigate } from "./router";
 import type { EventItem, Tool, ToolStatus } from "./types";
 
+export type ApprovalRequest = {
+	id: string;
+	toolCallId: string;
+	toolName: string;
+	input: unknown;
+	description: string;
+};
+
 export type EventHandlers = {
 	addEvent: (event: EventItem) => void;
 	addOrUpdateToolGroup: (tool: Tool) => void;
@@ -14,6 +22,7 @@ export type EventHandlers = {
 	) => void;
 	markAllToolsComplete: () => void;
 	setStreamingContent: Setter<string>;
+	setPendingApproval: Setter<ApprovalRequest | null>;
 	projectPath: () => string;
 	getNextId: () => string;
 };
@@ -21,6 +30,7 @@ export type EventHandlers = {
 export function createEventHandlers(
 	setEvents: Setter<EventItem[]>,
 	setStreamingContent: Setter<string>,
+	setPendingApproval: Setter<ApprovalRequest | null>,
 	projectPath: () => string,
 	idCounter: { value: number },
 ): EventHandlers {
@@ -89,6 +99,7 @@ export function createEventHandlers(
 		updateToolStatus,
 		markAllToolsComplete,
 		setStreamingContent,
+		setPendingApproval,
 		projectPath,
 		getNextId,
 	};
@@ -103,12 +114,12 @@ export function getSessionNameFromEvents(messages: EventItem[]): string {
 	return "";
 }
 
-// Process streaming data (shared format for both assistant and thread)
+// Process streaming WireEvents from provider-agnostic agent
+// Also handles legacy thread format for backwards compatibility
 export function processStreamEvent(
 	parsed: Record<string, unknown>,
 	assistantContentRef: { value: string },
 	handlers: EventHandlers,
-	options: { processReplay?: boolean } = {},
 ) {
 	const {
 		addEvent,
@@ -116,117 +127,183 @@ export function processStreamEvent(
 		updateToolStatus,
 		markAllToolsComplete,
 		setStreamingContent,
+		setPendingApproval,
 		projectPath,
 		getNextId,
 	} = handlers;
 
-	// Handle streaming text
-	if (parsed.type === "stream_event" && parsed.event) {
-		const event = parsed.event as Record<string, unknown>;
-		if (
-			event.type === "content_block_delta" &&
-			(event.delta as Record<string, unknown>)?.type === "text_delta"
-		) {
-			assistantContentRef.value += (event.delta as Record<string, string>).text;
+	switch (parsed.type) {
+		// === New WireEvent format ===
+
+		// Streaming text
+		case "text":
+			assistantContentRef.value += parsed.text as string;
 			setStreamingContent(assistantContentRef.value);
-		}
-	}
+			break;
 
-	// Skip replayed messages unless explicitly processing them
-	if (parsed.isReplay && !options.processReplay) return;
+		// Text complete - finalize assistant message
+		case "text_done":
+			if (assistantContentRef.value) {
+				addEvent({
+					type: "assistant",
+					id: getNextId(),
+					content: assistantContentRef.value,
+				});
+				assistantContentRef.value = "";
+				setStreamingContent("");
+			}
+			break;
 
-	// Handle assistant messages with tool uses
-	if (parsed.type === "assistant" && parsed.message) {
-		const message = parsed.message as { content?: unknown[] };
-		if (assistantContentRef.value) {
-			addEvent({
-				type: "assistant",
-				id: getNextId(),
-				content: assistantContentRef.value,
+		// Tool use complete - add to tool group
+		case "tool_use_end":
+			addOrUpdateToolGroup({
+				toolUseId: parsed.id as string,
+				name: parsed.name as string,
+				input: (parsed.input as Record<string, unknown>) || {},
+				status: "running",
 			});
-			assistantContentRef.value = "";
-			setStreamingContent("");
-		}
+			break;
 
-		if (Array.isArray(message.content)) {
-			for (const block of message.content) {
-				const b = block as Record<string, unknown>;
-				if (b.type === "tool_use") {
-					addOrUpdateToolGroup({
-						toolUseId: b.id as string,
-						name: b.name as string,
-						input: (b.input as Record<string, unknown>) || {},
-						status: "running",
-					});
-				}
-			}
-		}
-	}
+		// Tool result - update tool status
+		case "tool_result":
+			updateToolStatus(
+				parsed.toolCallId as string,
+				parsed.isError ? "error" : "complete",
+			);
+			break;
 
-	// Handle tool results
-	if (parsed.type === "user") {
-		const message = parsed.message as { content?: unknown[] };
-		if (Array.isArray(message?.content)) {
-			for (const block of message.content) {
-				const b = block as Record<string, unknown>;
-				if (b.type === "tool_result" && b.tool_use_id) {
-					const resultImages: string[] = [];
-					if (Array.isArray(b.content)) {
-						for (const resultBlock of b.content) {
-							const rb = resultBlock as Record<string, unknown>;
-							if (rb.type === "image") {
-								const source = rb.source as Record<string, string>;
-								if (source?.type === "base64") {
-									resultImages.push(
-										`data:${source.media_type};base64,${source.data}`,
-									);
-								}
-							}
-						}
-					}
-					updateToolStatus(
-						b.tool_use_id as string,
-						b.is_error ? "error" : "complete",
-						resultImages.length > 0 ? resultImages : undefined,
-					);
-				}
-			}
-		}
-	}
-
-	// Handle result - update URL with new session ID
-	if (parsed.type === "result") {
-		if (parsed.session_id) {
+		// New session created - navigate to it
+		case "session_created":
 			navigate({
 				type: "session",
 				project: projectPath(),
-				sessionId: parsed.session_id as string,
+				sessionId: parsed.sessionId as string,
 			});
-		}
+			break;
 
-		if (assistantContentRef.value) {
-			addEvent({
-				type: "assistant",
-				id: getNextId(),
-				content: assistantContentRef.value,
-			});
-			assistantContentRef.value = "";
-			setStreamingContent("");
-		}
-
-		markAllToolsComplete();
-
-		if (parsed.subtype !== "success") {
-			const errors = parsed.errors as string[] | undefined;
-			const errorMsg = errors?.join(", ") || (parsed.subtype as string);
-			addEvent({
-				type: "error",
-				id: getNextId(),
-				message: errorMsg,
-			});
-			notifyClaudeError(errorMsg);
-		} else {
+		// Turn complete
+		case "turn_end":
+		case "done": // Legacy thread format
+			if (assistantContentRef.value) {
+				addEvent({
+					type: "assistant",
+					id: getNextId(),
+					content: assistantContentRef.value,
+				});
+				assistantContentRef.value = "";
+				setStreamingContent("");
+			}
+			markAllToolsComplete();
 			notifyClaudeFinished(assistantContentRef.value);
+			break;
+
+		// Error
+		case "error":
+			markAllToolsComplete();
+			if (parsed.error) {
+				addEvent({
+					type: "error",
+					id: getNextId(),
+					message: parsed.error as string,
+				});
+				notifyClaudeError(parsed.error as string);
+			}
+			break;
+
+		// Approval needed - tool requires user confirmation
+		case "approval_needed":
+			setPendingApproval(parsed.request as ApprovalRequest);
+			break;
+
+		// === Legacy thread format (Claude CLI output) ===
+
+		// Legacy streaming text
+		case "stream_event": {
+			const event = parsed.event as Record<string, unknown>;
+			if (
+				event?.type === "content_block_delta" &&
+				(event.delta as Record<string, unknown>)?.type === "text_delta"
+			) {
+				assistantContentRef.value += (
+					event.delta as Record<string, string>
+				).text;
+				setStreamingContent(assistantContentRef.value);
+			}
+			break;
 		}
+
+		// Legacy assistant message with tool uses
+		case "assistant": {
+			const message = parsed.message as { content?: unknown[] };
+			if (assistantContentRef.value) {
+				addEvent({
+					type: "assistant",
+					id: getNextId(),
+					content: assistantContentRef.value,
+				});
+				assistantContentRef.value = "";
+				setStreamingContent("");
+			}
+			if (Array.isArray(message?.content)) {
+				for (const block of message.content) {
+					const b = block as Record<string, unknown>;
+					if (b.type === "tool_use") {
+						addOrUpdateToolGroup({
+							toolUseId: b.id as string,
+							name: b.name as string,
+							input: (b.input as Record<string, unknown>) || {},
+							status: "running",
+						});
+					}
+				}
+			}
+			break;
+		}
+
+		// Legacy tool results
+		case "user": {
+			const message = parsed.message as { content?: unknown[] };
+			if (Array.isArray(message?.content)) {
+				for (const block of message.content) {
+					const b = block as Record<string, unknown>;
+					if (b.type === "tool_result" && b.tool_use_id) {
+						updateToolStatus(
+							b.tool_use_id as string,
+							b.is_error ? "error" : "complete",
+						);
+					}
+				}
+			}
+			break;
+		}
+
+		// Legacy result (session complete)
+		case "result":
+			if (parsed.session_id) {
+				navigate({
+					type: "session",
+					project: projectPath(),
+					sessionId: parsed.session_id as string,
+				});
+			}
+			if (assistantContentRef.value) {
+				addEvent({
+					type: "assistant",
+					id: getNextId(),
+					content: assistantContentRef.value,
+				});
+				assistantContentRef.value = "";
+				setStreamingContent("");
+			}
+			markAllToolsComplete();
+			if (parsed.subtype !== "success") {
+				const errors = parsed.errors as string[] | undefined;
+				const errorMsg = errors?.join(", ") || (parsed.subtype as string);
+				addEvent({ type: "error", id: getNextId(), message: errorMsg });
+				notifyClaudeError(errorMsg);
+			} else {
+				notifyClaudeFinished(assistantContentRef.value);
+			}
+			break;
 	}
 }

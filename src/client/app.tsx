@@ -88,6 +88,13 @@ export function App() {
 	const [streamingContent, setStreamingContent] = createSignal("");
 	const [sessionName, setSessionName] = createSignal("");
 	const [isCompacted, setIsCompacted] = createSignal(false);
+	const [pendingApproval, setPendingApproval] = createSignal<{
+		id: string;
+		toolCallId: string;
+		toolName: string;
+		input: unknown;
+		description: string;
+	} | null>(null);
 
 	// Task state (for background threads)
 	const [activeTask, setActiveTask] = createSignal<Thread | null>(null);
@@ -126,6 +133,7 @@ export function App() {
 	const eventHandlers = createEventHandlers(
 		setEvents,
 		setStreamingContent,
+		setPendingApproval,
 		projectPath,
 		idCounter,
 	);
@@ -200,29 +208,21 @@ export function App() {
 					const [parsed, err] = parseJSON(data);
 					if (err) continue;
 
-					if (parsed.type === "connected") {
-						continue;
-					}
+					// Skip connection confirmation
+					if (parsed.type === "connected") continue;
 
+					// Process event (handles text, tools, turn_end, error, etc.)
+					processStreamEvent(parsed, assistantContentRef, eventHandlers);
+
+					// Terminal events - stop consuming
+					// (turn_end = new WireEvent format, done = legacy thread format)
 					if (
-						parsed.type === "done" ||
+						parsed.type === "turn_end" ||
 						parsed.type === "error" ||
-						parsed.type === "cancelled"
+						parsed.type === "done"
 					) {
-						if (assistantContentRef.value) {
-							eventHandlers.addEvent({
-								type: "assistant",
-								id: eventHandlers.getNextId(),
-								content: assistantContentRef.value,
-							});
-							assistantContentRef.value = "";
-							setStreamingContent("");
-						}
-						eventHandlers.markAllToolsComplete();
 						return;
 					}
-
-					processStreamEvent(parsed, assistantContentRef, eventHandlers);
 				}
 			}
 		} finally {
@@ -450,6 +450,22 @@ export function App() {
 
 	const handlePlayTTS = (id: string, text: string) => {
 		playTTS(id, text, audioRefs, audioState);
+	};
+
+	// Handle tool approval/rejection
+	const handleApproval = async (approved: boolean) => {
+		const currentSessionId = sessionId();
+		if (!currentSessionId) return;
+
+		setPendingApproval(null);
+
+		try {
+			await api.sessions({ sessionId: currentSessionId }).approval.post({
+				approved,
+			});
+		} catch (err) {
+			console.error("Failed to send approval:", err);
+		}
 	};
 
 	// Auto-send after voice transcription
@@ -736,8 +752,51 @@ export function App() {
 
 			{/* Fixed floating bottom controls */}
 			<div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-3">
+				{/* Approval UI */}
+				<Show when={pendingApproval()}>
+					{(approval) => (
+						<div class="bg-muted border border-border rounded-xl px-4 py-3 shadow-lg max-w-md">
+							<div class="text-sm font-medium mb-2 flex items-center gap-2">
+								<svg
+									class="w-4 h-4 text-yellow-500"
+									fill="none"
+									stroke="currentColor"
+									viewBox="0 0 24 24"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										stroke-width="2"
+										d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+									/>
+								</svg>
+								<span>Approve {approval().toolName}?</span>
+							</div>
+							<div class="text-xs text-muted-foreground mb-3 font-mono bg-background rounded p-2 max-h-32 overflow-auto">
+								{JSON.stringify(approval().input, null, 2)}
+							</div>
+							<div class="flex gap-2 justify-end">
+								<button
+									type="button"
+									onClick={() => handleApproval(false)}
+									class="px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-background transition-colors"
+								>
+									Reject
+								</button>
+								<button
+									type="button"
+									onClick={() => handleApproval(true)}
+									class="px-3 py-1.5 text-sm rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors"
+								>
+									Approve
+								</button>
+							</div>
+						</div>
+					)}
+				</Show>
+
 				{/* Text input */}
-				<Show when={showTextInput()}>
+				<Show when={showTextInput() && !pendingApproval()}>
 					<form
 						onSubmit={(e) => {
 							e.preventDefault();

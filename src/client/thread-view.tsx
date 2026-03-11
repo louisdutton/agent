@@ -37,6 +37,7 @@ export function ThreadView(props: Props) {
 	const eventHandlers = createEventHandlers(
 		setEvents,
 		setStreamingContent,
+		() => {}, // Threads don't use approval flow
 		() => props.thread.projectPath,
 		idCounter,
 	);
@@ -87,16 +88,12 @@ export function ThreadView(props: Props) {
 							return;
 
 						case "result":
-							processStreamEvent(parsed, assistantContentRef, eventHandlers, {
-								processReplay: true,
-							});
+							processStreamEvent(parsed, assistantContentRef, eventHandlers);
 							setStatus(parsed.subtype === "success" ? "completed" : "error");
 							break;
 
 						default:
-							processStreamEvent(parsed, assistantContentRef, eventHandlers, {
-								processReplay: true,
-							});
+							processStreamEvent(parsed, assistantContentRef, eventHandlers);
 					}
 				}
 			}
