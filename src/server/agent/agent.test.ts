@@ -103,7 +103,7 @@ describe("SessionManager", () => {
 		session.abortController = new AbortController();
 
 		expect(manager.cancel(session.id)).toBe(true);
-		expect(session.status).toBe("idle");
+		expect(session.status as string).toBe("idle");
 	});
 });
 
@@ -251,8 +251,8 @@ describe("runAgentLoop", () => {
 		);
 
 		expect(approvalRequested).toBe(true);
-		expect(approvalToolCall?.name).toBe("bash");
-		expect(approvalToolCall?.input).toEqual({ command: "echo hi" });
+		expect(approvalToolCall!.name).toBe("bash");
+		expect(approvalToolCall!.input).toEqual({ command: "echo hi" });
 	});
 
 	test("handles approval rejection", async () => {
