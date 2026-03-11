@@ -194,13 +194,14 @@ function buildHeaders(authConfig: AuthConfig): Record<string, string> {
 	const headers: Record<string, string> = {
 		"Content-Type": "application/json",
 		"anthropic-version": "2023-06-01",
+		"anthropic-beta": "prompt-caching-2024-07-31",
 	};
 
 	if (authConfig.type === "apiKey") {
 		headers["x-api-key"] = authConfig.apiKey;
 	} else {
 		headers["Authorization"] = `Bearer ${authConfig.token}`;
-		headers["anthropic-beta"] = "prompt-caching-2024-07-31,oauth-2025-04-20";
+		headers["anthropic-beta"] += ",oauth-2025-04-20";
 	}
 
 	return headers;
@@ -223,12 +224,28 @@ async function* streamWithFetch(
 		messages: toAnthropicMessages(messages),
 	};
 
+	// Mark system prompt for caching (stable across turns)
 	if (systemPrompt) {
-		body.system = systemPrompt;
+		body.system = [
+			{
+				type: "text",
+				text: systemPrompt,
+				cache_control: { type: "ephemeral" },
+			},
+		];
 	}
 
+	// Mark tools for caching (stable across turns)
 	if (tools?.length) {
-		body.tools = toAnthropicTools(tools);
+		const anthropicTools = toAnthropicTools(tools);
+		// Mark last tool with cache_control (caches all preceding tools)
+		if (anthropicTools.length > 0) {
+			anthropicTools[anthropicTools.length - 1] = {
+				...anthropicTools[anthropicTools.length - 1],
+				cache_control: { type: "ephemeral" },
+			} as AnthropicTool & { cache_control: { type: string } };
+		}
+		body.tools = anthropicTools;
 	}
 
 	try {
