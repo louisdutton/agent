@@ -40,7 +40,6 @@ import {
 } from "./round-buttons";
 import { navigate, useLocation, type ViewType } from "./router";
 import { ThreadListPanel } from "./thread-list";
-import { ThreadView } from "./thread-view";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread } from "./types";
 import { parseJSON } from "./util";
@@ -249,51 +248,15 @@ export function App() {
 		await consumeStream(data as AsyncIterable<string>);
 	};
 
-	// Connect to a thread stream (with event replay)
-	const connectToThreadStream = async (threadId: string) => {
-		streamAbort?.abort();
-		streamAbort = new AbortController();
-
-		const { data, error } = await api.threads({ id: threadId }).stream.get({
-			fetch: { signal: streamAbort.signal },
-		});
-
-		if (error || !data || typeof data === "string") {
-			console.error("Failed to connect to thread stream:", error);
-			setIsLoading(false);
-			return;
-		}
-
-		await consumeStream(data as AsyncIterable<string>, { clearEvents: true });
-	};
-
 	// Handle thread selection from thread list
 	const handleSelectThread = async (thread: Thread) => {
 		setShowThreadList(false);
-
-		if (thread.type === "thread") {
-			// Background threads are transient - store in state, not URL
-			setActiveTask(thread);
-			setEvents([
-				{
-					type: "user",
-					id: "0",
-					content: thread.name,
-				},
-			]);
-
-			// Always connect to stream - it will replay buffered events
-			connectToThreadStream(thread.id);
-			navigate({ type: "task", taskId: thread.id });
-		} else {
-			// Session threads - navigate via URL (this triggers the effect below)
-			setActiveTask(null);
-			navigate({
-				type: "session",
-				project: thread.projectPath,
-				sessionId: thread.id,
-			});
-		}
+		setActiveTask(null);
+		navigate({
+			type: "session",
+			project: thread.projectPath,
+			sessionId: thread.id,
+		});
 	};
 
 	// Return to main view (thread list)
@@ -572,21 +535,6 @@ export function App() {
 		const project = projectPath();
 		return project ? project.split("/").pop() : null;
 	};
-
-	// Render ThreadView for background threads
-	const thread = activeTask();
-	if (thread?.type === "thread") {
-		return (
-			<ThreadView
-				thread={thread}
-				onBack={returnToMain}
-				onOpenFile={(path) => {
-					setFileViewerPath(path);
-					setShowFileViewer(true);
-				}}
-			/>
-		);
-	}
 
 	return (
 		<div class="h-dvh flex flex-col bg-background">
