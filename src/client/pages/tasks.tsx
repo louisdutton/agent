@@ -1,4 +1,5 @@
 import { createSignal, For, onMount, Show } from "solid-js";
+import { api } from "../api";
 import { PageLayout } from "../page-layout";
 import { navigate } from "../router";
 import { formatRelativeTime } from "../util";
@@ -39,10 +40,8 @@ export function TasksPage(props: {
 
 	const loadData = async () => {
 		try {
-			const res = await fetch("/api/projects");
-			const data = await res.json();
-
-			const projectList = (data.projects || []) as ProjectWithSessions[];
+			const { data } = await api.projects.get();
+			const projectList = (data?.projects || []) as ProjectWithSessions[];
 			setProjects(projectList);
 
 			const items: TaskItem[] = [];
