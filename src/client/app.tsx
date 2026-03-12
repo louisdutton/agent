@@ -21,6 +21,7 @@ import {
 	processStreamEvent,
 } from "./events";
 import {
+	FileBrowserModal,
 	FileViewerModal,
 	GitDiffModal,
 	GitStatusIndicator,
@@ -32,12 +33,12 @@ import { Markdown } from "./markdown";
 import { HistoryPage } from "./pages/history";
 import { SchedulesPage } from "./pages/schedules";
 import { SettingsPage } from "./pages/settings";
+import { TasksPage } from "./pages/tasks";
 import { WebhooksPage } from "./pages/webhooks";
 import {
 	MicButton,
 	OptionsMenu,
 	OptionsMenuButton,
-	ThreadsButton,
 	type VoiceStatus,
 } from "./round-buttons";
 import { navigate, useLocation, type ViewType } from "./router";
@@ -49,7 +50,6 @@ import {
 	updateActiveSession,
 } from "./session-state";
 import { SessionStatusBar } from "./session-status-bar";
-import { ThreadListPanel } from "./thread-list";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread } from "./types";
 import { initWebSocket, subscribeToNotifications } from "./ws";
@@ -74,8 +74,8 @@ export function App() {
 					return { type: "webhooks" };
 				case "history":
 					return { type: "history" };
-				case "files":
-					return { type: "files" };
+				case "tasks":
+					return { type: "tasks" };
 				case "settings":
 					return { type: "settings" };
 			}
@@ -127,7 +127,6 @@ export function App() {
 
 	// Task state (for background threads)
 	const [activeTask, setActiveTask] = createSignal<Thread | null>(null);
-	const [showThreadList, setShowThreadList] = createSignal(false);
 
 	// UI state
 	const [showMenu, setShowMenu] = createSignal(false);
@@ -266,17 +265,6 @@ export function App() {
 		}
 
 		await consumeStream(data as AsyncIterable<SSEChunk>);
-	};
-
-	// Handle thread selection from thread list
-	const handleSelectThread = async (thread: Thread) => {
-		setShowThreadList(false);
-		setActiveTask(null);
-		navigate({
-			type: "chat",
-			project: thread.projectPath,
-			sessionId: thread.id,
-		});
 	};
 
 	// Handle session selection from status bar
@@ -621,6 +609,10 @@ export function App() {
 				/>
 			</Show>
 
+			<Show when={view().type === "tasks"}>
+				<TasksPage currentSessionId={sessionId()} onMenuClick={openDrawer} />
+			</Show>
+
 			<Show when={view().type === "settings"}>
 				<SettingsPage onMenuClick={openDrawer} />
 			</Show>
@@ -680,7 +672,7 @@ export function App() {
 						<header class="flex-none px-4 py-2 border-b border-border z-20 bg-background">
 							<div class="max-w-2xl mx-auto flex items-center gap-2">
 								<HamburgerButton onClick={openDrawer} />
-								<span class="text-foreground font-medium">Home</span>
+								<span class="text-foreground font-medium">Chat</span>
 							</div>
 						</header>
 					</Show>
@@ -990,13 +982,8 @@ export function App() {
 								onClick={handleMicClick}
 							/>
 
-							{/* Threads button (main view) or Git indicator (in chat) */}
-							<Show
-								when={isInChat()}
-								fallback={
-									<ThreadsButton onClick={() => setShowThreadList(true)} />
-								}
-							>
+							{/* Git indicator (only in chat) */}
+							<Show when={isInChat()}>
 								<GitStatusIndicator
 									gitStatus={gitStatus()}
 									onClick={() => setShowDiffModal(true)}
@@ -1010,17 +997,6 @@ export function App() {
 							projectPath={projectPath()}
 							onClose={() => setShowDiffModal(false)}
 							onCommit={handleCommit}
-						/>
-					</Show>
-					<Show when={showThreadList()}>
-						<ThreadListPanel
-							currentSessionId={sessionId()}
-							onSelectThread={handleSelectThread}
-							onNewThread={(path) => {
-								setShowThreadList(false);
-								navigate({ type: "chat", project: path });
-							}}
-							onClose={() => setShowThreadList(false)}
 						/>
 					</Show>
 					<Show when={showFileBrowser()}>

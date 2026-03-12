@@ -1,7 +1,6 @@
-// Thread list - shows all project-based Claude sessions (threads)
-// These are discovered from transcript files in ~/.claude/projects/
 import { createSignal, For, onMount, Show } from "solid-js";
-import type { Thread, ThreadStatus } from "./types";
+import { PageLayout } from "../page-layout";
+import { navigate } from "../router";
 
 type SessionInfo = {
 	sessionId: string;
@@ -26,11 +25,9 @@ type ThreadItem = {
 	gitBranch?: string;
 };
 
-export function ThreadListPanel(props: {
+export function TasksPage(props: {
 	currentSessionId: string | null;
-	onSelectThread: (thread: Thread) => void;
-	onNewThread: (projectPath: string) => void;
-	onClose: () => void;
+	onMenuClick: () => void;
 }) {
 	const [threads, setThreads] = createSignal<ThreadItem[]>([]);
 	const [projects, setProjects] = createSignal<ProjectWithSessions[]>([]);
@@ -51,7 +48,6 @@ export function ThreadListPanel(props: {
 
 			const items: ThreadItem[] = [];
 
-			// Collect all sessions from all projects as threads
 			for (const project of projectList) {
 				for (const s of project.sessions || []) {
 					items.push({
@@ -65,9 +61,7 @@ export function ThreadListPanel(props: {
 				}
 			}
 
-			// Sort by timestamp, newest first
 			items.sort((a, b) => b.timestamp - a.timestamp);
-
 			setThreads(items);
 		} catch (err) {
 			console.error("Failed to load threads:", err);
@@ -81,15 +75,15 @@ export function ThreadListPanel(props: {
 	});
 
 	const handleSelectThread = (thread: ThreadItem) => {
-		props.onSelectThread({
-			id: thread.id,
-			type: "assistant",
-			projectPath: thread.projectPath,
-			projectName: thread.projectName,
-			status: "idle" as ThreadStatus,
-			name: thread.name,
-			startTime: thread.timestamp,
+		navigate({
+			type: "chat",
+			project: thread.projectPath,
+			sessionId: thread.id,
 		});
+	};
+
+	const handleNewThread = (projectPath: string) => {
+		navigate({ type: "chat", project: projectPath });
 	};
 
 	const formatTime = (timestamp: number) => {
@@ -135,36 +129,8 @@ export function ThreadListPanel(props: {
 	};
 
 	return (
-		<div class="fixed inset-0 z-50 bg-background flex flex-col">
-			{/* Header */}
-			<div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-border">
-				<button
-					type="button"
-					onClick={() => {
-						if (showProjectPicker()) {
-							setShowProjectPicker(false);
-						} else {
-							props.onClose();
-						}
-					}}
-					class="h-11 px-5 text-base rounded-xl border border-border active:bg-muted"
-				>
-					{showProjectPicker() ? "Back" : "Close"}
-				</button>
-				<h1 class="text-lg font-medium">Threads</h1>
-				<Show when={!showProjectPicker()} fallback={<div class="w-20" />}>
-					<button
-						type="button"
-						onClick={() => setShowProjectPicker(true)}
-						class="h-11 px-5 text-base rounded-xl bg-foreground text-background"
-					>
-						New
-					</button>
-				</Show>
-			</div>
-
-			{/* Content */}
-			<div class="flex-1 overflow-y-auto p-4">
+		<>
+			<PageLayout title="Tasks" onMenuClick={props.onMenuClick}>
 				<Show when={loading()}>
 					<div class="flex items-center justify-center h-32">
 						<span class="text-muted-foreground">Loading...</span>
@@ -174,15 +140,24 @@ export function ThreadListPanel(props: {
 				<Show when={!loading()}>
 					{/* Project picker for new thread */}
 					<Show when={showProjectPicker()}>
-						<div class="space-y-2 max-w-2xl mx-auto">
-							<div class="text-sm text-muted-foreground mb-4">
-								Select a project for the new thread
+						<div class="space-y-2">
+							<div class="flex items-center justify-between mb-4">
+								<span class="text-sm text-muted-foreground">
+									Select a project for the new thread
+								</span>
+								<button
+									type="button"
+									onClick={() => setShowProjectPicker(false)}
+									class="text-sm text-muted-foreground hover:text-foreground"
+								>
+									Cancel
+								</button>
 							</div>
 							<For each={projects()}>
 								{(project) => (
 									<button
 										type="button"
-										onClick={() => props.onNewThread(project.path)}
+										onClick={() => handleNewThread(project.path)}
 										class="w-full p-4 rounded-xl border border-border active:bg-muted/30 text-left"
 									>
 										<div class="font-medium">{project.name}</div>
@@ -198,15 +173,23 @@ export function ThreadListPanel(props: {
 
 					{/* Thread list */}
 					<Show when={!showProjectPicker()}>
-						<Show
-							when={threads().length > 0}
-							fallback={
-								<div class="text-center text-muted-foreground py-8">
-									<p>No threads yet</p>
-								</div>
-							}
-						>
-							<div class="space-y-2 max-w-2xl mx-auto">
+						<div class="space-y-3">
+							<button
+								type="button"
+								onClick={() => setShowProjectPicker(true)}
+								class="w-full py-2 px-4 border border-dashed border-border rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors"
+							>
+								+ New thread
+							</button>
+
+							<Show
+								when={threads().length > 0}
+								fallback={
+									<div class="text-center text-muted-foreground py-8">
+										No threads yet
+									</div>
+								}
+							>
 								<For each={threads()}>
 									{(thread) => {
 										const isCurrent = thread.id === props.currentSessionId;
@@ -255,11 +238,11 @@ export function ThreadListPanel(props: {
 										);
 									}}
 								</For>
-							</div>
-						</Show>
+							</Show>
+						</div>
 					</Show>
 				</Show>
-			</div>
+			</PageLayout>
 
 			{/* Delete confirmation dialog */}
 			<Show when={confirmDelete()}>
@@ -294,6 +277,6 @@ export function ThreadListPanel(props: {
 					</div>
 				</div>
 			</Show>
-		</div>
+		</>
 	);
 }

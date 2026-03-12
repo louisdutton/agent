@@ -12,6 +12,7 @@ export type LocationParams = {
 export type ViewType =
 	| { type: "home" }
 	| { type: "chat"; project: string; sessionId: string | null }
+	| { type: "tasks" }
 	| { type: "schedules" }
 	| { type: "webhooks" }
 	| { type: "history" }
@@ -24,6 +25,8 @@ export function getViewType(loc: LocationParams): ViewType {
 		switch (loc.page) {
 			case "schedules":
 				return { type: "schedules" };
+			case "tasks":
+				return { type: "tasks" };
 			case "webhooks":
 				return { type: "webhooks" };
 			case "history":
@@ -67,6 +70,7 @@ export type NavigateParams =
 	| { type: "home" }
 	| { type: "chat"; project: string; sessionId?: string | null }
 	| { type: "task"; taskId: string }
+	| { type: "tasks" }
 	| { type: "schedules" }
 	| { type: "webhooks" }
 	| { type: "history" }
@@ -90,6 +94,7 @@ export function navigate(params: NavigateParams) {
 	} else if (params.type === "task") {
 		url.searchParams.set("task", params.taskId);
 	} else if (
+		params.type === "tasks" ||
 		params.type === "schedules" ||
 		params.type === "webhooks" ||
 		params.type === "history" ||

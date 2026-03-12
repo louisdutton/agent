@@ -65,31 +65,6 @@ export function MicButton(props: {
 	);
 }
 
-export function ThreadsButton(props: { onClick: () => void }) {
-	return (
-		<button
-			type="button"
-			onClick={props.onClick}
-			class="w-20 h-20 rounded-full flex items-center justify-center bg-background border border-white/30 hover:bg-muted transition-colors shadow-lg"
-			title="Threads"
-		>
-			<svg
-				class="w-8 h-8 text-muted-foreground"
-				fill="none"
-				stroke="currentColor"
-				viewBox="0 0 24 24"
-			>
-				<path
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					stroke-width="2"
-					d="M4 6h16M4 12h16M4 18h16"
-				/>
-			</svg>
-		</button>
-	);
-}
-
 export function OptionsMenuButton(props: {
 	menuRef?: HTMLDivElement;
 	showMenu: boolean;
