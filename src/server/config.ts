@@ -14,12 +14,14 @@ export type AgentConfig = {
 	model: string;
 	autoApproveTools: string[]; // Tools that don't require approval (e.g., "Read", "Glob")
 	maxConcurrentSessions: number;
+	requireApproval: boolean;
 };
 
 const DEFAULT_CONFIG: AgentConfig = {
 	model: "claude-sonnet-4-20250514",
 	autoApproveTools: ["Read", "Glob", "Grep"],
 	maxConcurrentSessions: 5,
+	requireApproval: false,
 };
 
 let cachedConfig: AgentConfig | null = null;
