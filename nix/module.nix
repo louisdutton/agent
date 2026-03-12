@@ -97,7 +97,6 @@ in {
 
       environment = {
         WHISPER_URL = "http://localhost:${toString cfg.whisperPort}";
-        KOKORO_URL = "http://localhost:${toString cfg.ttsPort}";
         PORT = toString cfg.port;
       };
 
