@@ -50,7 +50,7 @@
           type = "app";
           program = toString (pkgs.writeShellScript "agent" ''
             echo "Starting Agent on :9370..."
-            ${pkgs.bun}/bin/bun serve --port 9370
+            exec ${pkgs.bun}/bin/bun serve --port 9370
           '');
         };
       };
