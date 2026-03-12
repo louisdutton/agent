@@ -1,7 +1,7 @@
 // Session management tools - allow assistant to manage active and historical sessions
 
 import { getSessionManager } from "../session-manager";
-import type { Tool, ToolResult } from "../types";
+import type { Tool, ToolContext, ToolResult } from "../types";
 
 export const listActiveSessionsTool: Tool = {
 	name: "list_active_sessions",
@@ -12,8 +12,11 @@ export const listActiveSessionsTool: Tool = {
 		properties: {},
 	},
 	requiresApproval: false,
-	execute: async (): Promise<ToolResult> => {
-		const sessions = getSessionManager().list();
+	execute: async (_input: unknown, ctx: ToolContext): Promise<ToolResult> => {
+		// Filter out the current session (assistant's own ephemeral session)
+		const sessions = getSessionManager()
+			.list()
+			.filter((s) => s.id !== ctx.sessionId);
 
 		if (sessions.length === 0) {
 			return { content: "No active sessions." };
