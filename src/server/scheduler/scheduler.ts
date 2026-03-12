@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { getSessionManager } from "../agent";
+import { getSessionManager } from "../agent/session-manager";
 import { matchesCron, parseCron } from "./cron";
 import type { CronJob, RunHistory, Webhook } from "./types";
 
@@ -200,7 +200,7 @@ async function checkJobs(): Promise<void> {
 		state.lastCheck.set(job.id, currentMinute);
 
 		// Run job in background
-		console.log(`[Scheduler] Running job: ${job.name}`);
+		console.info(`[Scheduler] Running job: ${job.name}`);
 		executeJob(job).catch((err) => {
 			console.error(`[Scheduler] Job ${job.name} failed:`, err);
 		});
@@ -223,7 +223,7 @@ export function startScheduler(): void {
 	// Also check immediately
 	checkJobs();
 
-	console.log("[Scheduler] Started");
+	console.info("[Scheduler] Started");
 }
 
 export function stopScheduler(): void {
@@ -235,7 +235,7 @@ export function stopScheduler(): void {
 		state.checkInterval = null;
 	}
 
-	console.log("[Scheduler] Stopped");
+	console.info("[Scheduler] Stopped");
 }
 
 // Job management

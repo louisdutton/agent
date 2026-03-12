@@ -112,7 +112,7 @@ export class SessionManager {
 			);
 		}
 
-		await Bun.write(path, lines.join("\n") + "\n");
+		await Bun.write(path, `${lines.join("\n")}\n`);
 	}
 
 	// Load session from transcript file
@@ -287,7 +287,7 @@ export class SessionManager {
 		// Set title from first message
 		if (!session.title) {
 			session.title =
-				message.length > 50 ? message.slice(0, 50) + "..." : message;
+				message.length > 50 ? `${message.slice(0, 50)}...` : message;
 		}
 
 		this.notifyStatus(session);
@@ -408,7 +408,7 @@ export class SessionManager {
 			// Use context-injected prompt if this is a spawned task
 			const systemPrompt = session.context?.systemPrompt
 				? await this.loadSystemPrompt(session.projectPath).then(
-						(base) => `${base}\n\n${session.context!.systemPrompt}`,
+						(base) => `${base}\n\n${session.context?.systemPrompt}`,
 					)
 				: await this.loadSystemPrompt(session.projectPath);
 
@@ -585,9 +585,6 @@ export class SessionManager {
 		const threshold = this.provider.maxContextTokens * 0.7; // 70% of max
 
 		if (tokens > threshold && session.messages.length >= 6) {
-			console.log(
-				`Auto-compacting session ${session.id} (${tokens} tokens, ${session.messages.length} messages)`,
-			);
 			await this.compact(session.id);
 		}
 	}
@@ -597,8 +594,10 @@ export class SessionManager {
 		session: Session,
 		status: "completed" | "error",
 	): Promise<void> {
-		const { getAssistantManager, extractLearnings, generateOutcomeSummary } =
-			await import("../assistant");
+		const { getAssistantManager } = await import("../assistant/assistant");
+		const { extractLearnings, generateOutcomeSummary } = await import(
+			"../assistant/context"
+		);
 
 		const assistant = getAssistantManager();
 

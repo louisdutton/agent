@@ -211,9 +211,11 @@ export function AutomationsPanel(props: {
 													{job.scheduleDescription}
 												</div>
 												<Show when={job.nextRun}>
-													<div class="text-xs text-muted-foreground">
-														Next: {formatDate(new Date(job.nextRun!).getTime())}
-													</div>
+													{(nextRun) => (
+														<div class="text-xs text-muted-foreground">
+															Next: {formatDate(new Date(nextRun()).getTime())}
+														</div>
+													)}
 												</Show>
 											</div>
 											<div class="flex items-center gap-1">
@@ -370,8 +372,9 @@ export function AutomationsPanel(props: {
 												<div class="text-xs text-muted-foreground">
 													{webhook.triggerCount} triggers
 													<Show when={webhook.lastTrigger}>
-														{" "}
-														· Last: {formatRelative(webhook.lastTrigger!)}
+														{(lastTrigger) => (
+															<> · Last: {formatRelative(lastTrigger())}</>
+														)}
 													</Show>
 												</div>
 											</div>
@@ -605,8 +608,8 @@ function JobForm(props: {
 			onSubmit={handleSubmit}
 			class="border border-border rounded-lg p-3 space-y-3"
 		>
-			<div>
-				<label class="block text-xs text-muted-foreground mb-1">Name</label>
+			<label class="block">
+				<span class="block text-xs text-muted-foreground mb-1">Name</span>
 				<input
 					type="text"
 					value={name()}
@@ -615,10 +618,10 @@ function JobForm(props: {
 					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background"
 					required
 				/>
-			</div>
+			</label>
 
 			<div>
-				<label class="block text-xs text-muted-foreground mb-1">Schedule</label>
+				<span class="block text-xs text-muted-foreground mb-1">Schedule</span>
 				<div class="flex flex-wrap gap-1 mb-2">
 					<For each={presets}>
 						{(preset) => (
@@ -632,7 +635,11 @@ function JobForm(props: {
 						)}
 					</For>
 				</div>
+				<label class="sr-only" for="schedule-input">
+					Schedule cron expression
+				</label>
 				<input
+					id="schedule-input"
 					type="text"
 					value={schedule()}
 					onInput={(e) => setSchedule(e.currentTarget.value)}
@@ -642,8 +649,8 @@ function JobForm(props: {
 				/>
 			</div>
 
-			<div>
-				<label class="block text-xs text-muted-foreground mb-1">Prompt</label>
+			<label class="block">
+				<span class="block text-xs text-muted-foreground mb-1">Prompt</span>
 				<textarea
 					value={prompt()}
 					onInput={(e) => setPrompt(e.currentTarget.value)}
@@ -651,10 +658,10 @@ function JobForm(props: {
 					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background min-h-[80px]"
 					required
 				/>
-			</div>
+			</label>
 
-			<div>
-				<label class="block text-xs text-muted-foreground mb-1">Project</label>
+			<label class="block">
+				<span class="block text-xs text-muted-foreground mb-1">Project</span>
 				<input
 					type="text"
 					value={project()}
@@ -662,7 +669,7 @@ function JobForm(props: {
 					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background font-mono"
 					required
 				/>
-			</div>
+			</label>
 
 			<Show when={error()}>
 				<div class="text-xs text-red-500">{error()}</div>
@@ -749,8 +756,8 @@ function WebhookForm(props: {
 			onSubmit={handleSubmit}
 			class="border border-border rounded-lg p-3 space-y-3"
 		>
-			<div>
-				<label class="block text-xs text-muted-foreground mb-1">Name</label>
+			<label class="block">
+				<span class="block text-xs text-muted-foreground mb-1">Name</span>
 				<input
 					type="text"
 					value={name()}
@@ -759,12 +766,12 @@ function WebhookForm(props: {
 					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background"
 					required
 				/>
-			</div>
+			</label>
 
-			<div>
-				<label class="block text-xs text-muted-foreground mb-1">
+			<label class="block">
+				<span class="block text-xs text-muted-foreground mb-1">
 					Prompt template
-				</label>
+				</span>
 				<div class="text-xs text-muted-foreground mb-1">
 					Use {"{{payload}}"} to include the webhook payload
 				</div>
@@ -774,10 +781,10 @@ function WebhookForm(props: {
 					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background min-h-[100px] font-mono"
 					required
 				/>
-			</div>
+			</label>
 
-			<div>
-				<label class="block text-xs text-muted-foreground mb-1">Project</label>
+			<label class="block">
+				<span class="block text-xs text-muted-foreground mb-1">Project</span>
 				<input
 					type="text"
 					value={project()}
@@ -785,7 +792,7 @@ function WebhookForm(props: {
 					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background font-mono"
 					required
 				/>
-			</div>
+			</label>
 
 			<Show when={error()}>
 				<div class="text-xs text-red-500">{error()}</div>

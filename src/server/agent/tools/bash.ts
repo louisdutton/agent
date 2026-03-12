@@ -50,12 +50,12 @@ export const bashTool: Tool = {
 
 			let output = stdout;
 			if (stderr) {
-				output += (output ? "\n" : "") + `stderr:\n${stderr}`;
+				output += `${output ? "\n" : ""}stderr:\n${stderr}`;
 			}
 
 			// Truncate if too long
 			if (output.length > MAX_OUTPUT) {
-				output = output.slice(0, MAX_OUTPUT) + "\n... (truncated)";
+				output = `${output.slice(0, MAX_OUTPUT)}\n... (truncated)`;
 			}
 
 			if (exitCode !== 0) {

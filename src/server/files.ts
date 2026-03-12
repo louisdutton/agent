@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
-import { getSessionManager } from "./agent";
+import { getSessionManager } from "./agent/session-manager";
 
 export const PROJECTS_DIR = join(homedir(), "projects");
 

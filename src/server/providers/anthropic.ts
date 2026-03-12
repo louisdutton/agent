@@ -200,7 +200,7 @@ function buildHeaders(authConfig: AuthConfig): Record<string, string> {
 	if (authConfig.type === "apiKey") {
 		headers["x-api-key"] = authConfig.apiKey;
 	} else {
-		headers["Authorization"] = `Bearer ${authConfig.token}`;
+		headers.Authorization = `Bearer ${authConfig.token}`;
 		headers["anthropic-beta"] += ",oauth-2025-04-20";
 	}
 

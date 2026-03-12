@@ -1,16 +1,15 @@
 // Automation routes - cron jobs and webhooks
 
 import { Elysia, t } from "elysia";
+import { describeCron, getNextRun } from "../scheduler/cron";
 import {
 	createJob,
 	createWebhook,
 	deleteJob,
 	deleteWebhook,
-	describeCron,
 	getHistory,
 	getHistoryForAutomation,
 	getJob,
-	getNextRun,
 	getWebhook,
 	getWebhookBySecret,
 	listJobs,
@@ -19,7 +18,7 @@ import {
 	triggerWebhook,
 	updateJob,
 	updateWebhook,
-} from "../scheduler";
+} from "../scheduler/scheduler";
 
 const cronJobSchema = t.Object({
 	name: t.String(),

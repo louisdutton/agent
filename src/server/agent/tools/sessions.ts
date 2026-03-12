@@ -145,7 +145,7 @@ export const viewSessionTool: Tool = {
 
 			// Truncate very long messages
 			const truncated =
-				content.length > 2000 ? content.slice(0, 2000) + "..." : content;
+				content.length > 2000 ? `${content.slice(0, 2000)}...` : content;
 
 			return `[${i + 1}] ${m.role.toUpperCase()}:\n${truncated}`;
 		});

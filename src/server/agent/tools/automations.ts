@@ -1,18 +1,17 @@
 // Automation management tools - allow assistant to manage cron jobs and webhooks
 
+import { describeCron, getNextRun } from "../../scheduler/cron";
 import {
 	createJob,
 	createWebhook,
 	deleteJob,
 	deleteWebhook,
-	describeCron,
-	getNextRun,
 	listJobs,
 	listWebhooks,
 	runJobNow,
 	updateJob,
 	updateWebhook,
-} from "../../scheduler";
+} from "../../scheduler/scheduler";
 import type { Tool, ToolResult } from "../types";
 
 export const listAutomationsTool: Tool = {

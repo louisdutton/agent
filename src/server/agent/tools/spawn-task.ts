@@ -1,6 +1,6 @@
 // Spawn task tool - allows assistant to create new tasks with context
 
-import { getAssistantManager } from "../../assistant";
+import { getAssistantManager } from "../../assistant/assistant";
 import { getSessionManager } from "../session-manager";
 import type { Tool, ToolContext, ToolResult } from "../types";
 

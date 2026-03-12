@@ -1,7 +1,7 @@
 // Session routes - uses new agent module with direct API and persistence
 
 import { Elysia, t } from "elysia";
-import { getSessionManager } from "../agent";
+import { getSessionManager } from "../agent/session-manager";
 import { subscriptionToGenerator } from "../util";
 import type { NotificationEvent, WireEvent } from "../wire/types";
 
@@ -31,9 +31,12 @@ async function* notificationEvents(): AsyncGenerator<NotificationEvent> {
 	try {
 		while (true) {
 			if (queue.length > 0) {
-				yield queue.shift()!;
+				const item = queue.shift();
+				if (item !== undefined) yield item;
 			} else {
-				await new Promise<void>((r) => (resolve = r));
+				await new Promise<void>((r) => {
+					resolve = r;
+				});
 			}
 		}
 	} finally {

@@ -78,7 +78,7 @@ export class MemoryStore {
 		// Filter by tags (any match)
 		if (options.tags?.length) {
 			results = results.filter((e) =>
-				options.tags!.some((t) => e.tags?.includes(t)),
+				options.tags?.some((t) => e.tags?.includes(t)),
 			);
 		}
 
@@ -123,13 +123,13 @@ export class MemoryStore {
 
 	private async persist(entry: MemoryEntry): Promise<void> {
 		await mkdir(dirname(MEMORY_PATH), { recursive: true });
-		await appendFile(MEMORY_PATH, JSON.stringify(entry) + "\n");
+		await appendFile(MEMORY_PATH, `${JSON.stringify(entry)}\n`);
 	}
 
 	private async rewriteAll(): Promise<void> {
 		await mkdir(dirname(MEMORY_PATH), { recursive: true });
 		const content = this.entries.map((e) => JSON.stringify(e)).join("\n");
-		await Bun.write(MEMORY_PATH, content ? content + "\n" : "");
+		await Bun.write(MEMORY_PATH, content ? `${content}\n` : "");
 	}
 }
 

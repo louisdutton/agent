@@ -756,10 +756,10 @@ function CreateBranchDialog(props: {
 				<h3 class="text-xl font-medium mb-6">Create Branch</h3>
 
 				<div class="space-y-4">
-					<div>
-						<label class="block text-sm text-muted-foreground mb-2">
+					<label class="block">
+						<span class="block text-sm text-muted-foreground mb-2">
 							Branch name
-						</label>
+						</span>
 						<input
 							type="text"
 							value={name()}
@@ -768,12 +768,12 @@ function CreateBranchDialog(props: {
 							placeholder="feature/my-feature"
 							autofocus
 						/>
-					</div>
+					</label>
 
-					<div>
-						<label class="block text-sm text-muted-foreground mb-2">
+					<label class="block">
+						<span class="block text-sm text-muted-foreground mb-2">
 							Start from (optional)
-						</label>
+						</span>
 						<input
 							type="text"
 							value={startPoint()}
@@ -781,7 +781,7 @@ function CreateBranchDialog(props: {
 							class="w-full px-4 py-3 bg-muted border border-border rounded-xl text-base"
 							placeholder="main, commit hash, or tag"
 						/>
-					</div>
+					</label>
 				</div>
 
 				<div class="flex items-center gap-3 mt-6">
@@ -1158,12 +1158,14 @@ export function GitPanel(props: { projectPath: string; onClose: () => void }) {
 			<div class="flex-1 overflow-hidden">
 				{/* Commit detail view */}
 				<Show when={selectedCommit()}>
-					<CommitDetail
-						hash={selectedCommit()!}
-						projectPath={props.projectPath}
-						onClose={() => setSelectedCommit(null)}
-						onAction={handleCommitAction}
-					/>
+					{(hash) => (
+						<CommitDetail
+							hash={hash()}
+							projectPath={props.projectPath}
+							onClose={() => setSelectedCommit(null)}
+							onAction={handleCommitAction}
+						/>
+					)}
 				</Show>
 
 				{/* Log tab */}

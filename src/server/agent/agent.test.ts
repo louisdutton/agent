@@ -12,7 +12,7 @@ import { createDefaultToolRegistry } from "./tools";
 import type { Session, ToolCall } from "./types";
 
 // Test fixtures
-const TEST_DIR = join(tmpdir(), "agent-test-" + Date.now());
+const TEST_DIR = join(tmpdir(), `agent-test-${Date.now()}`);
 
 beforeEach(async () => {
 	await mkdir(TEST_DIR, { recursive: true });
@@ -234,7 +234,7 @@ describe("runAgentLoop", () => {
 		const emit = (e: WireEvent) => events.push(e);
 
 		let approvalRequested = false;
-		let approvalToolCall: ToolCall | null = null;
+		let approvalToolCall: ToolCall | undefined;
 		const requestApproval = async (toolCall: ToolCall) => {
 			approvalRequested = true;
 			approvalToolCall = toolCall;
@@ -251,8 +251,8 @@ describe("runAgentLoop", () => {
 		);
 
 		expect(approvalRequested).toBe(true);
-		expect(approvalToolCall!.name).toBe("bash");
-		expect(approvalToolCall!.input).toEqual({ command: "echo hi" });
+		expect(approvalToolCall?.name).toBe("bash");
+		expect(approvalToolCall?.input).toEqual({ command: "echo hi" });
 	});
 
 	test("handles approval rejection", async () => {
@@ -410,25 +410,25 @@ describe("Tools", () => {
 		const tools = createDefaultToolRegistry();
 		const readTool = tools.get("read");
 
-		const result = await readTool!.execute(
+		const result = await readTool?.execute(
 			{ path: testFile },
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.content).toContain("Hello, world!");
-		expect(result.isError).toBeFalsy();
+		expect(result?.content).toContain("Hello, world!");
+		expect(result?.isError).toBeFalsy();
 	});
 
 	test("read tool handles missing file", async () => {
 		const tools = createDefaultToolRegistry();
 		const readTool = tools.get("read");
 
-		const result = await readTool!.execute(
+		const result = await readTool?.execute(
 			{ path: join(TEST_DIR, "nonexistent.txt") },
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.isError).toBe(true);
+		expect(result?.isError).toBe(true);
 	});
 
 	test("write tool creates file", async () => {
@@ -436,12 +436,12 @@ describe("Tools", () => {
 		const writeTool = tools.get("write");
 
 		const testFile = join(TEST_DIR, "output.txt");
-		const result = await writeTool!.execute(
+		const result = await writeTool?.execute(
 			{ path: testFile, content: "Test content" },
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.isError).toBeFalsy();
+		expect(result?.isError).toBeFalsy();
 
 		const content = await Bun.file(testFile).text();
 		expect(content).toBe("Test content");
@@ -456,14 +456,14 @@ describe("Tools", () => {
 		const tools = createDefaultToolRegistry();
 		const globTool = tools.get("glob");
 
-		const result = await globTool!.execute(
+		const result = await globTool?.execute(
 			{ pattern: "*.ts" },
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.content).toContain("a.ts");
-		expect(result.content).toContain("b.ts");
-		expect(result.content).not.toContain("c.js");
+		expect(result?.content).toContain("a.ts");
+		expect(result?.content).toContain("b.ts");
+		expect(result?.content).not.toContain("c.js");
 	});
 
 	test("grep tool searches content", async () => {
@@ -475,42 +475,42 @@ describe("Tools", () => {
 		const tools = createDefaultToolRegistry();
 		const grepTool = tools.get("grep");
 
-		const result = await grepTool!.execute(
+		const result = await grepTool?.execute(
 			{ pattern: "hello" },
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.content).toContain("search.txt");
+		expect(result?.content).toContain("search.txt");
 	});
 
 	test("bash tool executes command", async () => {
 		const tools = createDefaultToolRegistry();
 		const bashTool = tools.get("bash");
 
-		const result = await bashTool!.execute(
+		const result = await bashTool?.execute(
 			{ command: "echo 'test output'" },
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.content).toContain("test output");
-		expect(result.isError).toBeFalsy();
+		expect(result?.content).toContain("test output");
+		expect(result?.isError).toBeFalsy();
 	});
 
 	test("bash tool requires approval", () => {
 		const tools = createDefaultToolRegistry();
 		const bashTool = tools.get("bash");
 
-		expect(bashTool!.requiresApproval).toBe(true);
+		expect(bashTool?.requiresApproval).toBe(true);
 	});
 
 	test("read/write/glob/grep/web_search don't require approval", () => {
 		const tools = createDefaultToolRegistry();
 
-		expect(tools.get("read")!.requiresApproval).toBe(false);
-		expect(tools.get("write")!.requiresApproval).toBe(false);
-		expect(tools.get("glob")!.requiresApproval).toBe(false);
-		expect(tools.get("grep")!.requiresApproval).toBe(false);
-		expect(tools.get("web_search")!.requiresApproval).toBe(false);
+		expect(tools.get("read")?.requiresApproval).toBe(false);
+		expect(tools.get("write")?.requiresApproval).toBe(false);
+		expect(tools.get("glob")?.requiresApproval).toBe(false);
+		expect(tools.get("grep")?.requiresApproval).toBe(false);
+		expect(tools.get("web_search")?.requiresApproval).toBe(false);
 	});
 
 	test("web_search tool is registered", () => {
@@ -518,34 +518,34 @@ describe("Tools", () => {
 		const webSearch = tools.get("web_search");
 
 		expect(webSearch).toBeDefined();
-		expect(webSearch!.name).toBe("web_search");
-		expect(webSearch!.description).toContain("DuckDuckGo");
+		expect(webSearch?.name).toBe("web_search");
+		expect(webSearch?.description).toContain("DuckDuckGo");
 	});
 
 	test("web_search rejects empty query", async () => {
 		const tools = createDefaultToolRegistry();
 		const webSearch = tools.get("web_search");
 
-		const result = await webSearch!.execute(
+		const result = await webSearch?.execute(
 			{ query: "" },
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.isError).toBe(true);
-		expect(result.content).toContain("Missing");
+		expect(result?.isError).toBe(true);
+		expect(result?.content).toContain("Missing");
 	});
 
 	test("web_search rejects missing query", async () => {
 		const tools = createDefaultToolRegistry();
 		const webSearch = tools.get("web_search");
 
-		const result = await webSearch!.execute(
+		const result = await webSearch?.execute(
 			{},
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.isError).toBe(true);
-		expect(result.content).toContain("Missing");
+		expect(result?.isError).toBe(true);
+		expect(result?.content).toContain("Missing");
 	});
 
 	test("web_search clamps num to valid range", async () => {
@@ -553,20 +553,21 @@ describe("Tools", () => {
 		const webSearch = tools.get("web_search");
 
 		// This will fail if ddgr isn't installed, but tests the parameter handling
-		const result = await webSearch!.execute(
+		const result = await webSearch?.execute(
 			{ query: "test", num: 100 }, // Should clamp to 25
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
 		// Either succeeds with results or fails because ddgr not installed
 		// Both are valid - we're testing it doesn't crash with invalid num
-		expect(result.content).toBeDefined();
+		expect(result?.content).toBeDefined();
 	});
 });
 
 describe("Session Tools", () => {
 	test("list_active_sessions returns empty when no sessions", async () => {
-		const manager = new SessionManager({
+		// Initialize manager for side effects
+		new SessionManager({
 			provider: mockProvider,
 			transcriptsDir: TEST_DIR,
 		});
@@ -575,13 +576,13 @@ describe("Session Tools", () => {
 		const listTool = tools.get("list_active_sessions");
 
 		// Note: This uses global singleton, so may have sessions from other tests
-		const result = await listTool!.execute(
+		const result = await listTool?.execute(
 			{},
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.isError).toBeFalsy();
-		expect(result.content).toBeDefined();
+		expect(result?.isError).toBeFalsy();
+		expect(result?.content).toBeDefined();
 	});
 
 	test("list_active_sessions shows created sessions", async () => {
@@ -594,80 +595,80 @@ describe("Session Tools", () => {
 		const tools = createDefaultToolRegistry();
 		const listTool = tools.get("list_active_sessions");
 
-		const result = await listTool!.execute(
+		const result = await listTool?.execute(
 			{},
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.isError).toBeFalsy();
+		expect(result?.isError).toBeFalsy();
 		// Should contain session info (may be JSON array or "No active sessions")
-		expect(result.content).toBeDefined();
+		expect(result?.content).toBeDefined();
 	});
 
 	test("list_session_history returns empty for new project", async () => {
 		const tools = createDefaultToolRegistry();
 		const listTool = tools.get("list_session_history");
 
-		const result = await listTool!.execute(
+		const result = await listTool?.execute(
 			{ project: TEST_DIR },
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.isError).toBeFalsy();
-		expect(result.content).toContain("No sessions found");
+		expect(result?.isError).toBeFalsy();
+		expect(result?.content).toContain("No sessions found");
 	});
 
 	test("view_session returns error for nonexistent session", async () => {
 		const tools = createDefaultToolRegistry();
 		const viewTool = tools.get("view_session");
 
-		const result = await viewTool!.execute(
+		const result = await viewTool?.execute(
 			{ sessionId: "nonexistent-id", project: TEST_DIR },
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.isError).toBe(true);
-		expect(result.content).toContain("not found");
+		expect(result?.isError).toBe(true);
+		expect(result?.content).toContain("not found");
 	});
 
 	test("cancel_session returns error for nonexistent session", async () => {
 		const tools = createDefaultToolRegistry();
 		const cancelTool = tools.get("cancel_session");
 
-		const result = await cancelTool!.execute(
+		const result = await cancelTool?.execute(
 			{ sessionId: "nonexistent-id" },
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.isError).toBe(true);
-		expect(result.content).toContain("not found");
+		expect(result?.isError).toBe(true);
+		expect(result?.content).toContain("not found");
 	});
 
 	test("delete_session succeeds even for nonexistent session", async () => {
 		const tools = createDefaultToolRegistry();
 		const deleteTool = tools.get("delete_session");
 
-		const result = await deleteTool!.execute(
+		const result = await deleteTool?.execute(
 			{ sessionId: "nonexistent-id", project: TEST_DIR },
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
 		// Delete is idempotent - succeeds even if session doesn't exist
-		expect(result.isError).toBeFalsy();
-		expect(result.content).toContain("deleted");
+		expect(result?.isError).toBeFalsy();
+		expect(result?.content).toContain("deleted");
 	});
 
 	test("compact_session returns error for nonexistent session", async () => {
 		const tools = createDefaultToolRegistry();
 		const compactTool = tools.get("compact_session");
 
-		const result = await compactTool!.execute(
+		const result = await compactTool?.execute(
 			{ sessionId: "nonexistent-id" },
 			{ workDir: TEST_DIR, sessionId: "test" },
 		);
 
-		expect(result.isError).toBe(true);
-		expect(result.content).toContain("not found");
+		expect(result?.isError).toBe(true);
+		expect(result?.content).toContain("not found");
 	});
 
 	test("session tools are registered", () => {
@@ -685,13 +686,13 @@ describe("Session Tools", () => {
 		const tools = createDefaultToolRegistry();
 
 		// Read-only tools don't need approval
-		expect(tools.get("list_active_sessions")!.requiresApproval).toBe(false);
-		expect(tools.get("list_session_history")!.requiresApproval).toBe(false);
-		expect(tools.get("view_session")!.requiresApproval).toBe(false);
-		expect(tools.get("compact_session")!.requiresApproval).toBe(false);
+		expect(tools.get("list_active_sessions")?.requiresApproval).toBe(false);
+		expect(tools.get("list_session_history")?.requiresApproval).toBe(false);
+		expect(tools.get("view_session")?.requiresApproval).toBe(false);
+		expect(tools.get("compact_session")?.requiresApproval).toBe(false);
 
 		// Destructive tools need approval
-		expect(tools.get("cancel_session")!.requiresApproval).toBe(true);
-		expect(tools.get("delete_session")!.requiresApproval).toBe(true);
+		expect(tools.get("cancel_session")?.requiresApproval).toBe(true);
+		expect(tools.get("delete_session")?.requiresApproval).toBe(true);
 	});
 });

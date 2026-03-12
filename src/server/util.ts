@@ -43,9 +43,12 @@ export async function* subscriptionToGenerator<T>(
 	try {
 		while (!done || queue.length > 0) {
 			if (queue.length > 0) {
-				yield queue.shift()!;
+				const item = queue.shift();
+				if (item !== undefined) yield item;
 			} else {
-				await new Promise<void>((r) => (resolve = r));
+				await new Promise<void>((r) => {
+					resolve = r;
+				});
 			}
 		}
 	} finally {

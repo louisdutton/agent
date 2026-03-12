@@ -204,8 +204,8 @@ export function App() {
 		try {
 			for await (const chunk of stream) {
 				// Eden returns { data: {...} } for SSE events (already parsed)
+				if (!chunk.data || chunk.data === "[DONE]") continue;
 				const parsed = chunk.data as Record<string, unknown>;
-				if (!parsed || parsed === "[DONE]") continue;
 
 				// Skip connection confirmation
 				if (parsed.type === "connected") continue;

@@ -1,4 +1,4 @@
-import { parseArgs } from "util";
+import { parseArgs } from "node:util";
 import html from "./index.html";
 import { app as elysiaApp } from "./server/app";
 

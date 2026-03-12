@@ -24,7 +24,7 @@
     <script type="module" src="./client/client.tsx"></script>
     <script>
       navigator.serviceWorker?.register("/sw.js").then(
-        (r) => console.log("SW registered", r.scope),
+        (r) => console.info("SW registered", r.scope),
         (e) => console.error("SW failed", e)
       );
     </script>

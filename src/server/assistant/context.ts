@@ -100,12 +100,12 @@ export function generateOutcomeSummary(
 ): string {
 	const statusText = status === "completed" ? "completed" : "failed";
 	const truncatedPrompt =
-		taskPrompt.length > 100 ? taskPrompt.slice(0, 100) + "..." : taskPrompt;
+		taskPrompt.length > 100 ? `${taskPrompt.slice(0, 100)}...` : taskPrompt;
 
 	if (finalMessage) {
 		const truncatedResult =
 			finalMessage.length > 200
-				? finalMessage.slice(0, 200) + "..."
+				? `${finalMessage.slice(0, 200)}...`
 				: finalMessage;
 		return `Task "${truncatedPrompt}" ${statusText}. Result: ${truncatedResult}`;
 	}

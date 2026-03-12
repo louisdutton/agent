@@ -22,7 +22,7 @@ import {
 	stashPop,
 	stashSave,
 	switchBranch,
-} from "../git";
+} from "../git/git";
 
 const projectQuery = t.Object({ project: t.String() });
 

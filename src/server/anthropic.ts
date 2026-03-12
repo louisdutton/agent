@@ -49,7 +49,7 @@ function buildHeaders(auth: AuthConfig): Record<string, string> {
 	if (auth.type === "apiKey") {
 		headers["x-api-key"] = auth.apiKey;
 	} else {
-		headers["Authorization"] = `Bearer ${auth.token}`;
+		headers.Authorization = `Bearer ${auth.token}`;
 		headers["anthropic-beta"] = "oauth-2025-04-20";
 	}
 
