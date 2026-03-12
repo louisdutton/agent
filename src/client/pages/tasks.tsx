@@ -16,7 +16,7 @@ type ProjectWithSessions = {
 	sessions: SessionInfo[];
 };
 
-type ThreadItem = {
+type TaskItem = {
 	id: string;
 	name: string;
 	projectPath: string;
@@ -29,14 +29,12 @@ export function TasksPage(props: {
 	currentSessionId: string | null;
 	onMenuClick: () => void;
 }) {
-	const [threads, setThreads] = createSignal<ThreadItem[]>([]);
+	const [tasks, setTasks] = createSignal<TaskItem[]>([]);
 	const [projects, setProjects] = createSignal<ProjectWithSessions[]>([]);
 	const [loading, setLoading] = createSignal(true);
 	const [showProjectPicker, setShowProjectPicker] = createSignal(false);
 	const [deleting, setDeleting] = createSignal<string | null>(null);
-	const [confirmDelete, setConfirmDelete] = createSignal<ThreadItem | null>(
-		null,
-	);
+	const [confirmDelete, setConfirmDelete] = createSignal<TaskItem | null>(null);
 
 	const loadData = async () => {
 		try {
@@ -46,7 +44,7 @@ export function TasksPage(props: {
 			const projectList = (data.projects || []) as ProjectWithSessions[];
 			setProjects(projectList);
 
-			const items: ThreadItem[] = [];
+			const items: TaskItem[] = [];
 
 			for (const project of projectList) {
 				for (const s of project.sessions || []) {
@@ -62,9 +60,9 @@ export function TasksPage(props: {
 			}
 
 			items.sort((a, b) => b.timestamp - a.timestamp);
-			setThreads(items);
+			setTasks(items);
 		} catch (err) {
-			console.error("Failed to load threads:", err);
+			console.error("Failed to load tasks:", err);
 		} finally {
 			setLoading(false);
 		}
@@ -74,15 +72,15 @@ export function TasksPage(props: {
 		loadData();
 	});
 
-	const handleSelectThread = (thread: ThreadItem) => {
+	const handleSelectTask = (task: TaskItem) => {
 		navigate({
 			type: "chat",
-			project: thread.projectPath,
-			sessionId: thread.id,
+			project: task.projectPath,
+			sessionId: task.id,
 		});
 	};
 
-	const handleNewThread = (projectPath: string) => {
+	const handleNewTask = (projectPath: string) => {
 		navigate({ type: "chat", project: projectPath });
 	};
 
@@ -102,27 +100,27 @@ export function TasksPage(props: {
 	const truncate = (text: string, len = 50) =>
 		text.length > len ? `${text.slice(0, len)}...` : text;
 
-	const handleDeleteClick = (e: Event, thread: ThreadItem) => {
+	const handleDeleteClick = (e: Event, task: TaskItem) => {
 		e.stopPropagation();
-		setConfirmDelete(thread);
+		setConfirmDelete(task);
 	};
 
 	const handleConfirmDelete = async () => {
-		const thread = confirmDelete();
-		if (!thread || deleting()) return;
+		const task = confirmDelete();
+		if (!task || deleting()) return;
 
-		setDeleting(thread.id);
+		setDeleting(task.id);
 		setConfirmDelete(null);
 		try {
 			const res = await fetch(
-				`/api/sessions/${thread.id}?project=${encodeURIComponent(thread.projectPath)}`,
+				`/api/sessions/${task.id}?project=${encodeURIComponent(task.projectPath)}`,
 				{ method: "DELETE" },
 			);
 			if (res.ok) {
-				setThreads(threads().filter((t) => t.id !== thread.id));
+				setTasks(tasks().filter((t) => t.id !== task.id));
 			}
 		} catch (err) {
-			console.error("Failed to delete thread:", err);
+			console.error("Failed to delete task:", err);
 		} finally {
 			setDeleting(null);
 		}
@@ -138,12 +136,12 @@ export function TasksPage(props: {
 				</Show>
 
 				<Show when={!loading()}>
-					{/* Project picker for new thread */}
+					{/* Project picker for new task */}
 					<Show when={showProjectPicker()}>
 						<div class="space-y-2">
 							<div class="flex items-center justify-between mb-4">
 								<span class="text-sm text-muted-foreground">
-									Select a project for the new thread
+									Select a project for the new task
 								</span>
 								<button
 									type="button"
@@ -157,12 +155,12 @@ export function TasksPage(props: {
 								{(project) => (
 									<button
 										type="button"
-										onClick={() => handleNewThread(project.path)}
+										onClick={() => handleNewTask(project.path)}
 										class="w-full p-4 rounded-xl border border-border active:bg-muted/30 text-left"
 									>
 										<div class="font-medium">{project.name}</div>
 										<div class="text-sm text-muted-foreground mt-1">
-											{project.sessions.length} thread
+											{project.sessions.length} task
 											{project.sessions.length !== 1 ? "s" : ""}
 										</div>
 									</button>
@@ -171,7 +169,7 @@ export function TasksPage(props: {
 						</div>
 					</Show>
 
-					{/* Thread list */}
+					{/* Task list */}
 					<Show when={!showProjectPicker()}>
 						<div class="space-y-3">
 							<button
@@ -179,23 +177,23 @@ export function TasksPage(props: {
 								onClick={() => setShowProjectPicker(true)}
 								class="w-full py-2 px-4 border border-dashed border-border rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors"
 							>
-								+ New thread
+								+ New task
 							</button>
 
 							<Show
-								when={threads().length > 0}
+								when={tasks().length > 0}
 								fallback={
 									<div class="text-center text-muted-foreground py-8">
-										No threads yet
+										No tasks yet
 									</div>
 								}
 							>
-								<For each={threads()}>
-									{(thread) => {
-										const isCurrent = thread.id === props.currentSessionId;
+								<For each={tasks()}>
+									{(task) => {
+										const isCurrent = task.id === props.currentSessionId;
 										return (
 											<div
-												onClick={() => handleSelectThread(thread)}
+												onClick={() => handleSelectTask(task)}
 												class={`w-full flex items-center gap-3 p-4 rounded-xl border text-left cursor-pointer ${
 													isCurrent
 														? "border-foreground/30 bg-muted/40"
@@ -204,18 +202,15 @@ export function TasksPage(props: {
 											>
 												<div class="flex-1 min-w-0">
 													<div class="font-medium truncate">
-														{truncate(thread.name)}
+														{truncate(task.name)}
 													</div>
 													<div class="text-xs text-muted-foreground mt-1">
-														{thread.projectName}
-														{thread.gitBranch && (
-															<span class="font-mono">
-																{" "}
-																· {thread.gitBranch}
-															</span>
+														{task.projectName}
+														{task.gitBranch && (
+															<span class="font-mono"> · {task.gitBranch}</span>
 														)}
 														{" · "}
-														{formatTime(thread.timestamp)}
+														{formatTime(task.timestamp)}
 													</div>
 												</div>
 												<Show when={isCurrent}>
@@ -226,12 +221,12 @@ export function TasksPage(props: {
 												<Show when={!isCurrent}>
 													<button
 														type="button"
-														onClick={(e) => handleDeleteClick(e, thread)}
-														disabled={deleting() === thread.id}
+														onClick={(e) => handleDeleteClick(e, task)}
+														disabled={deleting() === task.id}
 														class="h-10 w-10 flex items-center justify-center rounded-lg text-muted-foreground active:bg-red-500/20 active:text-red-500"
-														title="Delete thread"
+														title="Delete task"
 													>
-														{deleting() === thread.id ? "..." : "×"}
+														{deleting() === task.id ? "..." : "×"}
 													</button>
 												</Show>
 											</div>
@@ -254,9 +249,9 @@ export function TasksPage(props: {
 						class="bg-background rounded-2xl p-6 max-w-sm w-full border border-border"
 						onClick={(e) => e.stopPropagation()}
 					>
-						<h2 class="text-lg font-medium mb-2">Delete thread?</h2>
+						<h2 class="text-lg font-medium mb-2">Delete task?</h2>
 						<p class="text-sm text-muted-foreground mb-6">
-							This will permanently delete this thread and its history.
+							This will permanently delete this task and its history.
 						</p>
 						<div class="flex gap-3">
 							<button

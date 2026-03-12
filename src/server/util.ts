@@ -18,7 +18,7 @@ export const EMPTY = new Response(null, { headers: corsHeaders });
 
 /**
  * Convert a callback-based subscription to an async generator.
- * Used for streaming SSE events from session/thread subscriptions.
+ * Used for streaming SSE events from session/task subscriptions.
  */
 export async function* subscriptionToGenerator<T>(
 	subscribe: (

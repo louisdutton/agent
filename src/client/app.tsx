@@ -51,7 +51,7 @@ import {
 } from "./session-state";
 import { SessionStatusBar } from "./session-status-bar";
 import { ToolGroup } from "./tools";
-import type { EventItem, Thread } from "./types";
+import type { BackgroundTask, EventItem } from "./types";
 import { initWebSocket, subscribeToNotifications } from "./ws";
 
 export function App() {
@@ -125,8 +125,8 @@ export function App() {
 		description: string;
 	} | null>(null);
 
-	// Task state (for background threads)
-	const [activeTask, setActiveTask] = createSignal<Thread | null>(null);
+	// Task state (for background tasks)
+	const [activeTask, setActiveTask] = createSignal<BackgroundTask | null>(null);
 
 	// UI state
 	const [showMenu, setShowMenu] = createSignal(false);
@@ -291,7 +291,7 @@ export function App() {
 		}
 	};
 
-	// Return to main view (thread list)
+	// Return to main view (task list)
 	const returnToMain = () => {
 		setActiveTask(null);
 		setEvents([]);
@@ -328,7 +328,7 @@ export function App() {
 		if (sid && project && !activeTask()) {
 			loadHistory(sid, project);
 		} else if (!sid && !activeTask()) {
-			// No session in URL and not viewing a thread - clear state
+			// No session in URL and not viewing a task - clear state
 			setEvents([]);
 			setSessionName("");
 			setIsCompacted(false);
@@ -558,26 +558,24 @@ export function App() {
 
 	// Header display
 	const headerTitle = () => {
-		const thread = activeTask();
-		if (thread) {
-			return thread.name.length > 40
-				? `${thread.name.slice(0, 40)}...`
-				: thread.name;
+		const task = activeTask();
+		if (task) {
+			return task.name.length > 40 ? `${task.name.slice(0, 40)}...` : task.name;
 		}
-		// For session threads, use sessionName
+		// For sessions, use sessionName
 		const name = sessionName();
 		if (name) {
 			return name.length > 40 ? `${name.slice(0, 40)}...` : name;
 		}
-		return "Thread";
+		return "Task";
 	};
 
 	const headerSubtitle = () => {
-		const thread = activeTask();
-		if (thread) {
-			return thread.projectName;
+		const task = activeTask();
+		if (task) {
+			return task.projectName;
 		}
-		// For session threads, extract project name from path
+		// For sessions, extract project name from path
 		const project = projectPath();
 		return project ? project.split("/").pop() : null;
 	};

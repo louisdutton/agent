@@ -24,23 +24,23 @@ export type EventItem =
 	| { type: "task_spawn"; id: string; task: SpawnedTask }
 	| { type: "error"; id: string; message: string };
 
-// Unified thread model - assistant and background threads
-export type ThreadStatus =
+// Unified model for assistant sessions and background tasks
+export type BackgroundTaskStatus =
 	| "idle"
 	| "running"
 	| "completed"
 	| "error"
 	| "stopped";
 
-export type Thread = {
+export type BackgroundTask = {
 	id: string;
-	type: "assistant" | "thread"; // thread = background task
+	type: "assistant" | "task";
 	projectPath: string;
 	projectName: string;
-	status: ThreadStatus;
-	name: string; // First prompt for assistant, task for background thread
+	status: BackgroundTaskStatus;
+	name: string; // First prompt for assistant, task description for background task
 	startTime: number;
-	// Background thread-specific
+	// Background task-specific
 	parentSession?: string;
 	pid?: number | null;
 };
