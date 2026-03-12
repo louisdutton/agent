@@ -1,6 +1,5 @@
 import type { JSX, Setter } from "solid-js";
 import { For, Show } from "solid-js";
-import { permission, requestNotificationPermission } from "./notifications";
 
 export type VoiceStatus = "idle" | "recording" | "transcribing" | "thinking";
 
@@ -128,10 +127,9 @@ export function OptionsMenuButton(props: {
 export function OptionsMenu(props: {
 	showTextInput: boolean;
 	onToggleTextInput: () => void;
+	onBrowseFiles?: () => void;
 	onCompact: () => void;
 	onClear: () => void;
-	onBrowseFiles?: () => void;
-	onAutomations?: () => void;
 	isCompacting: boolean;
 	isClearing: boolean;
 	isLoading: boolean;
@@ -154,15 +152,6 @@ export function OptionsMenu(props: {
 					Browse Files
 				</button>
 			</Show>
-			<Show when={props.onAutomations}>
-				<button
-					type="button"
-					onClick={props.onAutomations}
-					class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base min-h-[48px]"
-				>
-					Automations
-				</button>
-			</Show>
 			<button
 				type="button"
 				onClick={props.onCompact}
@@ -175,31 +164,9 @@ export function OptionsMenu(props: {
 				type="button"
 				onClick={props.onClear}
 				disabled={props.isCompacting || props.isClearing || props.isLoading}
-				class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base disabled:opacity-50 min-h-[48px]"
+				class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base disabled:opacity-50 rounded-b-xl min-h-[48px]"
 			>
 				{props.isClearing ? "Clearing..." : "Clear Context"}
-			</button>
-			<button
-				type="button"
-				onClick={() => requestNotificationPermission()}
-				class="w-full text-left px-4 py-3 active:bg-muted transition-colors text-base flex items-center justify-between rounded-b-xl min-h-[48px]"
-			>
-				<span>Notifications</span>
-				<span
-					class={`text-sm px-2 py-1 rounded-lg ${
-						permission() === "granted"
-							? "bg-green-950 text-green-400"
-							: permission() === "denied"
-								? "bg-red-950 text-red-400"
-								: "bg-muted text-muted-foreground"
-					}`}
-				>
-					{permission() === "granted"
-						? "On"
-						: permission() === "denied"
-							? "Blocked"
-							: "Off"}
-				</span>
 			</button>
 		</div>
 	);

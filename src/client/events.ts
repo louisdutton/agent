@@ -175,7 +175,7 @@ export function processStreamEvent(
 		// New session created - navigate to it
 		case "session_created":
 			navigate({
-				type: "session",
+				type: "chat",
 				project: projectPath(),
 				sessionId: parsed.sessionId as string,
 			});
@@ -299,7 +299,7 @@ export function processStreamEvent(
 		case "result":
 			if (parsed.session_id) {
 				navigate({
-					type: "session",
+					type: "chat",
 					project: projectPath(),
 					sessionId: parsed.session_id as string,
 				});
