@@ -11,9 +11,7 @@ import { api } from "./api";
 import {
 	type AudioRefs,
 	createAudioRefs,
-	playTTS,
 	startRecording,
-	stopPlayback,
 	stopRecording,
 } from "./audio";
 import { AutomationsPanel } from "./automations";
@@ -119,8 +117,6 @@ export function App() {
 	const [isRecording, setIsRecording] = createSignal(false);
 	const [isTranscribing, setIsTranscribing] = createSignal(false);
 	const [pendingVoiceInput, setPendingVoiceInput] = createSignal(false);
-	const [playingId, setPlayingId] = createSignal<string | null>(null);
-	const [isPlaying, setIsPlaying] = createSignal(false);
 	const [audioLevels, setAudioLevels] = createSignal<number[]>([0, 0, 0, 0]);
 
 	// Git state
@@ -155,10 +151,6 @@ export function App() {
 		setIsRecording,
 		isTranscribing,
 		setIsTranscribing,
-		isPlaying,
-		setIsPlaying,
-		playingId,
-		setPlayingId,
 		audioLevels,
 		setAudioLevels,
 		pendingVoiceInput,
@@ -438,7 +430,6 @@ export function App() {
 		if (isRecording()) return "recording";
 		if (isTranscribing()) return "transcribing";
 		if (isLoading()) return "thinking";
-		if (isPlaying()) return "speaking";
 		return "idle";
 	};
 
@@ -459,15 +450,9 @@ export function App() {
 			}
 			setIsLoading(false);
 			setStreamingContent("");
-		} else if (isPlaying()) {
-			stopPlayback(audioRefs, audioState);
 		} else if (!isTranscribing()) {
 			startRecording(audioRefs, audioState);
 		}
-	};
-
-	const handlePlayTTS = (id: string, text: string) => {
-		playTTS(id, text, audioRefs, audioState);
 	};
 
 	// Handle tool approval/rejection
@@ -683,38 +668,8 @@ export function App() {
 								)}
 
 								{event.type === "assistant" && (
-									<div class="prose prose-sm max-w-none group relative">
+									<div class="prose prose-sm max-w-none">
 										<Markdown content={event.content} />
-										<button
-											type="button"
-											class="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-full bg-background border border-border hover:bg-muted"
-											onClick={() => handlePlayTTS(event.id, event.content)}
-										>
-											<svg
-												class="w-4 h-4"
-												fill="none"
-												stroke="currentColor"
-												viewBox="0 0 24 24"
-											>
-												{playingId() === event.id ? (
-													<rect
-														x="6"
-														y="6"
-														width="12"
-														height="12"
-														rx="2"
-														fill="currentColor"
-													/>
-												) : (
-													<path
-														stroke-linecap="round"
-														stroke-linejoin="round"
-														stroke-width="2"
-														d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-3.5v14l-5-3.5H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z"
-													/>
-												)}
-											</svg>
-										</button>
 									</div>
 								)}
 

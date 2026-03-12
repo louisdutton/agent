@@ -2,12 +2,7 @@ import type { JSX, Setter } from "solid-js";
 import { For, Show } from "solid-js";
 import { permission, requestNotificationPermission } from "./notifications";
 
-export type VoiceStatus =
-	| "idle"
-	| "recording"
-	| "transcribing"
-	| "thinking"
-	| "speaking";
+export type VoiceStatus = "idle" | "recording" | "transcribing" | "thinking";
 
 export function MicButton(props: {
 	status: VoiceStatus;
@@ -23,13 +18,11 @@ export function MicButton(props: {
 			class={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg ${
 				props.status === "recording"
 					? "bg-foreground scale-110"
-					: props.status === "speaking"
-						? "bg-green-500"
-						: props.status === "thinking"
-							? "bg-red-500 hover:scale-105 active:scale-95"
-							: props.status === "transcribing"
-								? "bg-yellow-500"
-								: "bg-foreground hover:scale-105 active:scale-95"
+					: props.status === "thinking"
+						? "bg-red-500 hover:scale-105 active:scale-95"
+						: props.status === "transcribing"
+							? "bg-yellow-500"
+							: "bg-foreground hover:scale-105 active:scale-95"
 			}`}
 		>
 			{props.status === "recording" ? (
@@ -58,13 +51,6 @@ export function MicButton(props: {
 							height="12"
 							rx="2"
 							fill="currentColor"
-						/>
-					) : props.status === "speaking" ? (
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M15.536 8.464a5 5 0 010 7.072M17.95 6.05a8 8 0 010 11.9M6.5 8.5l5-3.5v14l-5-3.5H4a1 1 0 01-1-1v-5a1 1 0 011-1h2.5z"
 						/>
 					) : (
 						<path

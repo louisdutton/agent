@@ -1,14 +1,13 @@
 import type { Accessor, Setter } from "solid-js";
 
+// Whisper service URL - same host, port 9376 (Caddy proxy to whisper-server)
+const WHISPER_URL = `${window.location.protocol}//${window.location.hostname}:9376`;
+
 export type AudioState = {
 	isRecording: Accessor<boolean>;
 	setIsRecording: Setter<boolean>;
 	isTranscribing: Accessor<boolean>;
 	setIsTranscribing: Setter<boolean>;
-	isPlaying: Accessor<boolean>;
-	setIsPlaying: Setter<boolean>;
-	playingId: Accessor<string | null>;
-	setPlayingId: Setter<string | null>;
 	audioLevels: Accessor<number[]>;
 	setAudioLevels: Setter<number[]>;
 	pendingVoiceInput: Accessor<boolean>;
@@ -19,7 +18,6 @@ export type AudioState = {
 export type AudioRefs = {
 	mediaRecorder: MediaRecorder | null;
 	audioChunks: Blob[];
-	currentAudio: HTMLAudioElement | null;
 	audioContext: AudioContext | null;
 	analyser: AnalyserNode | null;
 	animationFrame: number | null;
@@ -29,20 +27,18 @@ export function createAudioRefs(): AudioRefs {
 	return {
 		mediaRecorder: null,
 		audioChunks: [],
-		currentAudio: null,
 		audioContext: null,
 		analyser: null,
 		animationFrame: null,
 	};
 }
 
-// Convert audio blob to WAV format using Web Audio API
+// Convert audio blob to WAV format for whisper.cpp
 async function convertToWav(audioBlob: Blob): Promise<Blob> {
 	const audioContext = new AudioContext({ sampleRate: 16000 });
 	const arrayBuffer = await audioBlob.arrayBuffer();
 	const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-	// Get mono audio data (use first channel or mix down)
 	const numberOfChannels = 1;
 	const sampleRate = 16000;
 	const length = audioBuffer.length;
@@ -69,7 +65,6 @@ async function convertToWav(audioBlob: Blob): Promise<Blob> {
 	const wavBuffer = new ArrayBuffer(44 + samples.length * 2);
 	const view = new DataView(wavBuffer);
 
-	// WAV header
 	const writeString = (offset: number, str: string) => {
 		for (let i = 0; i < str.length; i++) {
 			view.setUint8(offset + i, str.charCodeAt(i));
@@ -80,17 +75,16 @@ async function convertToWav(audioBlob: Blob): Promise<Blob> {
 	view.setUint32(4, 36 + samples.length * 2, true);
 	writeString(8, "WAVE");
 	writeString(12, "fmt ");
-	view.setUint32(16, 16, true); // fmt chunk size
-	view.setUint16(20, 1, true); // PCM format
+	view.setUint32(16, 16, true);
+	view.setUint16(20, 1, true);
 	view.setUint16(22, numberOfChannels, true);
 	view.setUint32(24, sampleRate, true);
-	view.setUint32(28, sampleRate * numberOfChannels * 2, true); // byte rate
-	view.setUint16(32, numberOfChannels * 2, true); // block align
-	view.setUint16(34, 16, true); // bits per sample
+	view.setUint32(28, sampleRate * numberOfChannels * 2, true);
+	view.setUint16(32, numberOfChannels * 2, true);
+	view.setUint16(34, 16, true);
 	writeString(36, "data");
 	view.setUint32(40, samples.length * 2, true);
 
-	// Write audio data as 16-bit PCM
 	let offset = 44;
 	for (let i = 0; i < samples.length; i++) {
 		const sample = Math.max(-1, Math.min(1, samples[i]));
@@ -102,7 +96,7 @@ async function convertToWav(audioBlob: Blob): Promise<Blob> {
 	return new Blob([wavBuffer], { type: "audio/wav" });
 }
 
-export async function transcribeAudio(
+async function transcribeAudio(
 	audioBlob: Blob,
 	state: Pick<
 		AudioState,
@@ -111,20 +105,21 @@ export async function transcribeAudio(
 ): Promise<void> {
 	state.setIsTranscribing(true);
 	try {
-		// Convert to WAV format for whisper.cpp
 		const wavBlob = await convertToWav(audioBlob);
 
 		const formData = new FormData();
-		formData.append("audio", wavBlob, "recording.wav");
+		formData.append("file", wavBlob, "recording.wav");
+		formData.append("response_format", "json");
+		formData.append("language", "en");
 
-		const res = await fetch("/api/transcribe", {
+		const res = await fetch(`${WHISPER_URL}/inference`, {
 			method: "POST",
 			body: formData,
 		});
 
 		if (!res.ok) throw new Error("Transcription failed");
 
-		const { text } = await res.json();
+		const { text } = (await res.json()) as { text?: string };
 		if (text?.trim()) {
 			state.setInput(text.trim());
 			state.setPendingVoiceInput(true);
@@ -149,7 +144,7 @@ export async function startRecording(
 ): Promise<void> {
 	try {
 		if (!navigator.mediaDevices?.getUserMedia) {
-			alert("Microphone requires HTTPS. Use 'bun serve' or localhost.");
+			alert("Microphone requires HTTPS.");
 			return;
 		}
 
@@ -161,7 +156,7 @@ export async function startRecording(
 		});
 		refs.audioChunks = [];
 
-		// Set up audio analyser for visualization
+		// Audio analyser for visualization
 		refs.audioContext = new AudioContext();
 		refs.analyser = refs.audioContext.createAnalyser();
 		refs.analyser.fftSize = 32;
@@ -172,7 +167,6 @@ export async function startRecording(
 		const updateLevels = () => {
 			if (!refs.analyser) return;
 			refs.analyser.getByteFrequencyData(dataArray);
-			// Pick 4 frequency bands and normalize to 0-1
 			const levels = [
 				dataArray[1] / 255,
 				dataArray[3] / 255,
@@ -190,7 +184,6 @@ export async function startRecording(
 
 		refs.mediaRecorder.onstop = async () => {
 			stream.getTracks().forEach((t) => t.stop());
-			// Clean up audio visualizer
 			if (refs.animationFrame) cancelAnimationFrame(refs.animationFrame);
 			if (refs.audioContext) refs.audioContext.close();
 			refs.audioContext = null;
@@ -221,71 +214,5 @@ export function stopRecording(
 	if (refs.mediaRecorder?.state === "recording") {
 		refs.mediaRecorder.stop();
 		state.setIsRecording(false);
-	}
-}
-
-export async function playTTS(
-	id: string,
-	text: string,
-	refs: AudioRefs,
-	state: Pick<AudioState, "playingId" | "setPlayingId" | "setIsPlaying">,
-): Promise<void> {
-	if (refs.currentAudio) {
-		refs.currentAudio.pause();
-		refs.currentAudio = null;
-	}
-
-	if (state.playingId() === id) {
-		state.setPlayingId(null);
-		state.setIsPlaying(false);
-		return;
-	}
-
-	state.setPlayingId(id);
-	state.setIsPlaying(true);
-	try {
-		const res = await fetch("/api/tts", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ text }),
-		});
-
-		if (!res.ok) throw new Error("TTS failed");
-
-		const audioBlob = await res.blob();
-		const audioUrl = URL.createObjectURL(audioBlob);
-		refs.currentAudio = new Audio(audioUrl);
-
-		refs.currentAudio.onended = () => {
-			state.setPlayingId(null);
-			state.setIsPlaying(false);
-			URL.revokeObjectURL(audioUrl);
-			refs.currentAudio = null;
-		};
-
-		refs.currentAudio.onerror = () => {
-			state.setPlayingId(null);
-			state.setIsPlaying(false);
-			URL.revokeObjectURL(audioUrl);
-			refs.currentAudio = null;
-		};
-
-		await refs.currentAudio.play();
-	} catch (err) {
-		console.error("TTS error:", err);
-		state.setPlayingId(null);
-		state.setIsPlaying(false);
-	}
-}
-
-export function stopPlayback(
-	refs: AudioRefs,
-	state: Pick<AudioState, "setPlayingId" | "setIsPlaying">,
-): void {
-	if (refs.currentAudio) {
-		refs.currentAudio.pause();
-		refs.currentAudio = null;
-		state.setPlayingId(null);
-		state.setIsPlaying(false);
 	}
 }
