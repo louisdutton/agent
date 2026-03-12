@@ -69,6 +69,14 @@ export function createDefaultToolRegistry(): ToolRegistry {
 	registry.register(getConfigTool);
 	registry.register(updateConfigTool);
 
+	// Session tools
+	registry.register(listActiveSessionsTool);
+	registry.register(listSessionHistoryTool);
+	registry.register(viewSessionTool);
+	registry.register(cancelSessionTool);
+	registry.register(deleteSessionTool);
+	registry.register(compactSessionTool);
+
 	return registry;
 }
 
