@@ -2,6 +2,7 @@ import { createResource, For, Show } from "solid-js";
 import { api } from "../api";
 import { PageLayout } from "../page-layout";
 import { navigate } from "../router";
+import { formatRelativeTime } from "../util";
 
 type RunHistory = {
 	id: string;
@@ -22,14 +23,6 @@ export function HistoryPage(props: {
 		const { data } = await api.automations.history.get();
 		return (data as RunHistory[]) || [];
 	});
-
-	const formatRelative = (ts: number) => {
-		const diff = Date.now() - ts;
-		if (diff < 60000) return "just now";
-		if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-		if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-		return `${Math.floor(diff / 86400000)}d ago`;
-	};
 
 	const openSession = (project: string, sessionId: string) => {
 		navigate({ type: "chat", project, sessionId });
@@ -62,7 +55,7 @@ export function HistoryPage(props: {
 									</span>
 								</div>
 								<span class="text-xs text-muted-foreground">
-									{formatRelative(run.startedAt)}
+									{formatRelativeTime(run.startedAt)}
 								</span>
 							</div>
 							<Show when={run.error}>

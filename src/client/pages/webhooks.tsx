@@ -1,6 +1,7 @@
 import { createResource, createSignal, For, Show } from "solid-js";
 import { api } from "../api";
 import { PageLayout } from "../page-layout";
+import { formatRelativeTime } from "../util";
 
 type Webhook = {
 	id: string;
@@ -38,14 +39,6 @@ export function WebhooksPage(props: {
 			.webhooks({ id: webhook.id })
 			.patch({ enabled: !webhook.enabled });
 		refetchWebhooks();
-	};
-
-	const formatRelative = (ts: number) => {
-		const diff = Date.now() - ts;
-		if (diff < 60000) return "just now";
-		if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-		if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-		return `${Math.floor(diff / 86400000)}d ago`;
 	};
 
 	return (
@@ -96,7 +89,7 @@ export function WebhooksPage(props: {
 										{webhook.triggerCount} triggers
 										<Show when={webhook.lastTrigger}>
 											{(lastTrigger) => (
-												<> · Last: {formatRelative(lastTrigger())}</>
+												<> · Last: {formatRelativeTime(lastTrigger())}</>
 											)}
 										</Show>
 									</div>

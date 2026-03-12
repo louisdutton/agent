@@ -1,6 +1,7 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import { PageLayout } from "../page-layout";
 import { navigate } from "../router";
+import { formatRelativeTime } from "../util";
 
 type SessionInfo = {
 	sessionId: string;
@@ -82,19 +83,6 @@ export function TasksPage(props: {
 
 	const handleNewTask = (projectPath: string) => {
 		navigate({ type: "chat", project: projectPath });
-	};
-
-	const formatTime = (timestamp: number) => {
-		const now = Date.now();
-		const diff = now - timestamp;
-		const mins = Math.floor(diff / 60000);
-		const hours = Math.floor(diff / 3600000);
-		const days = Math.floor(diff / 86400000);
-
-		if (days > 0) return `${days}d ago`;
-		if (hours > 0) return `${hours}h ago`;
-		if (mins > 0) return `${mins}m ago`;
-		return "now";
 	};
 
 	const truncate = (text: string, len = 50) =>
@@ -210,7 +198,7 @@ export function TasksPage(props: {
 															<span class="font-mono"> · {task.gitBranch}</span>
 														)}
 														{" · "}
-														{formatTime(task.timestamp)}
+														{formatRelativeTime(task.timestamp)}
 													</div>
 												</div>
 												<Show when={isCurrent}>
