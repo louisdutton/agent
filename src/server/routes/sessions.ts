@@ -43,7 +43,8 @@ async function* notificationEvents(): AsyncGenerator<NotificationEvent> {
 
 export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 	// Global notifications stream (SSE)
-	.get("/notifications", async function* () {
+	.get("/notifications", async function* ({ set }) {
+		set.headers["content-type"] = "text/event-stream";
 		yield `data: ${JSON.stringify({ type: "connected" })}\n\n`;
 
 		for await (const event of notificationEvents()) {
@@ -124,6 +125,7 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 
 	// Stream events for reconnecting to active sessions
 	.get("/:sessionId/stream", async function* ({ params, set }) {
+		set.headers["content-type"] = "text/event-stream";
 		const session = getSessionManager().get(params.sessionId);
 		if (
 			!session ||
@@ -181,7 +183,8 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 	// Send message to session (creates new session if needed)
 	.post(
 		"/:sessionId/messages",
-		async function* ({ params, query, body }) {
+		async function* ({ params, query, body, set }) {
+			set.headers["content-type"] = "text/event-stream";
 			const manager = getSessionManager();
 			let sessionId = params.sessionId;
 			let session = sessionId === "new" ? null : manager.get(sessionId);
