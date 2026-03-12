@@ -14,6 +14,14 @@ import { getConfigTool, updateConfigTool } from "./config";
 import { globTool } from "./glob";
 import { grepTool } from "./grep";
 import { readTool } from "./read";
+import {
+	cancelSessionTool,
+	compactSessionTool,
+	deleteSessionTool,
+	listActiveSessionsTool,
+	listSessionHistoryTool,
+	viewSessionTool,
+} from "./sessions";
 import { webSearchTool } from "./web-search";
 import { writeTool } from "./write";
 

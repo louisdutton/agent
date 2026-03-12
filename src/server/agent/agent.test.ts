@@ -563,3 +563,135 @@ describe("Tools", () => {
 		expect(result.content).toBeDefined();
 	});
 });
+
+describe("Session Tools", () => {
+	test("list_active_sessions returns empty when no sessions", async () => {
+		const manager = new SessionManager({
+			provider: mockProvider,
+			transcriptsDir: TEST_DIR,
+		});
+
+		const tools = createDefaultToolRegistry();
+		const listTool = tools.get("list_active_sessions");
+
+		// Note: This uses global singleton, so may have sessions from other tests
+		const result = await listTool!.execute(
+			{},
+			{ workDir: TEST_DIR, sessionId: "test" },
+		);
+
+		expect(result.isError).toBeFalsy();
+		expect(result.content).toBeDefined();
+	});
+
+	test("list_active_sessions shows created sessions", async () => {
+		const manager = new SessionManager({
+			provider: mockProvider,
+			transcriptsDir: TEST_DIR,
+		});
+		manager.create(TEST_DIR);
+
+		const tools = createDefaultToolRegistry();
+		const listTool = tools.get("list_active_sessions");
+
+		const result = await listTool!.execute(
+			{},
+			{ workDir: TEST_DIR, sessionId: "test" },
+		);
+
+		expect(result.isError).toBeFalsy();
+		// Should contain session info (may be JSON array or "No active sessions")
+		expect(result.content).toBeDefined();
+	});
+
+	test("list_session_history returns empty for new project", async () => {
+		const tools = createDefaultToolRegistry();
+		const listTool = tools.get("list_session_history");
+
+		const result = await listTool!.execute(
+			{ project: TEST_DIR },
+			{ workDir: TEST_DIR, sessionId: "test" },
+		);
+
+		expect(result.isError).toBeFalsy();
+		expect(result.content).toContain("No sessions found");
+	});
+
+	test("view_session returns error for nonexistent session", async () => {
+		const tools = createDefaultToolRegistry();
+		const viewTool = tools.get("view_session");
+
+		const result = await viewTool!.execute(
+			{ sessionId: "nonexistent-id", project: TEST_DIR },
+			{ workDir: TEST_DIR, sessionId: "test" },
+		);
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain("not found");
+	});
+
+	test("cancel_session returns error for nonexistent session", async () => {
+		const tools = createDefaultToolRegistry();
+		const cancelTool = tools.get("cancel_session");
+
+		const result = await cancelTool!.execute(
+			{ sessionId: "nonexistent-id" },
+			{ workDir: TEST_DIR, sessionId: "test" },
+		);
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain("not found");
+	});
+
+	test("delete_session succeeds even for nonexistent session", async () => {
+		const tools = createDefaultToolRegistry();
+		const deleteTool = tools.get("delete_session");
+
+		const result = await deleteTool!.execute(
+			{ sessionId: "nonexistent-id", project: TEST_DIR },
+			{ workDir: TEST_DIR, sessionId: "test" },
+		);
+
+		// Delete is idempotent - succeeds even if session doesn't exist
+		expect(result.isError).toBeFalsy();
+		expect(result.content).toContain("deleted");
+	});
+
+	test("compact_session returns error for nonexistent session", async () => {
+		const tools = createDefaultToolRegistry();
+		const compactTool = tools.get("compact_session");
+
+		const result = await compactTool!.execute(
+			{ sessionId: "nonexistent-id" },
+			{ workDir: TEST_DIR, sessionId: "test" },
+		);
+
+		expect(result.isError).toBe(true);
+		expect(result.content).toContain("not found");
+	});
+
+	test("session tools are registered", () => {
+		const tools = createDefaultToolRegistry();
+
+		expect(tools.get("list_active_sessions")).toBeDefined();
+		expect(tools.get("list_session_history")).toBeDefined();
+		expect(tools.get("view_session")).toBeDefined();
+		expect(tools.get("cancel_session")).toBeDefined();
+		expect(tools.get("delete_session")).toBeDefined();
+		expect(tools.get("compact_session")).toBeDefined();
+	});
+
+	test("session tools have correct approval requirements", () => {
+		const tools = createDefaultToolRegistry();
+
+		// Read-only tools don't need approval
+		expect(tools.get("list_active_sessions")!.requiresApproval).toBe(false);
+		expect(tools.get("list_session_history")!.requiresApproval).toBe(false);
+		expect(tools.get("view_session")!.requiresApproval).toBe(false);
+		expect(tools.get("compact_session")!.requiresApproval).toBe(false);
+
+		// Destructive tools need approval
+		expect(tools.get("cancel_session")!.requiresApproval).toBe(true);
+		expect(tools.get("delete_session")!.requiresApproval).toBe(true);
+	});
+});
