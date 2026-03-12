@@ -6,19 +6,27 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { MemoryEntry } from "./types";
 
-const DATA_DIR =
-	process.env.XDG_DATA_HOME || join(homedir(), ".local", "share");
-const MEMORY_PATH = join(DATA_DIR, "agent", "assistant", "memory.jsonl");
+function getDefaultMemoryPath(): string {
+	const dataDir =
+		process.env.XDG_DATA_HOME || join(homedir(), ".local", "share");
+	return join(dataDir, "agent", "assistant", "memory.jsonl");
+}
 
 export class MemoryStore {
 	private entries: MemoryEntry[] = [];
 	private loaded = false;
+	private memoryPath: string;
+
+	constructor(memoryPath?: string) {
+		// Compute path at construction time (allows env to be set before construction)
+		this.memoryPath = memoryPath ?? getDefaultMemoryPath();
+	}
 
 	async load(): Promise<void> {
 		if (this.loaded) return;
 
 		try {
-			const file = Bun.file(MEMORY_PATH);
+			const file = Bun.file(this.memoryPath);
 			if (await file.exists()) {
 				const content = await file.text();
 				const lines = content.trim().split("\n").filter(Boolean);
@@ -122,14 +130,14 @@ export class MemoryStore {
 	}
 
 	private async persist(entry: MemoryEntry): Promise<void> {
-		await mkdir(dirname(MEMORY_PATH), { recursive: true });
-		await appendFile(MEMORY_PATH, `${JSON.stringify(entry)}\n`);
+		await mkdir(dirname(this.memoryPath), { recursive: true });
+		await appendFile(this.memoryPath, `${JSON.stringify(entry)}\n`);
 	}
 
 	private async rewriteAll(): Promise<void> {
-		await mkdir(dirname(MEMORY_PATH), { recursive: true });
+		await mkdir(dirname(this.memoryPath), { recursive: true });
 		const content = this.entries.map((e) => JSON.stringify(e)).join("\n");
-		await Bun.write(MEMORY_PATH, content ? `${content}\n` : "");
+		await Bun.write(this.memoryPath, content ? `${content}\n` : "");
 	}
 }
 
