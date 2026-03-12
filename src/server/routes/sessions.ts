@@ -45,10 +45,10 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 	// Global notifications stream (SSE)
 	.get("/notifications", async function* ({ set }) {
 		set.headers["content-type"] = "text/event-stream";
-		yield `data: ${JSON.stringify({ type: "connected" })}\n\n`;
+		yield JSON.stringify({ type: "connected" });
 
 		for await (const event of notificationEvents()) {
-			yield `data: ${JSON.stringify(event)}\n\n`;
+			yield JSON.stringify(event);
 		}
 	})
 
@@ -133,14 +133,14 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 			session.status === "completed"
 		) {
 			set.status = 404;
-			yield `data: ${JSON.stringify({ type: "error", error: "Session not active" })}\n\n`;
+			yield JSON.stringify({ type: "error", error: "Session not active" });
 			return;
 		}
 
-		yield `data: ${JSON.stringify({ type: "connected", sessionId: params.sessionId })}\n\n`;
+		yield JSON.stringify({ type: "connected", sessionId: params.sessionId });
 
 		for await (const event of sessionEvents(params.sessionId)) {
-			yield `data: ${JSON.stringify(event)}\n\n`;
+			yield JSON.stringify(event);
 		}
 	})
 
@@ -193,7 +193,7 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 			if (!session) {
 				session = manager.create(query.project);
 				sessionId = session.id;
-				yield `data: ${JSON.stringify({ type: "session_created", sessionId })}\n\n`;
+				yield JSON.stringify({ type: "session_created", sessionId });
 			}
 
 			// Subscribe to events before sending (to not miss any)
@@ -203,16 +203,16 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 			try {
 				await manager.sendMessage(sessionId, body.message, body.images);
 			} catch (err) {
-				yield `data: ${JSON.stringify({ type: "error", error: String(err) })}\n\n`;
+				yield JSON.stringify({ type: "error", error: String(err) });
 				return;
 			}
 
 			// Stream events
 			for await (const event of events) {
-				yield `data: ${JSON.stringify(event)}\n\n`;
+				yield JSON.stringify(event);
 			}
 
-			yield "data: [DONE]\n\n";
+			yield "[DONE]";
 		},
 		{
 			query: projectQuery,

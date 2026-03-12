@@ -49,7 +49,6 @@ import { SessionStatusBar } from "./session-status-bar";
 import { ThreadListPanel } from "./thread-list";
 import { ToolGroup } from "./tools";
 import type { EventItem, Thread } from "./types";
-import { parseJSON } from "./util";
 import { initWebSocket, subscribeToNotifications } from "./ws";
 
 export function App() {
@@ -188,8 +187,10 @@ export function App() {
 	let streamAbort: AbortController | null = null;
 
 	// Core stream consumption with reconnection support
+	// Eden parses SSE and yields objects like { data: {...} }
+	type SSEChunk = { data?: Record<string, unknown> | string };
 	const consumeStream = async (
-		stream: AsyncIterable<string>,
+		stream: AsyncIterable<SSEChunk>,
 		options: { clearEvents?: boolean } = {},
 	) => {
 		if (options.clearEvents) {
@@ -202,30 +203,24 @@ export function App() {
 
 		try {
 			for await (const chunk of stream) {
-				// Parse SSE data format: "data: {...}\n\n"
-				const lines = chunk.split("\n");
-				for (const line of lines) {
-					const data = line.startsWith("data: ") ? line.slice(6) : line;
-					if (!data || data === "[DONE]") continue;
+				// Eden returns { data: {...} } for SSE events (already parsed)
+				const parsed = chunk.data as Record<string, unknown>;
+				if (!parsed || parsed === "[DONE]") continue;
 
-					const [parsed, err] = parseJSON(data);
-					if (err) continue;
+				// Skip connection confirmation
+				if (parsed.type === "connected") continue;
 
-					// Skip connection confirmation
-					if (parsed.type === "connected") continue;
+				// Process event (handles text, tools, turn_end, error, etc.)
+				processStreamEvent(parsed, assistantContentRef, eventHandlers);
 
-					// Process event (handles text, tools, turn_end, error, etc.)
-					processStreamEvent(parsed, assistantContentRef, eventHandlers);
-
-					// Terminal events - stop consuming
-					// (turn_end = new WireEvent format, done = legacy thread format)
-					if (
-						parsed.type === "turn_end" ||
-						parsed.type === "error" ||
-						parsed.type === "done"
-					) {
-						return;
-					}
+				// Terminal events - stop consuming
+				// (turn_end = new WireEvent format, done = legacy thread format)
+				if (
+					parsed.type === "turn_end" ||
+					parsed.type === "error" ||
+					parsed.type === "done"
+				) {
+					return;
 				}
 			}
 		} finally {
@@ -249,7 +244,7 @@ export function App() {
 			return;
 		}
 
-		await consumeStream(data as AsyncIterable<string>);
+		await consumeStream(data as AsyncIterable<SSEChunk>);
 	};
 
 	// Handle thread selection from thread list
@@ -411,7 +406,7 @@ export function App() {
 				throw new Error("Failed to send message");
 			}
 
-			await consumeStream(data as AsyncIterable<string>);
+			await consumeStream(data as AsyncIterable<SSEChunk>);
 		} catch (err) {
 			if (!(err instanceof DOMException && err.name === "AbortError")) {
 				eventHandlers.addEvent({
