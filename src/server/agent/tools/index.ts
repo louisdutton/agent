@@ -85,6 +85,10 @@ export function createDefaultToolRegistry(): ToolRegistry {
 	registry.register(deleteSessionTool);
 	registry.register(compactSessionTool);
 
+	// Assistant tools
+	const { spawnTaskTool } = require("./spawn-task");
+	registry.register(spawnTaskTool);
+
 	return registry;
 }
 

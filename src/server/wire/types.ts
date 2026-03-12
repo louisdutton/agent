@@ -15,6 +15,8 @@ export type ApprovalRequest = {
 	description: string;
 };
 
+export type TaskSpawnStatus = "pending" | "running" | "completed" | "error";
+
 export type WireEvent =
 	| { type: "turn_begin"; sessionId: string; userMessage: string }
 	| { type: "turn_end"; sessionId: string }
@@ -46,6 +48,13 @@ export type WireEvent =
 			outputTokens: number;
 			cacheRead?: number;
 			cacheWrite?: number;
+	  }
+	| {
+			type: "task_spawn";
+			taskId: string;
+			prompt: string;
+			status: TaskSpawnStatus;
+			projectPath?: string;
 	  };
 
 // Notification events (pushed via WS to all clients)

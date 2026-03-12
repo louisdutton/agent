@@ -405,7 +405,12 @@ export class SessionManager {
 			// Auto-compact if context is getting large
 			await this.maybeCompact(session);
 
-			const systemPrompt = await this.loadSystemPrompt(session.projectPath);
+			// Use context-injected prompt if this is a spawned task
+			const systemPrompt = session.context?.systemPrompt
+				? await this.loadSystemPrompt(session.projectPath).then(
+						(base) => `${base}\n\n${session.context!.systemPrompt}`,
+					)
+				: await this.loadSystemPrompt(session.projectPath);
 
 			await runAgentLoop(
 				session,
@@ -418,11 +423,21 @@ export class SessionManager {
 			);
 
 			session.status = "completed";
+
+			// Report outcome if this was a spawned task
+			if (session.context) {
+				await this.reportOutcome(session, "completed");
+			}
 		} catch (err) {
 			console.error(`Session ${session.id} error:`, err);
 			session.status = "error";
 			emit({ type: "error", sessionId: session.id, error: String(err) });
 			this.notifyError(session, String(err));
+
+			// Report error outcome if this was a spawned task
+			if (session.context) {
+				await this.reportOutcome(session, "error");
+			}
 		} finally {
 			session.updatedAt = Date.now();
 			session.abortController = undefined;
@@ -575,6 +590,60 @@ export class SessionManager {
 			);
 			await this.compact(session.id);
 		}
+	}
+
+	// Report outcome from a completed/errored task to assistant
+	private async reportOutcome(
+		session: Session,
+		status: "completed" | "error",
+	): Promise<void> {
+		const { getAssistantManager, extractLearnings, generateOutcomeSummary } =
+			await import("../assistant");
+
+		const assistant = getAssistantManager();
+
+		// Get the last assistant message as final result
+		const lastAssistantMsg = [...session.messages]
+			.reverse()
+			.find((m) => m.role === "assistant");
+		const finalMessage =
+			typeof lastAssistantMsg?.content === "string"
+				? lastAssistantMsg.content
+				: lastAssistantMsg?.content
+						?.filter((p) => p.type === "text")
+						.map((p) => (p as { text: string }).text)
+						.join("\n") || "";
+
+		// Extract learnings from conversation
+		const allMessages = session.messages
+			.filter((m) => m.role === "assistant")
+			.map((m) =>
+				typeof m.content === "string"
+					? m.content
+					: m.content
+							.filter((p) => p.type === "text")
+							.map((p) => (p as { text: string }).text)
+							.join("\n"),
+			);
+		const learnings = extractLearnings(allMessages);
+
+		// Generate summary
+		const summary = generateOutcomeSummary(
+			session.title || "Task",
+			finalMessage,
+			status,
+		);
+
+		// Store outcome on session
+		session.outcome = {
+			taskId: session.id,
+			status,
+			summary,
+			learnings: learnings.length > 0 ? learnings : undefined,
+		};
+
+		// Process outcome (stores learnings in memory)
+		await assistant.processOutcome(session.outcome);
 	}
 
 	private notifyStatus(session: Session): void {

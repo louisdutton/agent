@@ -1,5 +1,6 @@
 // Agent core types
 
+import type { TaskContext, TaskOutcome } from "../assistant/types";
 import type { Message } from "../providers/types";
 import type { ApprovalRequest, SessionStatus } from "../wire/types";
 
@@ -11,6 +12,10 @@ export type Session = {
 	createdAt: number;
 	updatedAt: number;
 	title?: string;
+
+	// Task context (when spawned by assistant)
+	context?: TaskContext;
+	outcome?: TaskOutcome;
 
 	// Runtime state (not persisted)
 	abortController?: AbortController;

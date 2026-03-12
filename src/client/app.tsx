@@ -681,6 +681,82 @@ export function App() {
 									/>
 								)}
 
+								{event.type === "task_spawn" && (
+									<button
+										type="button"
+										onClick={() =>
+											navigate({
+												type: "session",
+												project: event.task.projectPath || projectPath(),
+												sessionId: event.task.taskId,
+											})
+										}
+										class="flex items-center gap-3 px-4 py-3 rounded-lg border border-border bg-muted/50 hover:bg-muted transition-colors w-full text-left"
+									>
+										<div class="flex-none">
+											{event.task.status === "running" && (
+												<span class="inline-block w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+											)}
+											{event.task.status === "completed" && (
+												<svg
+													class="w-4 h-4 text-green-500"
+													fill="none"
+													stroke="currentColor"
+													viewBox="0 0 24 24"
+												>
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="2"
+														d="M5 13l4 4L19 7"
+													/>
+												</svg>
+											)}
+											{event.task.status === "error" && (
+												<svg
+													class="w-4 h-4 text-red-500"
+													fill="none"
+													stroke="currentColor"
+													viewBox="0 0 24 24"
+												>
+													<path
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														stroke-width="2"
+														d="M6 18L18 6M6 6l12 12"
+													/>
+												</svg>
+											)}
+											{event.task.status === "pending" && (
+												<span class="inline-block w-2 h-2 rounded-full bg-gray-400" />
+											)}
+										</div>
+										<div class="flex-1 min-w-0">
+											<div class="text-sm font-medium truncate">
+												{event.task.prompt.length > 60
+													? `${event.task.prompt.slice(0, 60)}...`
+													: event.task.prompt}
+											</div>
+											<div class="text-xs text-muted-foreground">
+												Task {event.task.status}
+											</div>
+										</div>
+										<svg
+											class="w-4 h-4 text-muted-foreground"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												stroke-width="2"
+												d="M9 5l7 7-7 7"
+											/>
+										</svg>
+									</button>
+								)}
+
 								{event.type === "error" && (
 									<div class="text-sm text-red-500">{event.message}</div>
 								)}

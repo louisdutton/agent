@@ -215,6 +215,24 @@ export function processStreamEvent(
 			setPendingApproval(parsed.request as ApprovalRequest);
 			break;
 
+		// Task spawn - assistant spawned a new task
+		case "task_spawn":
+			addEvent({
+				type: "task_spawn",
+				id: getNextId(),
+				task: {
+					taskId: parsed.taskId as string,
+					prompt: parsed.prompt as string,
+					status: parsed.status as
+						| "pending"
+						| "running"
+						| "completed"
+						| "error",
+					projectPath: parsed.projectPath as string | undefined,
+				},
+			});
+			break;
+
 		// === Legacy thread format (Claude CLI output) ===
 
 		// Legacy streaming text

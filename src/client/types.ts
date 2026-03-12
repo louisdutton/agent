@@ -8,10 +8,20 @@ export type Tool = {
 	resultImages?: string[]; // Base64 data URLs from tool results (e.g., Playwright screenshots)
 };
 
+export type TaskSpawnStatus = "pending" | "running" | "completed" | "error";
+
+export type SpawnedTask = {
+	taskId: string;
+	prompt: string;
+	status: TaskSpawnStatus;
+	projectPath?: string;
+};
+
 export type EventItem =
 	| { type: "user"; id: string; content: string; images?: string[] }
 	| { type: "assistant"; id: string; content: string }
 	| { type: "tools"; id: string; tools: Tool[] }
+	| { type: "task_spawn"; id: string; task: SpawnedTask }
 	| { type: "error"; id: string; message: string };
 
 // Unified thread model - assistant and background threads
