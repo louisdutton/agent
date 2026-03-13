@@ -1,5 +1,6 @@
 // Agent loop - executes turns with tool calling
 
+import { getConfig } from "../config";
 import type { Provider, ToolDefinition } from "../providers/types";
 import type { WireEvent } from "../wire/types";
 import type { ToolRegistry } from "./tools";
@@ -80,8 +81,9 @@ export async function runAgentLoop(
 				continue;
 			}
 
-			// Check approval if needed
-			if (tool.requiresApproval) {
+			// Check approval if needed (skip if global requireApproval is off)
+			const config = await getConfig();
+			if (config.requireApproval && tool.requiresApproval) {
 				const approved = await requestApproval(call);
 				if (!approved) {
 					appendToolResult(
