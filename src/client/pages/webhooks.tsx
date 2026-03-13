@@ -104,9 +104,6 @@ export function WebhooksPage(props: {
 				items={entityItems()}
 				loading={webhooks.loading}
 				emptyMessage="No webhooks yet"
-				addButtonText="+ Add webhook"
-				showAddButton={!showWebhookForm() && !editingWebhook()}
-				onAdd={() => setShowWebhookForm(true)}
 				actions={getActionsForWebhook}
 			>
 				<Show when={showWebhookForm() || editingWebhook()}>

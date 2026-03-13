@@ -21,9 +21,6 @@ export function EntityList<T>(props: {
 	items: EntityListItem<T>[];
 	loading?: boolean;
 	emptyMessage: string;
-	addButtonText: string;
-	onAdd: () => void;
-	showAddButton?: boolean;
 	actions?: EntityAction<T>[] | ((item: T) => EntityAction<T>[]);
 	children?: JSX.Element; // For forms or other content
 	customRenderer?: (
@@ -57,17 +54,6 @@ export function EntityList<T>(props: {
 
 	return (
 		<div class="space-y-3">
-			{/* Add button */}
-			<Show when={props.showAddButton !== false}>
-				<button
-					type="button"
-					onClick={props.onAdd}
-					class="w-full py-2 px-4 border border-dashed border-border rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors"
-				>
-					{props.addButtonText}
-				</button>
-			</Show>
-
 			{/* Form or other content */}
 			<Show when={props.children}>{props.children}</Show>
 
@@ -180,7 +166,7 @@ export function FloatingActionButton(props: {
 				disabled={props.disabled}
 				onMouseEnter={() => setShowLabel(true)}
 				onMouseLeave={() => setShowLabel(false)}
-				class="w-14 h-14 rounded-full bg-foreground text-background shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+				class="w-12 h-12 rounded-full bg-foreground text-background shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
 				title={props.label}
 			>
 				{props.icon}
@@ -198,7 +184,7 @@ export function FloatingActionButton(props: {
 // Common icons as SVG components for consistency
 export const Icons = {
 	Plus: () => (
-		<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+		<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 			<path
 				stroke-linecap="round"
 				stroke-linejoin="round"

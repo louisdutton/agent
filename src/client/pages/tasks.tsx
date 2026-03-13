@@ -189,10 +189,7 @@ export function TasksPage(props: {
 								items={entityItems()}
 								loading={false}
 								emptyMessage="No tasks yet"
-								addButtonText="+ New task"
-								onAdd={() => setShowProjectPicker(true)}
-								showAddButton={true}
-								actions={[]} // We'll handle actions per task
+								actions={[]}
 							>
 								{/* Custom item rendering with click handler */}
 								<For each={entityItems()}>

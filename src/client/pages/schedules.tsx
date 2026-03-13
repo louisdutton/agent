@@ -99,9 +99,6 @@ export function SchedulesPage(props: {
 				items={entityItems()}
 				loading={jobs.loading}
 				emptyMessage="No scheduled jobs yet"
-				addButtonText="+ Add scheduled job"
-				showAddButton={!showJobForm() && !editingJob()}
-				onAdd={() => setShowJobForm(true)}
 				actions={getActionsForJob}
 			>
 				<Show when={showJobForm() || editingJob()}>
