@@ -46,6 +46,7 @@ function validateToolInput(tool: Tool, input: unknown): string | null {
 type LoopOptions = {
 	maxSteps?: number;
 	signal?: AbortSignal;
+	onPersist?: () => Promise<void>;
 };
 
 /**
@@ -61,7 +62,7 @@ export async function runAgentLoop(
 	requestApproval: (toolCall: ToolCall) => Promise<boolean>,
 	options: LoopOptions = {},
 ): Promise<void> {
-	const { maxSteps = MAX_STEPS_PER_TURN, signal } = options;
+	const { maxSteps = MAX_STEPS_PER_TURN, signal, onPersist } = options;
 
 	emit({
 		type: "turn_begin",
@@ -176,6 +177,15 @@ export async function runAgentLoop(
 				content: result.content,
 				isError: result.isError,
 			});
+		}
+
+		// Persist after each step for crash safety
+		if (onPersist) {
+			try {
+				await onPersist();
+			} catch (err) {
+				console.error("Failed to persist session:", err);
+			}
 		}
 	}
 

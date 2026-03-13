@@ -352,6 +352,9 @@ export class SessionManager {
 				message.length > 50 ? `${message.slice(0, 50)}...` : message;
 		}
 
+		// Persist immediately after user message (crash safety)
+		await this.persistSession(session);
+
 		this.notifyStatus(session);
 
 		// Run agent loop in background
@@ -481,7 +484,10 @@ export class SessionManager {
 				systemPrompt,
 				emit,
 				requestApproval,
-				{ signal: session.abortController?.signal },
+				{
+					signal: session.abortController?.signal,
+					onPersist: () => this.persistSession(session),
+				},
 			);
 
 			session.status = "completed";
