@@ -162,7 +162,7 @@ export function ToolGroup(props: {
 	if (props.tools.length <= 1) {
 		return (
 			<div class="text-sm">
-				<div class="p-3 rounded-xl border border-border bg-muted/40 shadow-sm">
+				<div class="p-3 rounded-xl border border-gray-400 bg-muted/40 shadow-sm">
 					<For each={props.tools}>
 						{(tool) => (
 							<ToolItem tool={tool} onOpenFile={props.onOpenFile} />
@@ -185,12 +185,14 @@ export function ToolGroup(props: {
 					<button
 						type="button"
 						onClick={() => setExpanded(true)}
-						class="w-full p-3 rounded-xl border border-border bg-muted/40 hover:bg-muted/60 transition-all duration-200 text-left shadow-sm hover:shadow-md"
+						class="w-full p-3 rounded-xl border border-gray-400 bg-muted/40 hover:bg-muted/60 transition-all duration-200 text-left shadow-sm hover:shadow-md"
 					>
-						<div class="flex items-start gap-2">
-							<ToolItem tool={lastTool()} onOpenFile={props.onOpenFile} />
+						<div class="flex items-center gap-3">
+							<div class="flex-1 min-w-0">
+								<ToolItem tool={lastTool()} onOpenFile={props.onOpenFile} />
+							</div>
 							<Show when={remainingCount() > 0}>
-								<span class="text-xs text-muted-foreground/70 bg-muted/60 px-2 py-1 rounded-full flex-shrink-0 mt-0.5">
+								<span class="text-xs font-medium text-muted-foreground bg-muted/80 px-2.5 py-1.5 rounded-full flex-shrink-0">
 									+{remainingCount()}
 								</span>
 							</Show>
@@ -198,7 +200,7 @@ export function ToolGroup(props: {
 					</button>
 				}
 			>
-				<div class="rounded-xl border border-border bg-muted/40 shadow-sm">
+				<div class="rounded-xl border border-gray-400 bg-muted/40 shadow-sm">
 					<button
 						type="button"
 						onClick={() => setExpanded(false)}
