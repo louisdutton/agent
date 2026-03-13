@@ -175,12 +175,14 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 								messages.push({
 									type: "tools",
 									id: String(msgIndex++),
-									tools: [{
-										toolUseId: toolUse.id,
-										name: toolUse.name,
-										input: toolUse.input,
-										status: "complete" as const,
-									}],
+									tools: [
+										{
+											toolUseId: toolUse.id,
+											name: toolUse.name,
+											input: toolUse.input,
+											status: "complete" as const,
+										},
+									],
 								});
 							}
 						}

@@ -15,10 +15,17 @@ import type {
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 const MAX_CONTEXT_TOKENS = 200_000;
 const CREDENTIALS_PATH = join(homedir(), ".claude", ".credentials.json");
+const OAUTH_TOKEN_URL = "https://console.anthropic.com/api/oauth/token";
+const OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
 type Credentials = {
 	claudeAiOauth?: {
 		accessToken: string;
+		refreshToken?: string;
+		expiresAt?: number;
+		scopes?: string[];
+		subscriptionType?: string;
+		rateLimitTier?: string;
 	};
 };
 
@@ -125,6 +132,57 @@ async function loadOAuthToken(): Promise<string | null> {
 	}
 }
 
+// Refresh OAuth token using the refresh token
+async function refreshOAuthToken(): Promise<string | null> {
+	try {
+		const file = Bun.file(CREDENTIALS_PATH);
+		if (!(await file.exists())) return null;
+		const creds = (await file.json()) as Credentials;
+		const refreshToken = creds.claudeAiOauth?.refreshToken;
+		if (!refreshToken) return null;
+
+		const response = await fetch(OAUTH_TOKEN_URL, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				grant_type: "refresh_token",
+				refresh_token: refreshToken,
+				client_id: OAUTH_CLIENT_ID,
+			}),
+		});
+
+		if (!response.ok) {
+			console.error("OAuth refresh failed:", response.status);
+			return null;
+		}
+
+		const data = (await response.json()) as {
+			access_token: string;
+			refresh_token?: string;
+			expires_in?: number;
+		};
+
+		// Update credentials file with new tokens
+		const updatedCreds: Credentials = {
+			...creds,
+			claudeAiOauth: {
+				...creds.claudeAiOauth,
+				accessToken: data.access_token,
+				refreshToken: data.refresh_token ?? refreshToken,
+				expiresAt: data.expires_in
+					? Date.now() + data.expires_in * 1000
+					: creds.claudeAiOauth?.expiresAt,
+			},
+		};
+
+		await Bun.write(CREDENTIALS_PATH, JSON.stringify(updatedCreds));
+		return data.access_token;
+	} catch (err) {
+		console.error("OAuth refresh error:", err);
+		return null;
+	}
+}
+
 type AuthConfig =
 	| { type: "apiKey"; apiKey: string }
 	| { type: "oauth"; token: string };
@@ -153,7 +211,16 @@ export function createAnthropicProvider(config: ProviderConfig = {}): Provider {
 				return auth;
 			}
 
-			// Fall back to OAuth token
+			// On force refresh, try to refresh the OAuth token first
+			if (forceRefresh) {
+				const refreshedToken = await refreshOAuthToken();
+				if (refreshedToken) {
+					auth = { type: "oauth", token: refreshedToken };
+					return auth;
+				}
+			}
+
+			// Fall back to loading existing OAuth token
 			const oauthToken = await loadOAuthToken();
 			if (oauthToken) {
 				auth = { type: "oauth", token: oauthToken };

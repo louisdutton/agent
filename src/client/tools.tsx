@@ -44,10 +44,7 @@ export function getToolSummary(
 	}
 }
 
-function ToolItem(props: {
-	tool: Tool;
-	onOpenFile?: (path: string) => void;
-}) {
+function ToolItem(props: { tool: Tool; onOpenFile?: (path: string) => void }) {
 	// Check if tool has a file path that can be opened
 	const getFilePath = (tool: Tool): string | null => {
 		if (["Read", "Edit", "Write"].includes(tool.name) && tool.input.file_path) {
@@ -101,9 +98,7 @@ function ToolItem(props: {
 					}`}
 				/>
 				<div class="min-w-0 flex-1">
-					<span class="font-mono text-muted-foreground">
-						{props.tool.name}
-					</span>
+					<span class="font-mono text-muted-foreground">{props.tool.name}</span>
 					{filePath && props.onOpenFile ? (
 						<button
 							type="button"
@@ -157,16 +152,14 @@ export function ToolGroup(props: {
 	onOpenFile?: (path: string) => void;
 }) {
 	const [expanded, setExpanded] = createSignal(props.defaultExpanded || false);
-	
+
 	// Single tool - show in bubble but not expandable
 	if (props.tools.length <= 1) {
 		return (
 			<div class="text-sm">
 				<div class="p-3 rounded-xl border border-gray-400 bg-muted/40 shadow-sm">
 					<For each={props.tools}>
-						{(tool) => (
-							<ToolItem tool={tool} onOpenFile={props.onOpenFile} />
-						)}
+						{(tool) => <ToolItem tool={tool} onOpenFile={props.onOpenFile} />}
 					</For>
 				</div>
 			</div>
@@ -176,10 +169,10 @@ export function ToolGroup(props: {
 	// Multiple tools - show collapsible interface
 	const lastTool = () => props.tools[props.tools.length - 1];
 	const remainingCount = () => props.tools.length - 1;
-	
+
 	return (
 		<div class="text-sm">
-			<Show 
+			<Show
 				when={expanded()}
 				fallback={
 					<button
@@ -212,9 +205,7 @@ export function ToolGroup(props: {
 					</button>
 					<div class="p-3 pt-3 space-y-3">
 						<For each={props.tools}>
-							{(tool) => (
-								<ToolItem tool={tool} onOpenFile={props.onOpenFile} />
-							)}
+							{(tool) => <ToolItem tool={tool} onOpenFile={props.onOpenFile} />}
 						</For>
 					</div>
 				</div>
