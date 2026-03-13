@@ -1,4 +1,4 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, Show } from "solid-js";
 import { api } from "../api";
 import {
 	type EntityAction,
@@ -7,6 +7,13 @@ import {
 	FloatingActionButton,
 	Icons,
 } from "../entity-list";
+import {
+	ChipSelect,
+	FormField,
+	FullScreenForm,
+	TextArea,
+	TextInput,
+} from "../full-screen-form";
 import { PageLayout } from "../page-layout";
 
 type CronJob = {
@@ -54,7 +61,6 @@ export function SchedulesPage(props: {
 		return date.toLocaleString();
 	};
 
-	// Transform jobs data into EntityListItem format
 	const entityItems = (): EntityListItem<CronJob>[] => {
 		return (jobs() || []).map((job) => ({
 			id: job.id,
@@ -68,7 +74,6 @@ export function SchedulesPage(props: {
 		}));
 	};
 
-	// Define actions function that returns actions for each job
 	const getActionsForJob = (job: CronJob): EntityAction<CronJob>[] => [
 		{
 			icon: Icons.Play(),
@@ -93,42 +98,54 @@ export function SchedulesPage(props: {
 		},
 	];
 
+	const closeForm = () => {
+		setShowJobForm(false);
+		setEditingJob(null);
+	};
+
+	const handleSave = () => {
+		closeForm();
+		refetchJobs();
+	};
+
 	return (
-		<PageLayout title="Schedules" onMenuClick={props.onMenuClick}>
-			<EntityList
-				items={entityItems()}
-				loading={jobs.loading}
-				emptyMessage="No scheduled jobs yet"
-				actions={getActionsForJob}
-			>
-				<Show when={showJobForm() || editingJob()}>
-					<JobForm
-						job={editingJob()}
-						defaultProject={props.defaultProject}
-						onSave={() => {
-							setShowJobForm(false);
-							setEditingJob(null);
-							refetchJobs();
-						}}
-						onCancel={() => {
-							setShowJobForm(false);
-							setEditingJob(null);
-						}}
+		<>
+			<PageLayout title="Schedules" onMenuClick={props.onMenuClick}>
+				<EntityList
+					items={entityItems()}
+					loading={jobs.loading}
+					emptyMessage="No scheduled jobs yet"
+					actions={getActionsForJob}
+				/>
+
+				<Show when={!showJobForm() && !editingJob()}>
+					<FloatingActionButton
+						icon={Icons.Plus()}
+						label="Add scheduled job"
+						onClick={() => setShowJobForm(true)}
 					/>
 				</Show>
-			</EntityList>
+			</PageLayout>
 
-			{/* Mobile-friendly floating action button - shown only when form is not visible */}
-			<Show when={!showJobForm() && !editingJob()}>
-				<FloatingActionButton
-					icon={Icons.Plus()}
-					label="Add scheduled job"
-					onClick={() => setShowJobForm(true)}
+			<Show when={showJobForm() || editingJob()}>
+				<JobForm
+					job={editingJob()}
+					defaultProject={props.defaultProject}
+					onSave={handleSave}
+					onCancel={closeForm}
 				/>
 			</Show>
-		</PageLayout>
+		</>
 	);
 }
+
+const SCHEDULE_PRESETS = [
+	{ label: "Hourly", value: "0 * * * *" },
+	{ label: "Daily 9am", value: "0 9 * * *" },
+	{ label: "Weekdays", value: "0 9 * * 1-5" },
+	{ label: "Weekly", value: "0 0 * * 0" },
+	{ label: "Monthly", value: "0 0 1 * *" },
+];
 
 function JobForm(props: {
 	job: CronJob | null;
@@ -146,14 +163,6 @@ function JobForm(props: {
 	);
 	const [error, setError] = createSignal("");
 	const [saving, setSaving] = createSignal(false);
-
-	const presets = [
-		{ label: "Every hour", value: "0 * * * *" },
-		{ label: "Daily 9am", value: "0 9 * * *" },
-		{ label: "Weekdays 9am", value: "0 9 * * 1-5" },
-		{ label: "Weekly Sunday", value: "0 0 * * 0" },
-		{ label: "Monthly 1st", value: "0 0 1 * *" },
-	];
 
 	const handleSubmit = async (e: Event) => {
 		e.preventDefault();
@@ -196,93 +205,53 @@ function JobForm(props: {
 	};
 
 	return (
-		<form
+		<FullScreenForm
+			title={props.job ? "Edit Schedule" : "New Schedule"}
 			onSubmit={handleSubmit}
-			class="border border-border rounded-lg p-3 space-y-3 mb-20" // Extra margin bottom for mobile FAB
+			onCancel={props.onCancel}
+			submitText={props.job ? "Update" : "Create"}
+			saving={saving()}
+			error={error()}
 		>
-			<label class="block">
-				<span class="block text-xs text-muted-foreground mb-1">Name</span>
-				<input
-					type="text"
+			<FormField label="Name">
+				<TextInput
 					value={name()}
-					onInput={(e) => setName(e.currentTarget.value)}
+					onInput={setName}
 					placeholder="Daily code review"
-					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background"
 					required
 				/>
-			</label>
+			</FormField>
 
-			<div>
-				<span class="block text-xs text-muted-foreground mb-1">Schedule</span>
-				<div class="flex flex-wrap gap-1 mb-2">
-					<For each={presets}>
-						{(preset) => (
-							<button
-								type="button"
-								onClick={() => setSchedule(preset.value)}
-								class={`px-2 py-1 text-xs rounded ${schedule() === preset.value ? "bg-foreground text-background" : "bg-muted"}`}
-							>
-								{preset.label}
-							</button>
-						)}
-					</For>
-				</div>
-				<label class="sr-only" for="schedule-input">
-					Schedule cron expression
-				</label>
-				<input
-					id="schedule-input"
-					type="text"
+			<FormField label="Schedule">
+				<ChipSelect
+					options={SCHEDULE_PRESETS}
 					value={schedule()}
-					onInput={(e) => setSchedule(e.currentTarget.value)}
-					placeholder="0 9 * * *"
-					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background font-mono"
-					required
+					onChange={setSchedule}
 				/>
-			</div>
+				<div class="mt-2">
+					<TextInput
+						value={schedule()}
+						onInput={setSchedule}
+						placeholder="0 9 * * *"
+						required
+						monospace
+					/>
+				</div>
+			</FormField>
 
-			<label class="block">
-				<span class="block text-xs text-muted-foreground mb-1">Prompt</span>
-				<textarea
+			<FormField label="Prompt">
+				<TextArea
 					value={prompt()}
-					onInput={(e) => setPrompt(e.currentTarget.value)}
+					onInput={setPrompt}
 					placeholder="Review recent commits and summarize changes..."
-					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background min-h-[80px]"
 					required
+					rows={5}
 				/>
-			</label>
+			</FormField>
 
-			<label class="block">
-				<span class="block text-xs text-muted-foreground mb-1">Project</span>
-				<input
-					type="text"
-					value={project()}
-					onInput={(e) => setProject(e.currentTarget.value)}
-					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background font-mono"
-					required
-				/>
-			</label>
-
-			<Show when={error()}>
-				<div class="text-xs text-red-500">{error()}</div>
-			</Show>
-
-			<div class="flex gap-2 justify-end">
-				<button
-					type="button"
-					onClick={props.onCancel}
-					class="px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted"
-				>
-					Cancel
-				</button>
-				<button
-					type="submit"
-					disabled={saving()}
-					class="px-3 py-1.5 text-sm rounded-lg bg-foreground text-background disabled:opacity-50"
-				>
-					{saving() ? "Saving..." : props.job ? "Update" : "Create"}
-				</button>
-			</div>
-		</form>
+			<FormField label="Project">
+				<TextInput value={project()} onInput={setProject} required monospace />
+			</FormField>
+		</FullScreenForm>
 	);
 }

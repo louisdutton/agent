@@ -7,6 +7,12 @@ import {
 	FloatingActionButton,
 	Icons,
 } from "../entity-list";
+import {
+	FormField,
+	FullScreenForm,
+	TextArea,
+	TextInput,
+} from "../full-screen-form";
 import { PageLayout } from "../page-layout";
 import { formatRelativeTime } from "../util";
 
@@ -54,7 +60,6 @@ export function WebhooksPage(props: {
 		);
 	};
 
-	// Transform webhooks data into EntityListItem format
 	const entityItems = (): EntityListItem<Webhook>[] => {
 		return (webhooks() || []).map((webhook) => {
 			const triggerInfo = `${webhook.triggerCount} triggers`;
@@ -73,7 +78,6 @@ export function WebhooksPage(props: {
 		});
 	};
 
-	// Define actions function that returns actions for each webhook
 	const getActionsForWebhook = (webhook: Webhook): EntityAction<Webhook>[] => [
 		{
 			icon: Icons.Copy(),
@@ -98,40 +102,44 @@ export function WebhooksPage(props: {
 		},
 	];
 
+	const closeForm = () => {
+		setShowWebhookForm(false);
+		setEditingWebhook(null);
+	};
+
+	const handleSave = () => {
+		closeForm();
+		refetchWebhooks();
+	};
+
 	return (
-		<PageLayout title="Webhooks" onMenuClick={props.onMenuClick}>
-			<EntityList
-				items={entityItems()}
-				loading={webhooks.loading}
-				emptyMessage="No webhooks yet"
-				actions={getActionsForWebhook}
-			>
-				<Show when={showWebhookForm() || editingWebhook()}>
-					<WebhookForm
-						webhook={editingWebhook()}
-						defaultProject={props.defaultProject}
-						onSave={() => {
-							setShowWebhookForm(false);
-							setEditingWebhook(null);
-							refetchWebhooks();
-						}}
-						onCancel={() => {
-							setShowWebhookForm(false);
-							setEditingWebhook(null);
-						}}
+		<>
+			<PageLayout title="Webhooks" onMenuClick={props.onMenuClick}>
+				<EntityList
+					items={entityItems()}
+					loading={webhooks.loading}
+					emptyMessage="No webhooks yet"
+					actions={getActionsForWebhook}
+				/>
+
+				<Show when={!showWebhookForm() && !editingWebhook()}>
+					<FloatingActionButton
+						icon={Icons.Plus()}
+						label="Add webhook"
+						onClick={() => setShowWebhookForm(true)}
 					/>
 				</Show>
-			</EntityList>
+			</PageLayout>
 
-			{/* Mobile-friendly floating action button - shown only when form is not visible */}
-			<Show when={!showWebhookForm() && !editingWebhook()}>
-				<FloatingActionButton
-					icon={Icons.Plus()}
-					label="Add webhook"
-					onClick={() => setShowWebhookForm(true)}
+			<Show when={showWebhookForm() || editingWebhook()}>
+				<WebhookForm
+					webhook={editingWebhook()}
+					defaultProject={props.defaultProject}
+					onSave={handleSave}
+					onCancel={closeForm}
 				/>
 			</Show>
-		</PageLayout>
+		</>
 	);
 }
 
@@ -191,68 +199,39 @@ function WebhookForm(props: {
 	};
 
 	return (
-		<form
+		<FullScreenForm
+			title={props.webhook ? "Edit Webhook" : "New Webhook"}
 			onSubmit={handleSubmit}
-			class="border border-border rounded-lg p-3 space-y-3 mb-20" // Extra margin bottom for mobile FAB
+			onCancel={props.onCancel}
+			submitText={props.webhook ? "Update" : "Create"}
+			saving={saving()}
+			error={error()}
 		>
-			<label class="block">
-				<span class="block text-xs text-muted-foreground mb-1">Name</span>
-				<input
-					type="text"
+			<FormField label="Name">
+				<TextInput
 					value={name()}
-					onInput={(e) => setName(e.currentTarget.value)}
+					onInput={setName}
 					placeholder="GitHub PR webhook"
-					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background"
 					required
 				/>
-			</label>
+			</FormField>
 
-			<label class="block">
-				<span class="block text-xs text-muted-foreground mb-1">
-					Prompt template
-				</span>
-				<div class="text-xs text-muted-foreground mb-1">
-					Use {"{{payload}}"} to include the webhook payload
-				</div>
-				<textarea
+			<FormField
+				label="Prompt template"
+				hint="Use {{payload}} to include the webhook payload"
+			>
+				<TextArea
 					value={prompt()}
-					onInput={(e) => setPrompt(e.currentTarget.value)}
-					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background min-h-[100px] font-mono"
+					onInput={setPrompt}
 					required
+					rows={6}
+					monospace
 				/>
-			</label>
+			</FormField>
 
-			<label class="block">
-				<span class="block text-xs text-muted-foreground mb-1">Project</span>
-				<input
-					type="text"
-					value={project()}
-					onInput={(e) => setProject(e.currentTarget.value)}
-					class="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background font-mono"
-					required
-				/>
-			</label>
-
-			<Show when={error()}>
-				<div class="text-xs text-red-500">{error()}</div>
-			</Show>
-
-			<div class="flex gap-2 justify-end">
-				<button
-					type="button"
-					onClick={props.onCancel}
-					class="px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted"
-				>
-					Cancel
-				</button>
-				<button
-					type="submit"
-					disabled={saving()}
-					class="px-3 py-1.5 text-sm rounded-lg bg-foreground text-background disabled:opacity-50"
-				>
-					{saving() ? "Saving..." : props.webhook ? "Update" : "Create"}
-				</button>
-			</div>
-		</form>
+			<FormField label="Project">
+				<TextInput value={project()} onInput={setProject} required monospace />
+			</FormField>
+		</FullScreenForm>
 	);
 }

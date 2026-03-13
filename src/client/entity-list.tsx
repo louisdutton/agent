@@ -22,7 +22,7 @@ export function EntityList<T>(props: {
 	loading?: boolean;
 	emptyMessage: string;
 	actions?: EntityAction<T>[] | ((item: T) => EntityAction<T>[]);
-	children?: JSX.Element; // For forms or other content
+	onItemClick?: (item: T) => void;
 	customRenderer?: (
 		item: EntityListItem<T>,
 		actions?: EntityAction<T>[],
@@ -54,9 +54,6 @@ export function EntityList<T>(props: {
 
 	return (
 		<div class="space-y-3">
-			{/* Form or other content */}
-			<Show when={props.children}>{props.children}</Show>
-
 			{/* Items list */}
 			<For each={props.items}>
 				{(item) => {
@@ -73,15 +70,18 @@ export function EntityList<T>(props: {
 							item={item}
 							actions={actions}
 							statusColor={getStatusColor(item.status)}
+							onClick={
+								props.onItemClick
+									? () => props.onItemClick?.(item.data)
+									: undefined
+							}
 						/>
 					);
 				}}
 			</For>
 
 			{/* Empty state */}
-			<Show
-				when={props.items?.length === 0 && !props.loading && !props.children}
-			>
+			<Show when={props.items?.length === 0 && !props.loading}>
 				<div class="text-center text-muted-foreground py-8">
 					{props.emptyMessage}
 				</div>
@@ -99,9 +99,13 @@ function EntityCard<T>(props: {
 	item: EntityListItem<T>;
 	actions?: EntityAction<T>[];
 	statusColor: string;
+	onClick?: () => void;
 }) {
 	return (
-		<div class="border border-border rounded-lg p-3">
+		<div
+			class={`border border-border rounded-lg p-3 ${props.onClick ? "cursor-pointer active:bg-muted/30" : ""}`}
+			onClick={props.onClick}
+		>
 			<div class="flex items-start justify-between gap-2">
 				<div class="flex-1 min-w-0">
 					<div class="flex items-center gap-2">

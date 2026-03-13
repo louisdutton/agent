@@ -1,6 +1,7 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import { api } from "../api";
 import {
+	type EntityAction,
 	EntityList,
 	type EntityListItem,
 	FloatingActionButton,
@@ -93,7 +94,7 @@ export function TasksPage(props: {
 	const truncate = (text: string, len = 50) =>
 		text.length > len ? `${text.slice(0, len)}...` : text;
 
-	const handleDeleteTask = async (task: TaskItem) => {
+	const handleDeleteTask = (task: TaskItem) => {
 		setConfirmDelete(task);
 	};
 
@@ -118,7 +119,6 @@ export function TasksPage(props: {
 		}
 	};
 
-	// Transform tasks data into EntityListItem format
 	const entityItems = (): EntityListItem<TaskItem>[] => {
 		return tasks().map((task) => {
 			const isCurrent = task.id === props.currentSessionId;
@@ -130,9 +130,29 @@ export function TasksPage(props: {
 				title: truncate(task.name),
 				description: metadata,
 				status: isCurrent ? "success" : undefined,
+				metadata: isCurrent ? "current" : undefined,
 				data: task,
 			};
 		});
+	};
+
+	const getActionsForTask = (task: TaskItem): EntityAction<TaskItem>[] => {
+		const isCurrent = task.id === props.currentSessionId;
+		if (isCurrent) return [];
+
+		return [
+			{
+				icon:
+					deleting() === task.id ? (
+						<span class="text-xs">...</span>
+					) : (
+						Icons.Delete()
+					),
+				label: "Delete",
+				onClick: handleDeleteTask,
+				variant: "danger",
+			},
+		];
 	};
 
 	return (
@@ -147,12 +167,10 @@ export function TasksPage(props: {
 				<Show when={!loading()}>
 					{/* Project picker for new task */}
 					<Show when={showProjectPicker()}>
-						<div class="space-y-2 mb-20">
-							{" "}
-							{/* Extra margin for FAB */}
+						<div class="space-y-2">
 							<div class="flex items-center justify-between mb-4">
 								<span class="text-sm text-muted-foreground">
-									Select a project for the new task
+									Select a project
 								</span>
 								<button
 									type="button"
@@ -182,80 +200,16 @@ export function TasksPage(props: {
 
 					{/* Task list */}
 					<Show when={!showProjectPicker()}>
-						<div class="mb-20">
-							{" "}
-							{/* Extra margin for FAB */}
-							<EntityList
-								items={entityItems()}
-								loading={false}
-								emptyMessage="No tasks yet"
-								actions={[]}
-							>
-								{/* Custom item rendering with click handler */}
-								<For each={entityItems()}>
-									{(item) => {
-										const isCurrent = item.data.id === props.currentSessionId;
-										return (
-											<div
-												onClick={() => handleSelectTask(item.data)}
-												class={`border border-border rounded-lg p-3 cursor-pointer transition-colors ${
-													isCurrent
-														? "border-foreground/30 bg-muted/40"
-														: "hover:bg-muted/20 active:bg-muted/30"
-												}`}
-											>
-												<div class="flex items-start justify-between gap-2">
-													<div class="flex-1 min-w-0">
-														<div class="flex items-center gap-2">
-															<Show when={isCurrent}>
-																<span class="w-2 h-2 rounded-full bg-green-500" />
-															</Show>
-															<span class="font-medium truncate">
-																{item.title}
-															</span>
-														</div>
-														<Show when={item.description}>
-															<div class="text-xs text-muted-foreground mt-1">
-																{item.description}
-															</div>
-														</Show>
-													</div>
-													<div class="flex items-center gap-1">
-														<Show when={isCurrent}>
-															<span class="text-xs text-muted-foreground">
-																current
-															</span>
-														</Show>
-														<Show when={!isCurrent}>
-															<button
-																type="button"
-																onClick={(e) => {
-																	e.stopPropagation();
-																	handleDeleteTask(item.data);
-																}}
-																disabled={deleting() === item.data.id}
-																class="p-1.5 hover:bg-muted rounded transition-colors text-red-500"
-																title="Delete task"
-															>
-																{deleting() === item.data.id ? (
-																	<div class="w-4 h-4 text-xs">...</div>
-																) : (
-																	Icons.Delete()
-																)}
-															</button>
-														</Show>
-													</div>
-												</div>
-											</div>
-										);
-									}}
-								</For>
-							</EntityList>
-						</div>
+						<EntityList
+							items={entityItems()}
+							loading={false}
+							emptyMessage="No tasks yet"
+							actions={getActionsForTask}
+							onItemClick={handleSelectTask}
+						/>
 					</Show>
 				</Show>
 
-				{/* Mobile-friendly floating action button */}
 				<Show when={!showProjectPicker()}>
 					<FloatingActionButton
 						icon={Icons.Plus()}
@@ -268,7 +222,7 @@ export function TasksPage(props: {
 			{/* Delete confirmation dialog */}
 			<Show when={confirmDelete()}>
 				<div
-					class="fixed inset-0 z-60 bg-black/50 flex items-center justify-center p-4"
+					class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
 					onClick={() => setConfirmDelete(null)}
 				>
 					<div
