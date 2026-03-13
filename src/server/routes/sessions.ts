@@ -88,7 +88,24 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 			}
 
 			// Convert provider messages to UI format
-			const messages = history.messages.map((msg, i) => {
+			type UIMessage =
+				| { type: "user"; id: string; content: string }
+				| { type: "assistant"; id: string; content: string }
+				| {
+						type: "tools";
+						id: string;
+						tools: Array<{
+							toolUseId: string;
+							name: string;
+							input: Record<string, unknown>;
+							status: "complete";
+						}>;
+				  };
+
+			const messages: UIMessage[] = [];
+			let msgIndex = 0;
+
+			for (const msg of history.messages) {
 				if (msg.role === "user") {
 					const content =
 						typeof msg.content === "string"
@@ -97,17 +114,55 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 									.filter((p) => p.type === "text")
 									.map((p) => (p as { text: string }).text)
 									.join("");
-					return { type: "user" as const, id: String(i), content };
+					messages.push({ type: "user", id: String(msgIndex++), content });
+				} else {
+					// Assistant message - extract text and tool_use blocks
+					if (typeof msg.content === "string") {
+						messages.push({
+							type: "assistant",
+							id: String(msgIndex++),
+							content: msg.content,
+						});
+					} else {
+						// Get text content
+						const textContent = msg.content
+							.filter((p) => p.type === "text")
+							.map((p) => (p as { text: string }).text)
+							.join("");
+
+						if (textContent) {
+							messages.push({
+								type: "assistant",
+								id: String(msgIndex++),
+								content: textContent,
+							});
+						}
+
+						// Get tool_use blocks
+						const toolUses = msg.content.filter(
+							(p) => p.type === "tool_use",
+						) as Array<{
+							type: "tool_use";
+							id: string;
+							name: string;
+							input: Record<string, unknown>;
+						}>;
+
+						if (toolUses.length > 0) {
+							messages.push({
+								type: "tools",
+								id: String(msgIndex++),
+								tools: toolUses.map((t) => ({
+									toolUseId: t.id,
+									name: t.name,
+									input: t.input,
+									status: "complete" as const,
+								})),
+							});
+						}
+					}
 				}
-				const content =
-					typeof msg.content === "string"
-						? msg.content
-						: msg.content
-								.filter((p) => p.type === "text")
-								.map((p) => (p as { text: string }).text)
-								.join("");
-				return { type: "assistant" as const, id: String(i), content };
-			});
+			}
 
 			return {
 				messages,

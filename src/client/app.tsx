@@ -251,6 +251,9 @@ export function App() {
 
 	// Connect to a session stream (for reconnecting to busy sessions)
 	const connectToSessionStream = async (sessionId: string) => {
+		// Don't connect if already streaming (e.g., from sendMessage)
+		if (isLoading()) return;
+
 		streamAbort?.abort();
 		streamAbort = new AbortController();
 
