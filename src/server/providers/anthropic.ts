@@ -133,11 +133,15 @@ export function createAnthropicProvider(config: ProviderConfig = {}): Provider {
 	const model = config.model ?? DEFAULT_MODEL;
 	const baseUrl = config.baseUrl ?? "https://api.anthropic.com";
 
-	// Lazy auth initialization
+	// Lazy auth initialization with refresh capability
 	let auth: AuthConfig | null = null;
 	let authPromise: Promise<AuthConfig> | null = null;
 
-	async function getAuth(): Promise<AuthConfig> {
+	async function getAuth(forceRefresh = false): Promise<AuthConfig> {
+		if (forceRefresh) {
+			auth = null;
+			authPromise = null;
+		}
 		if (auth) return auth;
 		if (authPromise) return authPromise;
 
@@ -164,6 +168,11 @@ export function createAnthropicProvider(config: ProviderConfig = {}): Provider {
 		return authPromise;
 	}
 
+	function clearAuth() {
+		auth = null;
+		authPromise = null;
+	}
+
 	return {
 		name: "anthropic",
 		model,
@@ -173,8 +182,25 @@ export function createAnthropicProvider(config: ProviderConfig = {}): Provider {
 			messages: Message[],
 			options: StreamOptions,
 		): AsyncGenerator<StreamChunk> {
-			const authConfig = await getAuth();
-			yield* streamWithFetch(baseUrl, authConfig, model, messages, options);
+			let authConfig = await getAuth();
+
+			// Try streaming, retry once with fresh auth on 401
+			for await (const chunk of streamWithFetch(
+				baseUrl,
+				authConfig,
+				model,
+				messages,
+				options,
+			)) {
+				if (chunk.type === "error" && chunk.error.includes("HTTP 401")) {
+					// Token expired, refresh and retry
+					clearAuth();
+					authConfig = await getAuth(true);
+					yield* streamWithFetch(baseUrl, authConfig, model, messages, options);
+					return;
+				}
+				yield chunk;
+			}
 		},
 
 		async countTokens(messages: Message[]): Promise<number> {
