@@ -107,6 +107,13 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 
 			for (const msg of history.messages) {
 				if (msg.role === "user") {
+					// Skip tool_result messages (they're system-generated responses to tool_use)
+					if (
+						Array.isArray(msg.content) &&
+						msg.content.every((p) => p.type === "tool_result")
+					) {
+						continue;
+					}
 					const content =
 						typeof msg.content === "string"
 							? msg.content
@@ -114,7 +121,10 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 									.filter((p) => p.type === "text")
 									.map((p) => (p as { text: string }).text)
 									.join("");
-					messages.push({ type: "user", id: String(msgIndex++), content });
+					// Only add if there's actual content
+					if (content) {
+						messages.push({ type: "user", id: String(msgIndex++), content });
+					}
 				} else {
 					// Assistant message - extract text and tool_use blocks
 					if (typeof msg.content === "string") {
