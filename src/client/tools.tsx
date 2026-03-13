@@ -44,7 +44,10 @@ export function getToolSummary(
 	}
 }
 
-function ToolItem(props: { tool: Tool; onOpenFile?: (path: string) => void }) {
+function ToolItem(props: {
+	tool: Tool;
+	onOpenFile?: (path: string) => void;
+}) {
 	// Check if tool has a file path that can be opened
 	const getFilePath = (tool: Tool): string | null => {
 		if (["Read", "Edit", "Write"].includes(tool.name) && tool.input.file_path) {
@@ -98,7 +101,9 @@ function ToolItem(props: { tool: Tool; onOpenFile?: (path: string) => void }) {
 					}`}
 				/>
 				<div class="min-w-0 flex-1">
-					<span class="font-mono text-muted-foreground">{props.tool.name}</span>
+					<span class="font-mono text-muted-foreground">
+						{props.tool.name}
+					</span>
 					{filePath && props.onOpenFile ? (
 						<button
 							type="button"
@@ -152,14 +157,18 @@ export function ToolGroup(props: {
 	onOpenFile?: (path: string) => void;
 }) {
 	const [expanded, setExpanded] = createSignal(props.defaultExpanded || false);
-
-	// If there's only one tool, don't show the collapsed view
+	
+	// Single tool - show in bubble but not expandable
 	if (props.tools.length <= 1) {
 		return (
-			<div class="text-sm space-y-2">
-				<For each={props.tools}>
-					{(tool) => <ToolItem tool={tool} onOpenFile={props.onOpenFile} />}
-				</For>
+			<div class="text-sm">
+				<div class="p-3 rounded-xl border border-border bg-muted/40 shadow-sm">
+					<For each={props.tools}>
+						{(tool) => (
+							<ToolItem tool={tool} onOpenFile={props.onOpenFile} />
+						)}
+					</For>
+				</div>
 			</div>
 		);
 	}
@@ -167,36 +176,30 @@ export function ToolGroup(props: {
 	// Multiple tools - show collapsible interface
 	const lastTool = () => props.tools[props.tools.length - 1];
 	const remainingCount = () => props.tools.length - 1;
-
+	
 	return (
 		<div class="text-sm">
-			<Show
+			<Show 
 				when={expanded()}
 				fallback={
 					<button
 						type="button"
 						onClick={() => setExpanded(true)}
-						class="w-full p-3 rounded-xl border border-border/50 bg-muted/40 hover:bg-muted/60 transition-all duration-200 text-left shadow-sm hover:shadow-md"
+						class="w-full p-3 rounded-xl border border-border bg-muted/40 hover:bg-muted/60 transition-all duration-200 text-left shadow-sm hover:shadow-md"
 					>
-						<div class="space-y-3">
+						<div class="flex items-start gap-2">
 							<ToolItem tool={lastTool()} onOpenFile={props.onOpenFile} />
 							<Show when={remainingCount() > 0}>
-								<div class="flex items-center gap-2 pl-3.5">
-									<div class="flex-1 h-px bg-border/30"></div>
-									<span class="text-xs text-muted-foreground/80 bg-muted/60 px-2 py-1 rounded-full">
-										{remainingCount() === 1
-											? "+1 more"
-											: `+${remainingCount()} more`}
-									</span>
-									<div class="flex-1 h-px bg-border/30"></div>
-								</div>
+								<span class="text-xs text-muted-foreground/70 bg-muted/60 px-2 py-1 rounded-full flex-shrink-0 mt-0.5">
+									+{remainingCount()}
+								</span>
 							</Show>
 						</div>
 					</button>
 				}
 			>
-				<div class="p-3 rounded-xl border border-border/50 bg-muted/40 space-y-3 shadow-sm">
-					<div class="flex items-center justify-between pb-2 border-b border-border/30">
+				<div class="p-3 rounded-xl border border-border bg-muted/40 space-y-3 shadow-sm">
+					<div class="flex items-center justify-between pb-2 border-b border-border/70">
 						<span class="text-xs font-medium text-muted-foreground/80">
 							{props.tools.length} tool calls
 						</span>
@@ -209,7 +212,9 @@ export function ToolGroup(props: {
 						</button>
 					</div>
 					<For each={props.tools}>
-						{(tool) => <ToolItem tool={tool} onOpenFile={props.onOpenFile} />}
+						{(tool) => (
+							<ToolItem tool={tool} onOpenFile={props.onOpenFile} />
+						)}
 					</For>
 				</div>
 			</Show>

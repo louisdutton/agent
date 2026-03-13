@@ -148,7 +148,7 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 							});
 						}
 
-						// Get tool_use blocks
+						// Get tool_use blocks and create individual tool events (like streaming)
 						const toolUses = msg.content.filter(
 							(p) => p.type === "tool_use",
 						) as Array<{
@@ -158,17 +158,31 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 							input: Record<string, unknown>;
 						}>;
 
-						if (toolUses.length > 0) {
-							messages.push({
-								type: "tools",
-								id: String(msgIndex++),
-								tools: toolUses.map((t) => ({
-									toolUseId: t.id,
-									name: t.name,
-									input: t.input,
+						// Create individual tool events to match streaming behavior
+						for (const toolUse of toolUses) {
+							// Check if we can add to the previous tool group
+							const lastMessage = messages[messages.length - 1];
+							if (lastMessage?.type === "tools") {
+								// Add to existing tool group
+								lastMessage.tools.push({
+									toolUseId: toolUse.id,
+									name: toolUse.name,
+									input: toolUse.input,
 									status: "complete" as const,
-								})),
-							});
+								});
+							} else {
+								// Create new tool group
+								messages.push({
+									type: "tools",
+									id: String(msgIndex++),
+									tools: [{
+										toolUseId: toolUse.id,
+										name: toolUse.name,
+										input: toolUse.input,
+										status: "complete" as const,
+									}],
+								});
+							}
 						}
 					}
 				}
