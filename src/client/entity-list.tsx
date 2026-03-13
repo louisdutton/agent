@@ -170,7 +170,7 @@ export function FloatingActionButton(props: {
 				disabled={props.disabled}
 				onMouseEnter={() => setShowLabel(true)}
 				onMouseLeave={() => setShowLabel(false)}
-				class="w-12 h-12 rounded-full bg-foreground text-background shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+				class="w-20 h-20 rounded-full bg-foreground text-background shadow-lg hover:scale-105 active:scale-95 transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
 				title={props.label}
 			>
 				{props.icon}
@@ -188,7 +188,7 @@ export function FloatingActionButton(props: {
 // Common icons as SVG components for consistency
 export const Icons = {
 	Plus: () => (
-		<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+		<svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 			<path
 				stroke-linecap="round"
 				stroke-linejoin="round"
