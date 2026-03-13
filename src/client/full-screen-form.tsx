@@ -39,6 +39,7 @@ export function FullScreenForm(props: {
 
 			{/* Scrollable content */}
 			<form
+				id="fullscreen-form"
 				onSubmit={props.onSubmit}
 				class="flex-1 overflow-y-auto px-4 py-4 space-y-4"
 			>
@@ -49,18 +50,19 @@ export function FullScreenForm(props: {
 						{props.error}
 					</div>
 				</Show>
-
-				{/* Submit button at bottom of scroll area */}
-				<div class="pt-4">
-					<button
-						type="submit"
-						disabled={props.saving}
-						class="w-full py-3 rounded-xl bg-foreground text-background font-medium disabled:opacity-50 active:scale-[0.98] transition-transform"
-					>
-						{props.saving ? "Saving..." : props.submitText || "Save"}
-					</button>
-				</div>
 			</form>
+
+			{/* Fixed footer */}
+			<div class="px-4 py-4 border-t border-border">
+				<button
+					type="submit"
+					form="fullscreen-form"
+					disabled={props.saving}
+					class="w-full py-3 rounded-xl bg-foreground text-background font-medium disabled:opacity-50 active:scale-[0.98] transition-transform"
+				>
+					{props.saving ? "Saving..." : props.submitText || "Save"}
+				</button>
+			</div>
 		</div>
 	);
 }
