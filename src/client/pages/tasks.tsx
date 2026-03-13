@@ -1,5 +1,11 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import { api } from "../api";
+import {
+	EntityList,
+	type EntityListItem,
+	FloatingActionButton,
+	Icons,
+} from "../entity-list";
 import { PageLayout } from "../page-layout";
 import { navigate } from "../router";
 import { formatRelativeTime } from "../util";
@@ -87,8 +93,7 @@ export function TasksPage(props: {
 	const truncate = (text: string, len = 50) =>
 		text.length > len ? `${text.slice(0, len)}...` : text;
 
-	const handleDeleteClick = (e: Event, task: TaskItem) => {
-		e.stopPropagation();
+	const handleDeleteTask = async (task: TaskItem) => {
 		setConfirmDelete(task);
 	};
 
@@ -113,6 +118,23 @@ export function TasksPage(props: {
 		}
 	};
 
+	// Transform tasks data into EntityListItem format
+	const entityItems = (): EntityListItem<TaskItem>[] => {
+		return tasks().map((task) => {
+			const isCurrent = task.id === props.currentSessionId;
+			const branchInfo = task.gitBranch ? ` · ${task.gitBranch}` : "";
+			const metadata = `${task.projectName}${branchInfo} · ${formatRelativeTime(task.timestamp)}`;
+
+			return {
+				id: task.id,
+				title: truncate(task.name),
+				description: metadata,
+				status: isCurrent ? "success" : undefined,
+				data: task,
+			};
+		});
+	};
+
 	return (
 		<>
 			<PageLayout title="Tasks" onMenuClick={props.onMenuClick}>
@@ -125,7 +147,9 @@ export function TasksPage(props: {
 				<Show when={!loading()}>
 					{/* Project picker for new task */}
 					<Show when={showProjectPicker()}>
-						<div class="space-y-2">
+						<div class="space-y-2 mb-20">
+							{" "}
+							{/* Extra margin for FAB */}
 							<div class="flex items-center justify-between mb-4">
 								<span class="text-sm text-muted-foreground">
 									Select a project for the new task
@@ -158,71 +182,89 @@ export function TasksPage(props: {
 
 					{/* Task list */}
 					<Show when={!showProjectPicker()}>
-						<div class="space-y-3">
-							<button
-								type="button"
-								onClick={() => setShowProjectPicker(true)}
-								class="w-full py-2 px-4 border border-dashed border-border rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors"
+						<div class="mb-20">
+							{" "}
+							{/* Extra margin for FAB */}
+							<EntityList
+								items={entityItems()}
+								loading={false}
+								emptyMessage="No tasks yet"
+								addButtonText="+ New task"
+								onAdd={() => setShowProjectPicker(true)}
+								showAddButton={true}
+								actions={[]} // We'll handle actions per task
 							>
-								+ New task
-							</button>
-
-							<Show
-								when={tasks().length > 0}
-								fallback={
-									<div class="text-center text-muted-foreground py-8">
-										No tasks yet
-									</div>
-								}
-							>
-								<For each={tasks()}>
-									{(task) => {
-										const isCurrent = task.id === props.currentSessionId;
+								{/* Custom item rendering with click handler */}
+								<For each={entityItems()}>
+									{(item) => {
+										const isCurrent = item.data.id === props.currentSessionId;
 										return (
 											<div
-												onClick={() => handleSelectTask(task)}
-												class={`w-full flex items-center gap-3 p-4 rounded-xl border text-left cursor-pointer ${
+												onClick={() => handleSelectTask(item.data)}
+												class={`border border-border rounded-lg p-3 cursor-pointer transition-colors ${
 													isCurrent
 														? "border-foreground/30 bg-muted/40"
-														: "border-border active:bg-muted/30"
+														: "hover:bg-muted/20 active:bg-muted/30"
 												}`}
 											>
-												<div class="flex-1 min-w-0">
-													<div class="font-medium truncate">
-														{truncate(task.name)}
+												<div class="flex items-start justify-between gap-2">
+													<div class="flex-1 min-w-0">
+														<div class="flex items-center gap-2">
+															<Show when={isCurrent}>
+																<span class="w-2 h-2 rounded-full bg-green-500" />
+															</Show>
+															<span class="font-medium truncate">
+																{item.title}
+															</span>
+														</div>
+														<Show when={item.description}>
+															<div class="text-xs text-muted-foreground mt-1">
+																{item.description}
+															</div>
+														</Show>
 													</div>
-													<div class="text-xs text-muted-foreground mt-1">
-														{task.projectName}
-														{task.gitBranch && (
-															<span class="font-mono"> · {task.gitBranch}</span>
-														)}
-														{" · "}
-														{formatRelativeTime(task.timestamp)}
+													<div class="flex items-center gap-1">
+														<Show when={isCurrent}>
+															<span class="text-xs text-muted-foreground">
+																current
+															</span>
+														</Show>
+														<Show when={!isCurrent}>
+															<button
+																type="button"
+																onClick={(e) => {
+																	e.stopPropagation();
+																	handleDeleteTask(item.data);
+																}}
+																disabled={deleting() === item.data.id}
+																class="p-1.5 hover:bg-muted rounded transition-colors text-red-500"
+																title="Delete task"
+															>
+																{deleting() === item.data.id ? (
+																	<div class="w-4 h-4 text-xs">...</div>
+																) : (
+																	Icons.Delete()
+																)}
+															</button>
+														</Show>
 													</div>
 												</div>
-												<Show when={isCurrent}>
-													<span class="text-xs text-muted-foreground">
-														current
-													</span>
-												</Show>
-												<Show when={!isCurrent}>
-													<button
-														type="button"
-														onClick={(e) => handleDeleteClick(e, task)}
-														disabled={deleting() === task.id}
-														class="h-10 w-10 flex items-center justify-center rounded-lg text-muted-foreground active:bg-red-500/20 active:text-red-500"
-														title="Delete task"
-													>
-														{deleting() === task.id ? "..." : "×"}
-													</button>
-												</Show>
 											</div>
 										);
 									}}
 								</For>
-							</Show>
+							</EntityList>
 						</div>
 					</Show>
+				</Show>
+
+				{/* Mobile-friendly floating action button */}
+				<Show when={!showProjectPicker()}>
+					<FloatingActionButton
+						icon={Icons.Plus()}
+						label="New task"
+						onClick={() => setShowProjectPicker(true)}
+					/>
 				</Show>
 			</PageLayout>
 
