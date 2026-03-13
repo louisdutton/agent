@@ -255,7 +255,11 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 			set.headers["content-type"] = "text/event-stream";
 			const manager = getSessionManager();
 			let sessionId = params.sessionId;
-			let session = sessionId === "new" ? null : manager.get(sessionId);
+			let session =
+				sessionId === "new"
+					? null
+					: manager.get(sessionId) ||
+						(await manager.resume(query.project, sessionId));
 
 			// Create new session if needed
 			if (!session) {

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { updateConfig } from "../config";
 import type { Message, StreamChunk } from "../providers/types";
 import type { WireEvent } from "../wire/types";
 import { runAgentLoop } from "./loop";
@@ -16,6 +17,8 @@ const TEST_DIR = join(tmpdir(), `agent-test-${Date.now()}`);
 
 beforeEach(async () => {
 	await mkdir(TEST_DIR, { recursive: true });
+	// Enable approval for tests that need it
+	await updateConfig({ requireApproval: true });
 });
 
 afterEach(async () => {

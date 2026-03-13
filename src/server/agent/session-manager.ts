@@ -252,6 +252,19 @@ export class SessionManager {
 		return this.sessions.get(id);
 	}
 
+	// Resume a session from disk (loads into memory)
+	async resume(
+		projectPath: string,
+		sessionId: string,
+	): Promise<Session | null> {
+		const session = await this.loadSession(projectPath, sessionId);
+		if (!session) return null;
+
+		// Add to in-memory map
+		this.sessions.set(sessionId, session);
+		return session;
+	}
+
 	// List all in-memory sessions
 	list(): Session[] {
 		return Array.from(this.sessions.values());

@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { InlineDiffView } from "./git";
 import type { Tool } from "./types";
 
@@ -44,11 +44,7 @@ export function getToolSummary(
 	}
 }
 
-export function ToolGroup(props: {
-	tools: Tool[];
-	defaultExpanded?: boolean;
-	onOpenFile?: (path: string) => void;
-}) {
+function ToolItem(props: { tool: Tool; onOpenFile?: (path: string) => void }) {
 	// Check if tool has a file path that can be opened
 	const getFilePath = (tool: Tool): string | null => {
 		if (["Read", "Edit", "Write"].includes(tool.name) && tool.input.file_path) {
@@ -86,75 +82,137 @@ export function ToolGroup(props: {
 		return null;
 	};
 
+	const filePath = getFilePath(props.tool);
+	const diffData = getToolDiff(props.tool);
+
 	return (
-		<div class="text-sm space-y-2">
-			<For each={props.tools}>
-				{(tool) => {
-					const filePath = getFilePath(tool);
-					const diffData = getToolDiff(tool);
-					return (
-						<div>
-							<div class="flex items-start gap-2">
-								<span
-									class={`inline-block w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
-										tool.status === "running"
-											? "bg-yellow-500"
-											: tool.status === "error"
-												? "bg-red-500"
-												: "bg-green-500"
-									}`}
-								/>
-								<div class="min-w-0 flex-1">
-									<span class="font-mono text-muted-foreground">
-										{tool.name}
+		<div>
+			<div class="flex items-start gap-2">
+				<span
+					class={`inline-block w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
+						props.tool.status === "running"
+							? "bg-yellow-500"
+							: props.tool.status === "error"
+								? "bg-red-500"
+								: "bg-green-500"
+					}`}
+				/>
+				<div class="min-w-0 flex-1">
+					<span class="font-mono text-muted-foreground">{props.tool.name}</span>
+					{filePath && props.onOpenFile ? (
+						<button
+							type="button"
+							onClick={(e) => {
+								e.stopPropagation();
+								props.onOpenFile?.(filePath);
+							}}
+							class="text-muted-foreground opacity-60 ml-2 break-all hover:text-foreground hover:opacity-100 transition-colors text-left"
+						>
+							{getToolSummary(props.tool.name, props.tool.input)}
+						</button>
+					) : (
+						<span class="text-muted-foreground opacity-60 ml-2 break-all">
+							{getToolSummary(props.tool.name, props.tool.input)}
+						</span>
+					)}
+				</div>
+			</div>
+			{/* Inline diff for Edit/Write tools */}
+			<Show when={diffData}>
+				{(data) => (
+					<InlineDiffView
+						filePath={data().filePath}
+						oldContent={data().oldContent}
+						newContent={data().newContent}
+						isNewFile={data().isNewFile}
+					/>
+				)}
+			</Show>
+			{/* Images from tool results (e.g., Playwright screenshots) */}
+			<Show when={props.tool.resultImages?.length}>
+				<div class="mt-2 flex flex-wrap gap-2">
+					<For each={props.tool.resultImages}>
+						{(img) => (
+							<img
+								src={img}
+								alt="Tool result"
+								class="max-w-full rounded-lg border border-border"
+							/>
+						)}
+					</For>
+				</div>
+			</Show>
+		</div>
+	);
+}
+
+export function ToolGroup(props: {
+	tools: Tool[];
+	defaultExpanded?: boolean;
+	onOpenFile?: (path: string) => void;
+}) {
+	const [expanded, setExpanded] = createSignal(props.defaultExpanded || false);
+
+	// If there's only one tool, don't show the collapsed view
+	if (props.tools.length <= 1) {
+		return (
+			<div class="text-sm space-y-2">
+				<For each={props.tools}>
+					{(tool) => <ToolItem tool={tool} onOpenFile={props.onOpenFile} />}
+				</For>
+			</div>
+		);
+	}
+
+	// Multiple tools - show collapsible interface
+	const lastTool = () => props.tools[props.tools.length - 1];
+	const remainingCount = () => props.tools.length - 1;
+
+	return (
+		<div class="text-sm">
+			<Show
+				when={expanded()}
+				fallback={
+					<button
+						type="button"
+						onClick={() => setExpanded(true)}
+						class="w-full p-3 rounded-xl border border-border/50 bg-muted/40 hover:bg-muted/60 transition-all duration-200 text-left shadow-sm hover:shadow-md"
+					>
+						<div class="space-y-3">
+							<ToolItem tool={lastTool()} onOpenFile={props.onOpenFile} />
+							<Show when={remainingCount() > 0}>
+								<div class="flex items-center gap-2 pl-3.5">
+									<div class="flex-1 h-px bg-border/30"></div>
+									<span class="text-xs text-muted-foreground/80 bg-muted/60 px-2 py-1 rounded-full">
+										{remainingCount() === 1
+											? "+1 more"
+											: `+${remainingCount()} more`}
 									</span>
-									{filePath && props.onOpenFile ? (
-										<button
-											type="button"
-											onClick={(e) => {
-												e.stopPropagation();
-												props.onOpenFile?.(filePath);
-											}}
-											class="text-muted-foreground opacity-60 ml-2 break-all hover:text-foreground hover:opacity-100 transition-colors text-left"
-										>
-											{getToolSummary(tool.name, tool.input)}
-										</button>
-									) : (
-										<span class="text-muted-foreground opacity-60 ml-2 break-all">
-											{getToolSummary(tool.name, tool.input)}
-										</span>
-									)}
-								</div>
-							</div>
-							{/* Inline diff for Edit/Write tools */}
-							<Show when={diffData}>
-								{(data) => (
-									<InlineDiffView
-										filePath={data().filePath}
-										oldContent={data().oldContent}
-										newContent={data().newContent}
-										isNewFile={data().isNewFile}
-									/>
-								)}
-							</Show>
-							{/* Images from tool results (e.g., Playwright screenshots) */}
-							<Show when={tool.resultImages?.length}>
-								<div class="mt-2 flex flex-wrap gap-2">
-									<For each={tool.resultImages}>
-										{(img) => (
-											<img
-												src={img}
-												alt="Tool result"
-												class="max-w-full rounded-lg border border-border"
-											/>
-										)}
-									</For>
+									<div class="flex-1 h-px bg-border/30"></div>
 								</div>
 							</Show>
 						</div>
-					);
-				}}
-			</For>
+					</button>
+				}
+			>
+				<div class="p-3 rounded-xl border border-border/50 bg-muted/40 space-y-3 shadow-sm">
+					<div class="flex items-center justify-between pb-2 border-b border-border/30">
+						<span class="text-xs font-medium text-muted-foreground/80">
+							{props.tools.length} tool calls
+						</span>
+						<button
+							type="button"
+							onClick={() => setExpanded(false)}
+							class="text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors px-2 py-1 rounded hover:bg-muted/60"
+						>
+							Collapse
+						</button>
+					</div>
+					<For each={props.tools}>
+						{(tool) => <ToolItem tool={tool} onOpenFile={props.onOpenFile} />}
+					</For>
+				</div>
+			</Show>
 		</div>
 	);
 }
