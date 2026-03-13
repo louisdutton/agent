@@ -25,6 +25,11 @@ export const writeTool: Tool = {
 
 	async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
 		const { path, content } = input as WriteInput;
+
+		if (!path || typeof path !== "string") {
+			return { content: "Missing required parameter: path", isError: true };
+		}
+
 		const fullPath = isAbsolute(path) ? path : join(ctx.workDir, path);
 
 		try {

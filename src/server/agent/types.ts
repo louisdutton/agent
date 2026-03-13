@@ -46,6 +46,7 @@ export type ToolCall = {
 	id: string;
 	name: string;
 	input: unknown;
+	parseError?: string;
 };
 
 export type AgentConfig = {

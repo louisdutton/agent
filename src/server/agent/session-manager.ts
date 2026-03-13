@@ -146,6 +146,10 @@ export class SessionManager {
 
 		if (!meta) return null;
 
+		// Fix incomplete tool calls: if last assistant message has tool_use without
+		// a following tool_result, add stub results to maintain valid message structure
+		this.fixIncompleteToolCalls(messages);
+
 		return {
 			id: meta.id,
 			projectPath: meta.projectPath,
@@ -155,6 +159,51 @@ export class SessionManager {
 			status: "idle",
 			messages,
 		};
+	}
+
+	// Fix messages that have tool_use without corresponding tool_result
+	// This can happen when a session is interrupted mid-tool-execution
+	private fixIncompleteToolCalls(messages: Message[]): void {
+		if (messages.length === 0) return;
+
+		// Collect all tool_use IDs that have results
+		const toolIdsWithResults = new Set<string>();
+		for (const msg of messages) {
+			if (msg.role === "user" && Array.isArray(msg.content)) {
+				for (const part of msg.content) {
+					if (part.type === "tool_result") {
+						toolIdsWithResults.add(part.toolUseId);
+					}
+				}
+			}
+		}
+
+		// Find all tool_use blocks without results
+		const orphanedToolUses: Array<{ id: string; name: string }> = [];
+		for (const msg of messages) {
+			if (msg.role === "assistant" && Array.isArray(msg.content)) {
+				for (const part of msg.content) {
+					if (part.type === "tool_use" && !toolIdsWithResults.has(part.id)) {
+						orphanedToolUses.push({ id: part.id, name: part.name });
+					}
+				}
+			}
+		}
+
+		if (orphanedToolUses.length === 0) return;
+
+		// Add stub tool_result for each orphaned tool_use
+		const toolResults: ContentPart[] = orphanedToolUses.map((tu) => ({
+			type: "tool_result" as const,
+			toolUseId: tu.id,
+			content: "[Session interrupted - tool execution was cancelled]",
+			isError: true,
+		}));
+
+		messages.push({
+			role: "user",
+			content: toolResults,
+		});
 	}
 
 	// List all sessions for a project from disk

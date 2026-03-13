@@ -34,6 +34,10 @@ export const readTool: Tool = {
 	async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
 		const { path, offset, limit } = input as ReadInput;
 
+		if (!path || typeof path !== "string") {
+			return { content: "Missing required parameter: path", isError: true };
+		}
+
 		const fullPath = isAbsolute(path) ? path : join(ctx.workDir, path);
 
 		try {

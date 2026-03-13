@@ -398,7 +398,8 @@ async function* parseSSEStream(
 			let event: Record<string, unknown>;
 			try {
 				event = JSON.parse(data);
-			} catch {
+			} catch (err) {
+				console.error("Failed to parse SSE event:", err, { data });
 				continue;
 			}
 

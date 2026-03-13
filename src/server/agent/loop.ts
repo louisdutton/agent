@@ -8,6 +8,41 @@ import type { Session, Tool, ToolCall } from "./types";
 
 const MAX_STEPS_PER_TURN = 50;
 
+/**
+ * Validate tool input against schema's required fields
+ */
+function validateToolInput(tool: Tool, input: unknown): string | null {
+	if (input === null || input === undefined) {
+		return `Tool ${tool.name}: input is ${input}`;
+	}
+
+	if (typeof input !== "object") {
+		return `Tool ${tool.name}: input must be an object, got ${typeof input}`;
+	}
+
+	const schema = tool.inputSchema;
+	const required = schema.required as string[] | undefined;
+
+	if (!required || required.length === 0) {
+		return null;
+	}
+
+	const inputObj = input as Record<string, unknown>;
+	const missing: string[] = [];
+
+	for (const field of required) {
+		if (!(field in inputObj) || inputObj[field] === undefined) {
+			missing.push(field);
+		}
+	}
+
+	if (missing.length > 0) {
+		return `Tool ${tool.name}: missing required parameters: ${missing.join(", ")}`;
+	}
+
+	return null;
+}
+
 type LoopOptions = {
 	maxSteps?: number;
 	signal?: AbortSignal;
@@ -69,6 +104,18 @@ export async function runAgentLoop(
 		for (const call of toolCalls) {
 			if (signal?.aborted) break;
 
+			// Check for JSON parse errors from streaming
+			if (call.parseError) {
+				appendToolResult(session, call.id, call.parseError, true);
+				emit({
+					type: "tool_result",
+					toolCallId: call.id,
+					content: call.parseError,
+					isError: true,
+				});
+				continue;
+			}
+
 			const tool = tools.get(call.name);
 			if (!tool) {
 				appendToolResult(session, call.id, `Unknown tool: ${call.name}`, true);
@@ -76,6 +123,19 @@ export async function runAgentLoop(
 					type: "tool_result",
 					toolCallId: call.id,
 					content: `Unknown tool: ${call.name}`,
+					isError: true,
+				});
+				continue;
+			}
+
+			// Validate required input fields from schema
+			const validationError = validateToolInput(tool, call.input);
+			if (validationError) {
+				appendToolResult(session, call.id, validationError, true);
+				emit({
+					type: "tool_result",
+					toolCallId: call.id,
+					content: validationError,
 					isError: true,
 				});
 				continue;
@@ -190,15 +250,20 @@ async function streamStep(
 			case "tool_use_end": {
 				const inputJson = toolInputBuffers.get(chunk.id) ?? "{}";
 				let input: unknown = {};
+				let parseError: string | undefined;
 				try {
 					input = JSON.parse(inputJson);
-				} catch {
-					// Keep empty object if parse fails
+				} catch (err) {
+					parseError = `Failed to parse tool input JSON: ${err}`;
+					console.error(parseError, { toolId: chunk.id, inputJson });
 				}
 				// Update the tool call with parsed input
 				const call = toolCalls.find((c) => c.id === chunk.id);
 				if (call) {
 					call.input = input;
+					if (parseError) {
+						call.parseError = parseError;
+					}
 				}
 				emit({
 					type: "tool_use_end",

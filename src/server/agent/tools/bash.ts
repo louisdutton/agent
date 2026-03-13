@@ -30,6 +30,10 @@ export const bashTool: Tool = {
 	async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
 		const { command, timeout = DEFAULT_TIMEOUT } = input as BashInput;
 
+		if (!command || typeof command !== "string") {
+			return { content: "Missing required parameter: command", isError: true };
+		}
+
 		try {
 			const proc = Bun.spawn(["bash", "-c", command], {
 				cwd: ctx.workDir,

@@ -33,6 +33,11 @@ export const globTool: Tool = {
 
 	async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
 		const { pattern, path } = input as GlobInput;
+
+		if (!pattern || typeof pattern !== "string") {
+			return { content: "Missing required parameter: pattern", isError: true };
+		}
+
 		const searchDir = path
 			? isAbsolute(path)
 				? path

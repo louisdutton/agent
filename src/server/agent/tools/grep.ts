@@ -31,6 +31,11 @@ export const grepTool: Tool = {
 
 	async execute(input: unknown, ctx: ToolContext): Promise<ToolResult> {
 		const { pattern, path, glob } = input as GrepInput;
+
+		if (!pattern || typeof pattern !== "string") {
+			return { content: "Missing required parameter: pattern", isError: true };
+		}
+
 		const searchPath = path
 			? isAbsolute(path)
 				? path
