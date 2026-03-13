@@ -198,24 +198,23 @@ export function ToolGroup(props: {
 					</button>
 				}
 			>
-				<div class="p-3 rounded-xl border border-border bg-muted/40 space-y-3 shadow-sm">
-					<div class="flex items-center justify-between pb-2 border-b border-border/70">
+				<div class="rounded-xl border border-border bg-muted/40 shadow-sm">
+					<button
+						type="button"
+						onClick={() => setExpanded(false)}
+						class="flex items-center w-full p-3 pb-2 border-b border-border/70 hover:bg-muted/60 rounded-t-xl transition-colors"
+					>
 						<span class="text-xs font-medium text-muted-foreground/80">
 							{props.tools.length} tool calls
 						</span>
-						<button
-							type="button"
-							onClick={() => setExpanded(false)}
-							class="text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors px-2 py-1 rounded hover:bg-muted/60"
-						>
-							Collapse
-						</button>
+					</button>
+					<div class="p-3 pt-3 space-y-3">
+						<For each={props.tools}>
+							{(tool) => (
+								<ToolItem tool={tool} onOpenFile={props.onOpenFile} />
+							)}
+						</For>
 					</div>
-					<For each={props.tools}>
-						{(tool) => (
-							<ToolItem tool={tool} onOpenFile={props.onOpenFile} />
-						)}
-					</For>
 				</div>
 			</Show>
 		</div>
