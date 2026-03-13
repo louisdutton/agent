@@ -13,28 +13,8 @@ export function FullScreenForm(props: {
 	return (
 		<div class="fixed inset-0 z-50 bg-background flex flex-col">
 			{/* Header */}
-			<div class="flex items-center justify-between px-4 py-3 border-b border-border">
-				<button
-					type="button"
-					onClick={props.onCancel}
-					class="text-muted-foreground hover:text-foreground transition-colors p-2 -ml-2"
-				>
-					<svg
-						class="w-5 h-5"
-						fill="none"
-						stroke="currentColor"
-						viewBox="0 0 24 24"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M6 18L18 6M6 6l12 12"
-						/>
-					</svg>
-				</button>
+			<div class="flex items-center justify-center px-4 py-3 border-b border-border">
 				<h1 class="text-lg font-medium">{props.title}</h1>
-				<div class="w-9" /> {/* Spacer for centering */}
 			</div>
 
 			{/* Scrollable content */}
@@ -53,12 +33,19 @@ export function FullScreenForm(props: {
 			</form>
 
 			{/* Fixed footer */}
-			<div class="px-4 py-4 border-t border-border">
+			<div class="flex gap-3 px-4 py-4 border-t border-border">
+				<button
+					type="button"
+					onClick={props.onCancel}
+					class="flex-1 py-3 rounded-xl border border-border font-medium active:bg-muted transition-colors"
+				>
+					Cancel
+				</button>
 				<button
 					type="submit"
 					form="fullscreen-form"
 					disabled={props.saving}
-					class="w-full py-3 rounded-xl bg-foreground text-background font-medium disabled:opacity-50 active:scale-[0.98] transition-transform"
+					class="flex-1 py-3 rounded-xl bg-foreground text-background font-medium disabled:opacity-50 active:scale-[0.98] transition-transform"
 				>
 					{props.saving ? "Saving..." : props.submitText || "Save"}
 				</button>
